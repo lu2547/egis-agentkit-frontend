@@ -86,8 +86,12 @@ watch(
             :personal="personal"
             @file="$emit('file', $event)"
           />
+          <slot
+            v-if="message.role === 'assistant'"
+            name="message-artifacts"
+            :message="message"
+          />
         </div>
-        <slot name="after-messages" />
         <div v-if="!messages.length && !loading" class="empty">
           <h3>从一个问题开始</h3>
           <p>输入目标、背景与交付要求，养老险GPT 会在这里记录工作过程。</p>

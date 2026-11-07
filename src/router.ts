@@ -38,6 +38,18 @@ export const router = createRouter({
         },
         { path: "skills", component: () => import("./views/SkillsView.vue") },
         {
+          path: "skills/new",
+          component: () => import("./views/SkillEditView.vue"),
+        },
+        {
+          path: "skills/upload",
+          component: () => import("./views/SkillUploadView.vue"),
+        },
+        {
+          path: "skills/:resourceId/edit",
+          component: () => import("./views/SkillEditView.vue"),
+        },
+        {
           path: "connectors",
           component: () => import("./views/ConnectorsView.vue"),
         },

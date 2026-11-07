@@ -59,7 +59,7 @@ test("workspace and sidebar use layout transitions, rapid toggles release hidden
   await expect
     .poll(async () => Math.round((await sidebar.boundingBox())!.width))
     .toBe(48);
-  await page.getByRole("button", { name: "展开导航", exact: true }).click();
+  await page.getByRole("button", { name: "展开侧边栏", exact: true }).click();
   await expect
     .poll(async () => Math.round((await sidebar.boundingBox())!.width))
     .toBe(280);
@@ -145,5 +145,28 @@ for (const theme of ["light", "dark"] as const) {
         () => document.documentElement.scrollWidth > innerWidth,
       ),
     ).toBe(false);
+  });
+}
+
+for (const mode of ["light", "dark"]) {
+  test(`${mode} collapsed sidebar shows a complete sheep icon and a single expand control`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    if (mode === "dark")
+      await page
+        .getByRole("button", { name: "切换深色模式", exact: true })
+        .click();
+    await page.getByRole("button", { name: "收起导航", exact: true }).click();
+    const icon = page.locator(".sidebar.collapsed .brand-identity img");
+    await expect(icon).toHaveAttribute("src", "/brand/assistant-icon.png");
+    await expect(page.locator(".sidebar .expand-sidebar")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "展开侧边栏", exact: true }),
+    ).toHaveCount(1);
+    const image = await icon.boundingBox();
+    const rail = await page.locator(".sidebar").boundingBox();
+    expect(image!.x).toBeGreaterThanOrEqual(rail!.x);
+    expect(image!.x + image!.width).toBeLessThanOrEqual(rail!.x + rail!.width);
   });
 }

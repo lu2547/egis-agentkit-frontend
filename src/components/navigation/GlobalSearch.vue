@@ -175,11 +175,7 @@ async function handleKey(event: KeyboardEvent) {
         role="status"
       >
         <div v-if="!keywords.length" class="empty-mark" aria-hidden="true">
-          <Search :size="76" :stroke-width="1.7" /><img
-            class="search-brand"
-            src="/brand/assistant-icon.png"
-            alt=""
-          />
+          <Search :size="76" :stroke-width="1.7" />
         </div>
         <SearchX v-else :size="68" :stroke-width="1.3" aria-hidden="true" />
         <p>{{ !keywords.length ? "输入关键字进行检索" : "未找到相关结果" }}</p>

@@ -253,13 +253,6 @@ onBeforeUnmount(() => {
         /></IconButton>
       </div>
     </header>
-    <IconButton
-      v-if="collapsed"
-      class="expand-sidebar"
-      label="展开导航"
-      @click="$emit('collapse')"
-      ><AppIcon name="panel"
-    /></IconButton>
     <nav class="primary-nav" aria-label="工作空间">
       <RouterLink
         class="nav-item new-task"
@@ -327,7 +320,7 @@ onBeforeUnmount(() => {
       <section class="projects-section" aria-label="项目">
         <div class="section-heading">
           <h2>项目</h2>
-          <IconButton label="新建项目" @click="beginProject('create')"
+          <IconButton class="project-create" label="新建项目" @click="beginProject('create')"
             ><AppIcon name="plus" :size="16"
           /></IconButton>
         </div>
@@ -341,24 +334,26 @@ onBeforeUnmount(() => {
             :class="{ active: route.params.projectId === project.id }"
           >
             <button
-              class="project-expand"
+              class="project-select"
               :aria-label="`${expandedProjects.has(project.id) ? '收起' : '展开'}项目：${project.project_name}`"
               :aria-expanded="expandedProjects.has(project.id)"
               @click="toggleProject(project.id)"
             >
               <AppIcon
-                :name="expandedProjects.has(project.id) ? 'down' : 'chevron'"
-                :size="14"
+                :name="
+                  expandedProjects.has(project.id) ? 'folder-open' : 'folder'
+                "
+                :size="19"
               />
+              <span>{{ project.project_name }}</span>
             </button>
-            <RouterLink
-              class="project-select"
-              :to="`/projects/${encodeURIComponent(project.id)}`"
-              @click="$emit('navigate')"
-              ><AppIcon name="folder" :size="17" /><span>{{
-                project.project_name
-              }}</span></RouterLink
+            <button
+              class="project-add"
+              :aria-label="`在${project.project_name}中新建对话`"
+              @click="navigate(`/projects/${encodeURIComponent(project.id)}`)"
             >
+              <AppIcon name="plus" :size="16" />
+            </button>
             <t-popup trigger="click" placement="bottom-right"
               ><button
                 class="project-more"

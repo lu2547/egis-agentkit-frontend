@@ -55,12 +55,21 @@ export interface Definition {
 }
 export interface Project {
   id: string;
+  is_default?: boolean;
   project_name: string;
   owner_id: string;
   created_at: string;
   updated_at: string;
 }
+export interface Collaborator extends DefinitionRef {
+  display_name: string;
+  status: "pending" | "joined";
+  avatar?: string;
+}
 export interface Task {
+  collaboration_allowed?: boolean;
+  pending_collaboration_request_id?: string | null;
+  collaborators?: Collaborator[];
   project_id?: string;
   is_running?: boolean;
   is_waiting?: boolean;
@@ -90,6 +99,30 @@ export interface Resource {
   is_skill_market_visible?: boolean;
   payload: Record<string, unknown>;
 }
+export interface SkillSaveInput {
+  resource_id: string;
+  markdown: string;
+  category: string;
+  avatar: string;
+  is_skill_market_visible: boolean;
+  base_version?: string;
+}
+export interface SkillImportJob {
+  job_id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  stage: string;
+  progress: number;
+  filename: string;
+  category: string;
+  avatar: string;
+  resource_id?: string | null;
+  resource_version?: string | null;
+  error?: string | null;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  result?: Resource | null;
+}
 export interface PermissionModeOption {
   value: string;
   label: string;
@@ -107,6 +140,9 @@ export interface TaskSettings {
 export interface ModelOption {
   key: string;
   display_name: string;
+}
+export interface ReplyArtifact extends WorkspaceFile {
+  reply_id: string;
 }
 export interface WorkspaceFile {
   area?: "uploads" | "work" | "artifacts";
@@ -137,3 +173,26 @@ export function definitionName(d: Definition) {
 }
 export const sourceName = (v: string) =>
   ({ private: "私有", shared: "已共享", system: "系统" })[v] || v;
+
+export type ComposerCategory = "context" | "experts" | "skills" | "commands";
+export interface ComposerOption {
+  id: string;
+  name: string;
+  detail: string;
+  kind: "expert" | "skill" | "file" | "command";
+  definition?: Definition;
+  reference?: string;
+  insert_text?: string;
+}
+export interface ComposerOptionsQuery {
+  category: ComposerCategory;
+  query?: string;
+  cursor?: string;
+  limit?: number;
+  session_id?: string;
+  project_id?: string;
+}
+export interface ComposerOptionsPage {
+  items: ComposerOption[];
+  next_cursor: string | null;
+}

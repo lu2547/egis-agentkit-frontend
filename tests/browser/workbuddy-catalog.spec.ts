@@ -131,42 +131,25 @@ for (const theme of ["light", "dark"]) {
 test("skill avatar saves and reopens from the resource payload", async ({
   page,
 }) => {
-  let saved: any;
-  await page.route("**/api/manager/skills", async (route) => {
-    if (route.request().method() === "POST") {
-      saved = route.request().postDataJSON();
-      await route.fulfill({ json: saved });
-      return;
-    }
-    const response = await route.fetch();
-    const data = await response.json();
-    if (saved)
-      data.items.push({
-        ...saved,
-        owner_type: "user",
-        owner_id: "demo",
-        is_usable: true,
-        is_editable: true,
-        is_installed: false,
-        is_enabled: false,
-        payload: { markdown: saved.markdown, avatar: saved.avatar },
-      });
-    await route.fulfill({ response, json: data });
-  });
   await page.goto("/skills");
   await page.getByRole("button", { name: "添加技能" }).click();
   await page.getByRole("menuitem", { name: "创建技能" }).click();
   await page.getByRole("textbox", { name: "技能 ID" }).fill("new_skill");
-  await page.getByRole("textbox", { name: "技能名称" }).fill("测试技能");
   await page
-    .getByRole("textbox", { name: "技能文档（Markdown）" })
-    .fill("技能说明");
+    .getByRole("textbox", { name: "SKILL.md 文档" })
+    .fill(
+      "---\nname: 测试技能\ndescription: 测试说明\nversion: 1.0.0\n---\n技能说明",
+    );
   await page
     .getByRole("group", { name: "选择头像" })
     .getByRole("button", { name: "ppt", exact: true })
     .click();
+  const saving = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/manager/skills") && request.method() === "POST",
+  );
   await page.getByRole("button", { name: "发布版本" }).click();
-  await expect.poll(() => saved?.avatar).toBe("skill:ppt");
+  expect((await saving).postDataJSON().avatar).toBe("skill:ppt");
   const card = page.getByTestId("catalog-card").filter({ hasText: "测试技能" });
   await expect(card.locator("img")).toHaveAttribute(
     "src",

@@ -5,7 +5,7 @@ import {
   workspaceRootFiles,
 } from "../src/domain/workspaceView";
 
-describe("one-session workspace view", () => {
+describe("one-project workspace view", () => {
   it("puts the two logical directories before flat inputs and retains each area", () => {
     const input = {
       name: ".work",

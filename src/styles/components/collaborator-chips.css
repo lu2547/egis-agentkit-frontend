@@ -1,0 +1,51 @@
+.collaborator-chips {
+  display: contents;
+}
+.collaborator-chip {
+  display: inline-flex;
+  box-sizing: border-box;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  max-width: min(240px, 100%);
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+}
+.collaborator-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collaborator-chip small {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.collaborator-chip :deep(.catalog-avatar) {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.collaborator-chip button {
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.collaborator-chip button:hover:enabled {
+  background: var(--hover);
+  color: var(--text);
+}
+.collaborator-chip button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}

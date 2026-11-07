@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { manager } from "../../api/manager";
+import { errorText } from "../../api/http";
+import { createComposerPager } from "../../domain/composerOptions";
 import AttachmentList from "./AttachmentList.vue";
 import ContextPicker from "./ContextPicker.vue";
 import ModelSelector from "./ModelSelector.vue";
@@ -12,11 +14,14 @@ import type {
   Definition,
   ModelOption,
   PermissionModeOption,
-  Resource,
+  ComposerCategory,
 } from "../../types/api";
 import { definitionName } from "../../types/api";
 const props = defineProps<{
   modelValue: string;
+  sessionId?: string;
+  projectId?: string;
+  fileRevision?: number;
   definitions?: Definition[];
   selected?: Definition | null;
   selectedLabel?: string;
@@ -50,14 +55,41 @@ function choose(event: Event) {
   emit("attach", Array.from(input.files || []));
   input.value = "";
 }
+const composerElement = ref<HTMLElement>();
+const fallbackDefinitions = ref<Definition[]>([]);
+const availableDefinitions = computed(
+  () => props.definitions ?? fallbackDefinitions.value,
+);
+onMounted(async () => {
+  if (props.definitions) return;
+  try {
+    const [agents, teams] = await Promise.all([
+      manager.definitions("agents"),
+      manager.definitions("teams"),
+    ]);
+    fallbackDefinitions.value = [...agents.items, ...teams.items];
+  } catch (error) {
+    picker.state.error = errorText(error);
+  }
+});
+function focusComposer() {
+  nextTick(() => composerElement.value?.querySelector("textarea")?.focus());
+}
 const composing = ref(false);
 const canManageResources = computed(
   () => props.isPersonal || (!props.compact && !props.selected),
 );
 const contextDismissed = ref(false);
-const contextIndex = ref(0);
-const contextSkills = ref<Resource[]>([]);
-let contextRequest = 0;
+const contextSearch = ref("");
+const contextCategory = ref<ComposerCategory>("context");
+const picker = createComposerPager(manager.composerOptions);
+const contextIndex = computed({
+  get: () => picker.state.activeIndex,
+  set: (value: number) => {
+    picker.state.activeIndex = value;
+  },
+});
+const contextOptions = computed(() => picker.state.items);
 const contextToken = computed(() => {
   if (contextDismissed.value || composing.value) return null;
   const match = props.modelValue.match(/(?:^|\s)([@/])([^\s@/]*)$/);
@@ -69,68 +101,79 @@ const contextToken = computed(() => {
       }
     : null;
 });
-const contextOptions = computed(() => {
-  const token = contextToken.value;
-  if (!token) return [];
-  const options =
-    token.trigger === "@"
-      ? (props.definitions || [])
-          .filter((d) => d.is_usable)
-          .map((d) => ({
-            id: `${d.id}:${d.resource_view_type}`,
-            name: definitionName(d),
-            detail: d.payload.description,
-            kind: "expert" as const,
-            definition: d,
-          }))
-      : contextSkills.value
-          .filter((r) => r.is_usable && r.is_installed && r.is_enabled)
-          .map((r) => ({
-            id: r.resource_id,
-            name: r.display_name,
-            detail: r.description,
-            kind: "skill" as const,
-            definition: undefined,
-          }));
-  const query = token.query.toLocaleLowerCase();
-  return options.filter((option) =>
-    `${option.name} ${option.detail}`.toLocaleLowerCase().includes(query),
-  );
-});
 watch(
   () => props.modelValue,
   () => {
     contextDismissed.value = false;
     contextIndex.value = 0;
+    contextSearch.value = contextToken.value?.query || "";
   },
+  { immediate: true },
 );
 watch(
   () => contextToken.value?.trigger,
-  async (trigger) => {
-    const request = ++contextRequest;
-    contextSkills.value = [];
-    if (trigger !== "/" || !canManageResources.value) return;
-    try {
-      const result = await manager.resources("skills");
-      if (request === contextRequest) contextSkills.value = result.items;
-    } catch {
-      /* Resource picker reports errors when opened explicitly. */
-    }
+  (trigger) => {
+    contextCategory.value = trigger === "/" ? "skills" : "context";
   },
+  { flush: "sync", immediate: true },
 );
+watch(
+  [
+    () => contextToken.value?.trigger,
+    contextCategory,
+    contextSearch,
+    () => props.sessionId,
+    () => props.projectId,
+    () => props.fileRevision,
+    canManageResources,
+  ],
+  ([trigger]) => {
+    void picker.reset(
+      trigger &&
+        !(contextCategory.value === "skills" && !canManageResources.value)
+        ? {
+            category: contextCategory.value,
+            query: contextSearch.value,
+            session_id: props.sessionId,
+            project_id: props.projectId,
+          }
+        : null,
+    );
+  },
+  { immediate: true },
+);
+onUnmounted(() => {
+  void picker.reset(null);
+});
+function dismissContext() {
+  contextDismissed.value = true;
+  focusComposer();
+}
+function searchContext(value: string) {
+  contextSearch.value = value;
+  contextIndex.value = 0;
+}
 function chooseContext(index: number) {
   const option = contextOptions.value[index],
     token = contextToken.value;
   if (!option || !token) return;
   if (option.definition) emit("select", option.definition);
-  const text = option.kind === "skill" ? `请使用${option.name}技能 ` : "";
+  const text =
+    option.insert_text ??
+    (option.kind === "skill"
+      ? `请使用${option.name}技能 `
+      : option.kind === "file"
+        ? `【项目文件：${option.reference}】 `
+        : "");
   emit("update:modelValue", props.modelValue.slice(0, token.start) + text);
   contextDismissed.value = true;
+  focusComposer();
 }
 function keydown(e: KeyboardEvent) {
   if (e.isComposing || composing.value) return;
   if (e.key === "Escape" && contextToken.value) {
-    contextDismissed.value = true;
+    e.preventDefault();
+    dismissContext();
     return;
   }
   if (
@@ -141,12 +184,12 @@ function keydown(e: KeyboardEvent) {
   ) {
     e.preventDefault();
     if (e.key === "ArrowUp" || e.key === "ArrowDown")
-      contextIndex.value =
-        (contextIndex.value +
-          (e.key === "ArrowDown" ? 1 : -1) +
-          contextOptions.value.length) %
-        contextOptions.value.length;
+      void picker.move(e.key === "ArrowDown" ? 1 : -1);
     else chooseContext(contextIndex.value);
+    return;
+  }
+  if (contextToken.value && e.key === "Enter") {
+    e.preventDefault();
     return;
   }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !composing.value) {
@@ -165,12 +208,22 @@ function send() {
 }
 </script>
 <template>
-  <section class="composer" :class="{ compact }">
+  <section ref="composerElement" class="composer" :class="{ compact }">
     <ContextPicker
       v-if="contextToken"
       :options="contextOptions"
       :active-index="contextIndex"
       :trigger="contextToken.trigger"
+      :query="contextSearch"
+      :loading="picker.state.loading"
+      :error="picker.state.error"
+      :category="contextCategory"
+      :has-more="!!picker.state.cursor"
+      @update:category="contextCategory = $event"
+      @load-more="picker.loadMore()"
+      @update:query="searchContext"
+      @keydown="keydown"
+      @dismiss="dismissContext"
       @select="chooseContext"
       @highlight="contextIndex = $event"
     />
@@ -198,7 +251,7 @@ function send() {
     <div class="composer-footer">
       <div class="composer-tools">
         <ComposerMenu
-          :definitions="definitions"
+          :definitions="availableDefinitions"
           :selected="selected"
           :can-manage-resources="canManageResources"
           :permission-mode="permissionMode"
@@ -244,6 +297,7 @@ function send() {
             <AppIcon name="close" :size="12" />
           </button>
         </div>
+        <slot name="collaborators" />
       </div>
       <ModelSelector
         :model="modelKey || ''"
@@ -274,6 +328,8 @@ function send() {
       </button>
     </div>
   </section>
-  <p v-if="!compact" class="composer-note">内容由 AI 生成，请核实重要信息</p>
+  <slot name="footer">
+    <p v-if="!compact" class="composer-note">内容由 AI 生成，请核实重要信息</p>
+  </slot>
 </template>
 <style scoped src="../../styles/components/task-composer.css"></style>

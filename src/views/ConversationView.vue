@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onScopeDispose } from "vue";
 import { useRoute } from "vue-router";
+import { manager } from "../api/manager";
+import type { Definition, Collaborator } from "../types/api";
+import { definitionName } from "../types/api";
+import CollaboratorChips from "../components/conversation/CollaboratorChips.vue";
 import ConversationTopbar from "../components/layout/ConversationTopbar.vue";
 import { useRuntimeOptions } from "../composables/useRuntimeOptions";
 import { useConversation } from "../composables/useConversation";
 import { useIdentity } from "../composables/useIdentity";
 import { useAttachments } from "../composables/useAttachments";
 import { errorText } from "../api/http";
+import type { ReplyArtifact } from "../types/api";
+import { groupReplyArtifacts } from "../domain/replyArtifacts";
 import { peekDraft, takeDraft } from "../composables/usePendingDraft";
 import TaskComposer from "../components/composer/TaskComposer.vue";
+import ComposerProjectBar from "../components/composer/ComposerProjectBar.vue";
 import PermissionRequestCard from "../components/conversation/PermissionRequestCard.vue";
 import MessageList from "../components/conversation/MessageList.vue";
 import ArtifactList from "../components/workspace/ArtifactList.vue";
@@ -20,6 +27,78 @@ const route = useRoute(),
 const runtime = useRuntimeOptions();
 void runtime.load();
 const settingsPending = conversation.settingsPending;
+const stagedExperts = ref<Collaborator[]>([]);
+const invitationDirty = ref(false);
+let invitationRequestId = "";
+const sameExpert = (
+  a: Collaborator,
+  b: { definition_id: string; resource_view_type: string },
+) =>
+  a.definition_id === b.definition_id &&
+  a.resource_view_type === b.resource_view_type;
+const pendingExperts = computed(() =>
+  invitationDirty.value
+    ? stagedExperts.value
+    : (conversation.task.value?.collaborators || []).filter(
+        (member) => member.status === "pending",
+      ),
+);
+const collaborationChips = computed(() => [
+  ...(conversation.task.value?.collaborators || []).filter(
+    (member) =>
+      member.status === "joined" &&
+      !pendingExperts.value.some((item) => sameExpert(item, member)),
+  ),
+  ...pendingExperts.value,
+]);
+watch(
+  () => conversation.task.value,
+  (task) => {
+    if (
+      !task ||
+      task.session_id !== String(route.params.sessionId || "") ||
+      invitationDirty.value
+    )
+      return;
+    stagedExperts.value = (task.collaborators || []).filter(
+      (member) => member.status === "pending",
+    );
+    invitationRequestId = task.pending_collaboration_request_id || "";
+  },
+);
+function selectExpert(definition: Definition | null) {
+  if (!definition || uploading.value || conversation.submitting.value) return;
+  if (
+    !conversation.task.value?.collaboration_allowed ||
+    definition.agent_type !== "expert"
+  ) {
+    conversation.error.value =
+      "仅个人助理对话可以邀请专家协作，固定专家团成员不在这里调整。";
+    return;
+  }
+  const target: Collaborator = {
+    definition_id: definition.id,
+    resource_view_type: definition.resource_view_type,
+    display_name: definitionName(definition),
+    status: "pending",
+    avatar: definition.payload.avatar,
+  };
+  if (pendingExperts.value.some((item) => sameExpert(item, target))) return;
+  if (pendingExperts.value.length >= 16) {
+    conversation.error.value = "本次最多选择 16 位协作专家。";
+    return;
+  }
+  stagedExperts.value = [...pendingExperts.value, target];
+  invitationDirty.value = true;
+  invitationRequestId = "";
+}
+function removeExpert(member: Collaborator) {
+  stagedExperts.value = pendingExperts.value.filter(
+    (item) => !sameExpert(item, member),
+  );
+  invitationDirty.value = true;
+  invitationRequestId = "";
+}
 const text = ref(""),
   workspaceOpen = ref(window.innerWidth >= 1100),
   workspace = ref<InstanceType<typeof WorkspacePanel> | null>(null);
@@ -46,6 +125,9 @@ watch(
     attachmentController = new AbortController();
     fileRevision.value = 0;
     text.value = "";
+    stagedExperts.value = [];
+    invitationDirty.value = false;
+    invitationRequestId = "";
     attachments.clear();
     uploading.value = false;
     await conversation.open(value);
@@ -98,7 +180,14 @@ async function attach(files: File[]) {
 }
 async function send() {
   const value = text.value.trim();
-  if (!value || !conversation.task.value) return;
+  if (
+    !value ||
+    !conversation.task.value ||
+    uploading.value ||
+    conversation.submitting.value ||
+    conversation.state.value.phase !== "idle"
+  )
+    return;
   const current = generation,
     targetSid = sid.value,
     selectedFiles = [...attachments.files.value];
@@ -113,11 +202,30 @@ async function send() {
     );
     if (generation !== current || sid.value !== targetSid) return;
     fileRevision.value++;
+    if (invitationDirty.value || pendingExperts.value.length) {
+      invitationRequestId ||=
+        (!invitationDirty.value &&
+          conversation.task.value?.pending_collaboration_request_id) ||
+        crypto.randomUUID();
+      const prepared = await manager.prepareCollaborators(
+        targetSid,
+        invitationRequestId,
+        pendingExperts.value.map((member) => ({
+          definition_id: member.definition_id,
+          resource_view_type: member.resource_view_type,
+        })),
+      );
+      if (generation !== current || sid.value !== targetSid) return;
+      conversation.task.value = { ...conversation.task.value!, ...prepared };
+    }
     const accepted = await conversation.send(message);
     if (accepted) takeDraft(targetSid);
     if (accepted && generation === current && sid.value === targetSid) {
       if (text.value.trim() === value) text.value = "";
       attachments.removeUploaded(selectedFiles);
+      stagedExperts.value = [];
+      invitationDirty.value = false;
+      invitationRequestId = "";
     }
   } catch (e) {
     if (generation === current && sid.value === targetSid)
@@ -177,6 +285,29 @@ watch(() => conversation.state.value.messages, refreshSearch, { deep: true });
 const artifactRevision = computed(
   () =>
     `${fileRevision.value}-${conversation.state.value.phase}-${conversation.state.value.messages.filter((m) => m.finished_at).length}`,
+);
+const replyArtifacts = ref<ReplyArtifact[]>([]);
+let artifactController: AbortController | null = null;
+onScopeDispose(() => artifactController?.abort());
+watch(
+  () => [sid.value, artifactRevision.value],
+  async ([sessionId], previous) => {
+    artifactController?.abort();
+    if (previous?.[0] !== sessionId) replyArtifacts.value = [];
+    if (!sessionId) return;
+    artifactController = new AbortController();
+    const signal = artifactController.signal;
+    try {
+      const result = await manager.sessionArtifacts(sessionId, signal);
+      if (!signal.aborted) replyArtifacts.value = result.items;
+    } catch {
+      if (!signal.aborted) replyArtifacts.value = [];
+    }
+  },
+  { immediate: true },
+);
+const artifactsByReply = computed(() =>
+  groupReplyArtifacts(replyArtifacts.value),
 );
 </script>
 <template>
@@ -243,12 +374,10 @@ const artifactRevision = computed(
         @older="conversation.older"
         @file="openFile($event, 'work')"
       >
-        <template #after-messages>
+        <template #message-artifacts="{ message }">
           <ArtifactList
-            v-if="conversation.task.value"
-            :session-id="sid"
-            :project-id="projectId"
-            :revision="artifactRevision"
+            v-if="artifactsByReply[message.id]?.length"
+            :files="artifactsByReply[message.id] || []"
             @open="openFile"
             @view-all="showArtifacts"
           />
@@ -276,9 +405,13 @@ const artifactRevision = computed(
       </div>
       <div class="chat-composer">
         <TaskComposer
+          :project-id="projectId"
+          :file-revision="fileRevision"
+          :session-id="sid"
           v-model="text"
           compact
           :selected-label="conversation.task.value?.definition_display_name"
+          @select="selectExpert"
           :models="models"
           :model-key="conversation.task.value?.model_key || defaultModelKey"
           :permission-mode="
@@ -314,16 +447,36 @@ const artifactRevision = computed(
           :interrupting="conversation.state.value.phase === 'interrupting'"
           @submit="send"
           @stop="conversation.stop"
-        />
-        <p class="chat-note">
-          {{
-            conversation.state.value.phase === "waiting"
-              ? "正在等待你的确认"
-              : conversation.state.value.phase === "interrupting"
-                ? "已请求停止，等待服务端结束当前执行"
-                : "内容由 AI 生成，请核对重要信息。"
-          }}
-        </p>
+        >
+          <template #collaborators>
+            <CollaboratorChips
+              :members="collaborationChips"
+              :disabled="
+                uploading ||
+                conversation.submitting.value ||
+                conversation.state.value.phase !== 'idle'
+              "
+              @remove="removeExpert"
+            />
+          </template>
+          <template #footer>
+            <ComposerProjectBar
+              :project-id="projectId"
+              :projects="projects"
+              readonly
+            >
+              {{
+                pendingExperts.length
+                  ? "发送后邀请所选专家在当前对话协作，共享项目文件。"
+                  : conversation.state.value.phase === "waiting"
+                    ? "正在等待你的确认"
+                    : conversation.state.value.phase === "interrupting"
+                      ? "已请求停止，等待服务端结束当前执行"
+                      : "内容由 AI 生成，请核对重要信息。"
+              }}
+            </ComposerProjectBar>
+          </template>
+        </TaskComposer>
       </div>
     </div>
     <WorkspacePanel

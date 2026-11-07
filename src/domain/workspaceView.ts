@@ -11,7 +11,7 @@ export const workspaceAreaLabel: Record<WorkspaceArea, string> = {
   artifacts: "产物",
 };
 
-/** The file tree is one session view; storage areas are not directory names. */
+/** The file tree is one project view; storage areas are not directory names. */
 export function workspaceRootFiles(inputs: WorkspaceFile[]): WorkspaceFile[] {
   return [
     ...(["work", "artifacts"] as const).map((area) => ({

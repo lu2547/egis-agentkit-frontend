@@ -26,7 +26,10 @@ test("expert context picker offers real usable definitions", async ({
 }) => {
   await page.goto("/");
   await page.locator(".composer textarea").fill("@");
-  await expect(page.getByRole("listbox", { name: "添加上下文" })).toBeVisible();
+  await page.getByRole("tab", { name: "专家", exact: true }).click();
+  const experts = page.getByRole("listbox", { name: "专家", exact: true });
+  await expect(experts).toBeVisible();
+  await expect(experts.getByRole("option").first()).toBeVisible();
 });
 
 test("assistant uses the new icon and the Chinese display name", async ({

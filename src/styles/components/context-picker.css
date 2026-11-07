@@ -1,10 +1,140 @@
+.context-picker {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  max-height: min(340px, 48dvh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 55;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.picker-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  padding: 5px 7px 9px;
+  font-size: 12px;
+}
+.picker-heading span {
+  margin-left: auto;
+  font-size: 10px;
+}
+.context-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.context-option.selected,
+.context-option:hover {
+  background: var(--surface);
+}
+.option-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  font-size: 13px;
+}
+.option-text small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.kind {
+  font-size: 11px;
+  color: var(--muted);
+}
+.empty {
+  margin: 12px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
 
-.context-picker { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); max-height: 280px; overflow-y: auto; z-index: 55; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
-.picker-heading { display: flex; align-items: center; gap: 6px; color: var(--muted); padding: 5px 7px 9px; font-size: 12px; }
-.picker-heading span { margin-left: auto; font-size: 10px; }
-.context-option { display: flex; width: 100%; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 8px; background: transparent; color: var(--text); font-family: inherit; text-align: left; cursor: pointer; }
-.context-option.selected, .context-option:hover { background: var(--surface); }
-.option-text { display: grid; flex: 1; min-width: 0; gap: 2px; font-size: 13px; }
-.option-text small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.kind { font-size: 11px; color: var(--muted); }
-.empty { margin: 12px 8px; font-size: 13px; color: var(--muted); }
+.picker-heading input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 0;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  box-shadow: none;
+}
+.picker-heading input::placeholder {
+  color: var(--muted);
+}
+.context-options {
+  overflow-y: auto;
+  min-height: 0;
+}
+@media (max-width: 600px) {
+  .picker-heading span {
+    display: none;
+  }
+}
+
+.picker-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 4px 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.picker-tabs button,
+.picker-more,
+.empty button {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.picker-tabs button.active,
+.picker-tabs button:hover,
+.picker-more:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.picker-more {
+  display: block;
+  margin: 5px auto;
+}
+.picker-tabs button:focus-visible,
+.picker-more:focus-visible,
+.empty button:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: 1px;
+}
+.picker-heading input,
+.picker-heading input:focus,
+.picker-heading input:focus-visible {
+  appearance: none;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  border-radius: 0;
+}

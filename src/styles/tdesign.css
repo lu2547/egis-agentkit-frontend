@@ -79,7 +79,21 @@
   outline: none;
   box-shadow: none;
 }
-:where(input, textarea):not(.t-input__inner):not(.t-textarea__inner):focus-visible {
+:where(input, textarea):not(.t-input__inner):not(
+    .t-textarea__inner
+  ):focus-visible {
   outline: 1px solid var(--border-hover);
   outline-offset: 0;
+}
+
+/* Loading text must not inherit the spinner's em-based icon size. */
+.t-loading {
+  font-size: 20px;
+  color: var(--muted);
+}
+.t-loading__text {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
 }

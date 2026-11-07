@@ -127,7 +127,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 0;
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   color: var(--text);
   font-size: 12px;
 }
@@ -140,7 +144,7 @@
   flex-shrink: 0;
   color: var(--muted);
 }
-.project-expand,
+.project-add,
 .project-more {
   display: grid;
   place-items: center;
@@ -153,6 +157,28 @@
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+}
+.project-add:hover,
+.project-more:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.project-add:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 1px;
+}
+.section-heading :deep(.project-create),
+.project-add {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+.section-heading:hover :deep(.project-create),
+.section-heading:focus-within :deep(.project-create),
+.project-row:hover .project-add,
+.project-row:focus-within .project-add {
+  opacity: 1;
+  pointer-events: auto;
 }
 .project-more {
   margin: 0 4px;
@@ -193,8 +219,11 @@
   overflow: visible;
 }
 @media (hover: none) {
+  .section-heading :deep(.project-create),
+  .project-add,
   .project-more {
     opacity: 1;
+    pointer-events: auto;
   }
 }
 .recent-section h2 {
@@ -460,7 +489,7 @@
   padding: 9px;
 }
 .collapsed .sidebar-header {
-  padding: 16px 10px;
+  padding: 16px 6px;
 }
 .collapsed .sidebar-footer {
   padding: 14px 8px;
@@ -469,10 +498,6 @@
 }
 .collapsed .brand {
   margin: auto;
-}
-.expand-sidebar {
-  align-self: center;
-  margin-top: 16px;
 }
 .sidebar-footer {
   margin-top: auto;

@@ -1,5 +1,7 @@
 import { http, json } from "./http";
 import type {
+  ComposerOptionsPage,
+  ComposerOptionsQuery,
   Definition,
   DefinitionRef,
   Task,
@@ -9,8 +11,10 @@ import type {
   ModelOption,
   Review,
   WorkspaceFile,
+  ReplyArtifact,
   RuntimeOptions,
   TaskSettings,
+  SkillImportJob,
 } from "../types/api";
 const id = encodeURIComponent;
 export const workspacePath = (sid: string, projectId?: string) =>
@@ -18,6 +22,12 @@ export const workspacePath = (sid: string, projectId?: string) =>
     ? `/manager/projects/${id(projectId)}`
     : `/manager/tasks/${id(sid)}`;
 export const manager = {
+  composerOptions: (params: ComposerOptionsQuery, signal?: AbortSignal) =>
+    http<ComposerOptionsPage>(
+      "/manager/composer/options",
+      { signal },
+      { ...params },
+    ),
   me: () => http<User>("/manager/me"),
   login: (user_id: string, password: string) =>
     http<{ access_token: string }>(
@@ -74,6 +84,15 @@ export const manager = {
         ...(project_id ? { project_id } : {}),
       }),
     ),
+  prepareCollaborators: (
+    sid: string,
+    request_id: string,
+    experts: DefinitionRef[],
+  ) =>
+    http<Task>(
+      `/manager/tasks/${id(sid)}/collaborators`,
+      json("POST", { request_id, experts }),
+    ),
   runtimeOptions: () => http<RuntimeOptions>("/manager/runtime-options"),
   updateTaskSettings: (sid: string, settings: TaskSettings) =>
     http<Task>(`/manager/tasks/${id(sid)}/settings`, json("PATCH", settings)),
@@ -96,6 +115,25 @@ export const manager = {
     http<Resource>(
       `/manager/${kind}${resourceId ? `/${id(resourceId)}` : ""}`,
       json(resourceId ? "PUT" : "POST", body),
+    ),
+  skillImports: () =>
+    http<{ items: SkillImportJob[] }>("/manager/skills/imports"),
+  skillImport: (jobId: string) =>
+    http<SkillImportJob>(`/manager/skills/imports/${id(jobId)}`),
+  importSkill: (file: File, category: string, avatar: string) => {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("category", category);
+    body.append("avatar", avatar);
+    return http<SkillImportJob>("/manager/skills/imports", {
+      method: "POST",
+      body,
+    });
+  },
+  retrySkillImport: (jobId: string) =>
+    http<SkillImportJob>(
+      `/manager/skills/imports/${id(jobId)}/retry`,
+      json("POST"),
     ),
   install: (kind: string, resourceId: string, version: string) =>
     http<unknown>(`/manager/${kind}/${id(resourceId)}/install`, json("POST"), {
@@ -134,6 +172,10 @@ export const manager = {
       "/manager/share-requests",
       json("POST", { resource_type, resource_id, resource_version }),
     ),
+  sessionArtifacts: (sid: string, signal?: AbortSignal) =>
+    http<{ items: ReplyArtifact[] }>(`/manager/tasks/${id(sid)}/artifacts`, {
+      signal,
+    }),
   files: (
     sid: string,
     area: string,
@@ -146,6 +188,12 @@ export const manager = {
       `${workspacePath(sid, projectId)}/files`,
       { signal },
       { area, path, ...(recursive ? { recursive: "true" } : {}) },
+    ),
+  deleteFile: (sid: string, area: string, path: string, projectId?: string) =>
+    http<void>(
+      `${workspacePath(sid, projectId)}/files`,
+      { method: "DELETE" },
+      { area, path },
     ),
   uploadFile: (
     sid: string,

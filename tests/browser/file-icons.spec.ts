@@ -45,10 +45,35 @@ for (const theme of ["light", "dark"] as const) {
         body: "# 彩色格式图标预览",
       }),
     );
+    await page.route("**/api/manager/tasks/s1/artifacts", async (route) => {
+      const response = await route.fetch();
+      const original = await response.json();
+      const reply_id = original.items[0]?.reply_id;
+      return route.fulfill({
+        json: {
+          items: reply_id
+            ? files.map((name) => ({
+                name,
+                path: name,
+                size: 2048,
+                area: "artifacts",
+                is_directory: false,
+                modified_at: "",
+                reply_id,
+              }))
+            : [],
+        },
+      });
+    });
     await page.goto("/tasks/s1");
+    await page.locator(".composer textarea").fill("生成多种格式的交付文件");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
     await expect(page.locator(".artifact-card .file-type-icon")).toHaveCount(6);
     const panel = page.locator(".workspace-panel");
-    await panel.getByRole("button", { name: "产物", exact: true }).click();
+    await panel
+      .getByRole("navigation", { name: "工作空间面板" })
+      .getByRole("button", { name: "产物", exact: true })
+      .click();
     for (const type of [
       "word",
       "markdown",

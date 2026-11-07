@@ -75,8 +75,8 @@ test("mode flyout uses runtime modes and persists the native setting", async ({
   await page.getByRole("button", { name: "添加资源" }).click();
   await page.getByRole("menuitem", { name: "模式", exact: true }).hover();
   const panel = page.getByRole("menu", { name: "模式", exact: true });
-  await expect(panel.getByRole("menuitemradio")).toHaveCount(5);
-  await expect(panel.locator('[data-mode="bypass"]')).toBeDisabled();
+  await expect(panel.getByRole("menuitemradio")).toHaveCount(4);
+  await expect(panel.locator('[data-mode="bypass"]')).toBeEnabled();
   const request = page.waitForRequest(
     (request) =>
       request.url().endsWith("/manager/tasks/s1/settings") &&

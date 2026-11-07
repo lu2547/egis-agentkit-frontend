@@ -161,29 +161,21 @@ for (const theme of ["light", "dark"] as const) {
       await page
         .getByRole("menuitem", { name: "创建技能", exact: true })
         .click();
-      const dialog = page.getByRole("dialog");
-      await dialog
-        .getByRole("textbox", { name: "技能 ID", exact: true })
-        .focus();
-      await expectNeutral(dialog.locator(".t-input--focused"));
-      await expectNeutral(dialog.locator(".t-checkbox__input"));
+      await expect(page).toHaveURL("/skills/new");
+      const form = page.locator(".edit-content");
+      await form.getByRole("textbox", { name: "技能 ID", exact: true }).focus();
+      await expectNeutral(form.locator(".t-input--focused"));
+      await expectNeutral(form.locator(".t-checkbox__input"));
       await expectNeutral(
-        dialog.getByRole("button", { name: "发布版本", exact: true }),
+        form.getByRole("button", { name: "发布版本", exact: true }),
       );
-      await expect
-        .poll(() =>
-          dialog
-            .locator(".t-dialog")
-            .evaluate((element) => element.getBoundingClientRect().width),
-        )
-        .toBeGreaterThan(700);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await page.screenshot({
         path: testInfo.outputPath(`create-skill-${theme}.png`),
       });
-      await dialog
+      await form
         .getByRole("button", { name: "返回技能目录", exact: true })
         .click();
-      await expect(dialog).toHaveCount(0);
       await expect(page).toHaveURL("/skills");
     });
 

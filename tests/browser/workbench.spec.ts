@@ -185,11 +185,14 @@ test("all management pages and creation forms render without application errors"
   expect(errors).toEqual([]);
 });
 
-test("skill upload sends an explicit immutable version", async ({ page }) => {
+test("skill upload uses an asynchronous import with category and avatar", async ({
+  page,
+}) => {
   await page.goto("/skills");
   await page.getByRole("button", { name: "添加技能", exact: true }).click();
   await page.getByRole("menuitem", { name: "上传技能", exact: true }).click();
-  await page.getByLabel("技能版本").fill("2.0.0");
+  await expect(page).toHaveURL("/skills/upload");
+  await expect(page.getByRole("textbox", { name: "技能版本" })).toHaveCount(0);
   await page.getByLabel("选择技能文件").setInputFiles({
     name: "skill.zip",
     mimeType: "application/zip",
@@ -197,13 +200,19 @@ test("skill upload sends an explicit immutable version", async ({ page }) => {
   });
   const uploaded = page.waitForRequest(
     (request) =>
-      request.url().includes("/manager/skills/upload") &&
+      request.url().includes("/manager/skills/imports") &&
       request.method() === "POST",
   );
-  await page.getByRole("button", { name: "上传", exact: true }).click();
-  expect(new URL((await uploaded).url()).searchParams.get("version")).toBe(
-    "2.0.0",
-  );
+  await page.getByRole("button", { name: "提交导入", exact: true }).click();
+  const request = await uploaded;
+  expect(new URL(request.url()).searchParams.has("version")).toBe(false);
+  const job = await (await request.response())!.json();
+  expect(job.category).toBe("办公协同");
+  expect(job.avatar).toBe("skill:deep-thinking");
+  expect(job).not.toHaveProperty("version");
+  await expect(
+    page.getByRole("region", { name: "技能导入任务" }),
+  ).toContainText("skill.zip");
 });
 
 test("site icon loads without a missing-resource error", async ({ page }) => {

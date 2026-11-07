@@ -23,7 +23,7 @@ test("home sends the chosen native permission mode when creating a task", async 
   expect((await request).postDataJSON().permission_mode).toBe("accept_edits");
 });
 
-test("session settings persist through native PATCH and disable unavailable Bypass", async ({
+test("session settings persist through native PATCH and allow full access", async ({
   page,
 }) => {
   await page.goto("/tasks/s1");
@@ -31,16 +31,16 @@ test("session settings persist through native PATCH and disable unavailable Bypa
   await mode.click();
   await expect(
     page.locator('[role="menuitemradio"][data-mode="bypass"]'),
-  ).toBeDisabled();
+  ).toBeEnabled();
   const request = page.waitForRequest(
     (r) =>
       r.url().endsWith("/manager/tasks/s1/settings") && r.method() === "PATCH",
   );
-  await page.locator('[role="menuitemradio"][data-mode="explore"]').click();
-  expect((await request).postDataJSON().permission_mode).toBe("explore");
-  await expect(mode).toHaveAttribute("data-value", "explore");
+  await page.locator('[role="menuitemradio"][data-mode="bypass"]').click();
+  expect((await request).postDataJSON().permission_mode).toBe("bypass");
+  await expect(mode).toHaveAttribute("data-value", "bypass");
   await page.reload();
-  await expect(mode).toHaveAttribute("data-value", "explore");
+  await expect(mode).toHaveAttribute("data-value", "bypass");
 });
 
 test("session model selection saves the actual model key", async ({ page }) => {
@@ -80,12 +80,12 @@ test("permission popup explains all native modes and supports keyboard dismissal
   await trigger.press("ArrowDown");
   const menu = page.getByRole("menu", { name: "权限模式选项" });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitemradio")).toHaveCount(5);
+  await expect(menu.getByRole("menuitemradio")).toHaveCount(4);
   await expect(menu.locator('[data-mode="default"]')).toHaveAttribute(
     "aria-checked",
     "true",
   );
-  await expect(menu.locator('[data-mode="dont_ask"]')).toContainText("拒绝");
+  await expect(menu.locator('[data-mode="dont_ask"]')).toHaveCount(0);
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "了解更多" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -100,9 +100,9 @@ test("permission popup explains all native modes and supports keyboard dismissal
   await expect(menu).not.toBeVisible();
   await expect(trigger).toBeFocused();
   await trigger.press("ArrowUp");
-  await expect(menu.locator('[data-mode="dont_ask"]')).toBeFocused();
+  await expect(menu.locator('[data-mode="bypass"]')).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(trigger).toHaveAttribute("data-value", "dont_ask");
+  await expect(trigger).toHaveAttribute("data-value", "bypass");
   await trigger.click();
   await page.getByRole("link", { name: "养老险GPT", exact: true }).click();
   await expect(menu).not.toBeVisible();

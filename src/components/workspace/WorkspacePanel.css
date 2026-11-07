@@ -349,3 +349,47 @@ button:focus-visible {
     transform: translateX(28px);
   }
 }
+
+.file-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.file-delete {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: none;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease;
+}
+.file-row:hover .file-delete,
+.file-row:focus-within .file-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.file-delete:hover {
+  color: var(--danger);
+  background: var(--surface);
+}
+@media (hover: none) {
+  .file-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

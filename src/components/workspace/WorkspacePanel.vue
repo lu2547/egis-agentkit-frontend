@@ -20,6 +20,7 @@ import AppIcon from "../common/AppIcon.vue";
 import FileTypeIcon from "../common/FileTypeIcon.vue";
 import AsyncState from "../common/AsyncState.vue";
 import FilePreview from "./FilePreview.vue";
+import WorkspaceDeleteDialog from "./WorkspaceDeleteDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -85,6 +86,46 @@ function restoreSelection(): Selection | null {
   }
 }
 const selected = ref<Selection | null>(null);
+const deleteTarget = ref<WorkspaceFile | null>(null);
+const deleting = ref(false),
+  deleteError = ref("");
+function requestDelete(file: WorkspaceFile) {
+  deleteTarget.value = file;
+  deleteError.value = "";
+}
+async function deleteFile() {
+  const target = deleteTarget.value;
+  if (!target || deleting.value || !target.path) return;
+  const targetScope = scopeId.value;
+  const area = target.area || currentLocation.value?.area || "uploads";
+  deleting.value = true;
+  deleteError.value = "";
+  try {
+    await manager.deleteFile(
+      props.sessionId,
+      area,
+      target.path,
+      props.projectId,
+    );
+    if (scopeId.value !== targetScope) return;
+    const preview = selected.value;
+    if (
+      preview?.area === area &&
+      (preview.path === target.path ||
+        preview.path.startsWith(target.path + "/"))
+    ) {
+      selected.value = null;
+      if (selectionKey.value) sessionStorage.removeItem(selectionKey.value);
+    }
+    deleteTarget.value = null;
+    emit("uploaded"); // Reuse the project file revision notification.
+    await load();
+  } catch (e) {
+    if (scopeId.value === targetScope) deleteError.value = errorText(e);
+  } finally {
+    deleting.value = false;
+  }
+}
 function select(value: Selection) {
   selected.value = value;
   if (selectionKey.value)
@@ -104,6 +145,8 @@ watch(
     directory.value = null;
     artifactDirectory.value = "";
     error.value = "";
+    deleteTarget.value = null;
+    deleteError.value = "";
     uploading.value = false;
     loading.value = false;
     selected.value = restoreSelection();
@@ -414,7 +457,7 @@ onUnmounted(() => {
                     : '选择项目后可上传资料并查看项目文件。'
               "
               @retry="load"
-              ><button
+              ><div
                 v-for="file in files"
                 :key="`${file.area}:${file.is_directory}:${file.path}`"
                 class="file-row"
@@ -425,15 +468,27 @@ onUnmounted(() => {
                     file.area === 'work' &&
                     file.is_directory,
                 }"
-                @click="choose(file)"
               >
-                <AppIcon v-if="file.is_directory" name="folder" :size="24" />
-                <FileTypeIcon v-else :name="file.name" :size="26" />
-                <span :title="file.name">{{ file.name }}</span
-                ><small v-if="!file.is_directory"
-                  >{{ Math.ceil(file.size / 1024) }} KB</small
-                ><AppIcon v-else name="chevron" :size="12" /></button
-            ></AsyncState></div
+                <button type="button" class="file-open" @click="choose(file)">
+                  <AppIcon v-if="file.is_directory" name="folder" :size="24" />
+                  <FileTypeIcon v-else :name="file.name" :size="26" />
+                  <span :title="file.name">{{ file.name }}</span
+                  ><small v-if="!file.is_directory"
+                    >{{ Math.ceil(file.size / 1024) }} KB</small
+                  ><AppIcon v-else name="chevron" :size="12" />
+                </button>
+                <button
+                  v-if="file.path"
+                  type="button"
+                  class="file-delete"
+                  :aria-label="`删除${file.name}`"
+                  :disabled="deleting"
+                  @click="requestDelete(file)"
+                >
+                  <AppIcon name="trash" :size="16" />
+                </button>
+              </div>
+            </AsyncState></div
         ></template>
         <section v-else-if="tab === 'changes'" class="changes-view">
           <div class="changes-heading">
@@ -497,5 +552,14 @@ onUnmounted(() => {
       </div>
     </aside></Transition
   >
+  <WorkspaceDeleteDialog
+    v-if="deleteTarget"
+    :name="deleteTarget.name"
+    :is-directory="deleteTarget.is_directory"
+    :pending="deleting"
+    :error="deleteError"
+    @cancel="deleteTarget = null"
+    @confirm="deleteFile"
+  />
 </template>
 <style scoped src="./WorkspacePanel.css"></style>

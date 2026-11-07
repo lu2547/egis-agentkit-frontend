@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 import {
   Check,
   ChevronDown,
-  CircleSlash,
   Eye,
   Hand,
   ShieldAlert,
@@ -40,11 +39,6 @@ const modes = {
     description: "允许查看和分析，拒绝修改操作",
     icon: Eye,
   },
-  dont_ask: {
-    label: "不再询问",
-    description: "需要你确认时，自动拒绝该操作",
-    icon: CircleSlash,
-  },
   bypass: {
     label: "完全访问权限",
     description: "跳过大部分工具权限检查，仍受资源授权限制",
@@ -72,7 +66,9 @@ const selectedIcon = computed(() =>
 );
 // Keep the higher-risk choice distinct at the end of the menu.
 const orderedOptions = computed(() => [
-  ...props.options.filter((option) => option.value !== "bypass"),
+  ...props.options.filter(
+    (option) => option.value !== "bypass" && option.value !== "dont_ask",
+  ),
   ...props.options.filter((option) => option.value === "bypass"),
 ]);
 
@@ -278,7 +274,7 @@ onBeforeUnmount(removeListeners);
               权限模式只决定何时请求批准，仍受你已获授权的技能、连接器和资源范围限制。
             </p>
             <p>
-              “不再询问”会拒绝需要确认的操作；“完全访问权限”仅在系统允许时可选。
+              “完全访问权限”跳过大部分工具操作确认，仍受资源授权与项目范围限制。
             </p>
           </div>
           <div

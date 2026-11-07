@@ -1,0 +1,11 @@
+.skill-help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0 0 8px;
+}
+.form-stack :deep(.t-textarea__inner) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.75;
+}

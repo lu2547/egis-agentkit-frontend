@@ -18,7 +18,7 @@ for (const theme of ["light", "dark"] as const) {
       modified_at: "",
     });
     let uploaded = false;
-    await page.route("**/api/manager/tasks/s1/files?**", (route) => {
+    await page.route("**/api/manager/projects/project-1/files?**", (route) => {
       const query = new URL(route.request().url()).searchParams;
       const area = query.get("area"),
         path = query.get("path") || "";
@@ -42,7 +42,7 @@ for (const theme of ["light", "dark"] as const) {
             : [entry("report.md")];
       return route.fulfill({ json: { items } });
     });
-    await page.route("**/api/manager/tasks/s1/file?**", (route) => {
+    await page.route("**/api/manager/projects/project-1/file?**", (route) => {
       const query = new URL(route.request().url()).searchParams;
       return route.fulfill({
         contentType: "text/plain",
@@ -107,13 +107,11 @@ for (const theme of ["light", "dark"] as const) {
     await panel
       .getByRole("button", { name: "‹ 返回工作空间", exact: true })
       .click();
-    await panel
-      .locator(".list-toolbar input[type=file]")
-      .setInputFiles({
-        name: "新增资料.txt",
-        mimeType: "text/plain",
-        buffer: Buffer.from("new"),
-      });
+    await panel.locator(".list-toolbar input[type=file]").setInputFiles({
+      name: "新增资料.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("new"),
+    });
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间");
     await expect(
       panel.getByRole("button", { name: /新增资料.txt/ }),

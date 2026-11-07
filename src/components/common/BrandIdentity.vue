@@ -12,10 +12,14 @@ const { theme } = useTheme();
     :class="{ 'is-compact': compact, 'is-welcome': welcome }"
   >
     <img
-      :src="`/brand/${welcome ? 'welcome' : 'wordmark'}-v2-${theme}.png`"
+      :src="
+        compact
+          ? '/brand/assistant-icon.png'
+          : `/brand/${welcome ? 'welcome' : 'wordmark'}-v2-${theme}.png`
+      "
       :alt="welcome ? '养老险GPT，今天，想一起完成什么？' : '养老险GPT'"
-      :width="welcome ? 1624 : 2172"
-      :height="welcome ? 969 : 724"
+      :width="compact ? 1280 : welcome ? 1624 : 2172"
+      :height="compact ? 1280 : welcome ? 969 : 724"
       draggable="false"
     />
   </span>

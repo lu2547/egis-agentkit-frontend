@@ -1,0 +1,118 @@
+.composer-project-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  max-width: 1000px;
+  margin: 7px auto;
+  min-height: 24px;
+}
+.composer-project-selector {
+  position: relative;
+  min-width: 0;
+  justify-self: start;
+  max-width: 100%;
+}
+.project-current,
+.project-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.project-current {
+  box-sizing: border-box;
+  justify-self: start;
+  border: 1px solid var(--border);
+  cursor: default;
+  min-width: 0;
+}
+.project-trigger:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.project-trigger:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.project-current span,
+.project-trigger span,
+.project-menu span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-current svg,
+.project-trigger svg,
+.project-menu svg {
+  flex-shrink: 0;
+}
+.project-menu {
+  position: absolute;
+  z-index: 65;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: min(260px, calc(100vw - 48px));
+  max-height: 280px;
+  box-sizing: border-box;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  scrollbar-width: thin;
+}
+.project-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.project-menu button span {
+  flex: 1;
+}
+.project-menu button:hover,
+.project-menu button[aria-selected="true"] {
+  background: var(--hover);
+}
+.project-trigger:focus-visible,
+.project-menu button:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 1px;
+}
+.project-composer-note {
+  margin: 0;
+  color: var(--muted);
+  opacity: 0.8;
+  text-align: center;
+  font-size: 11px;
+  line-height: 18px;
+}
+@media (max-width: 600px) {
+  .composer-project-bar {
+    grid-template-columns: minmax(70px, 1fr) minmax(0, 2fr);
+  }
+  .project-composer-note {
+    text-align: right;
+  }
+}

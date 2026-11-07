@@ -103,6 +103,8 @@ onUnmounted(() => {
     <main class="workbench-main">
       <RouterView v-slot="{ Component }"
         ><Transition name="page" mode="out-in"
+          @before-leave="(el) => { (el as HTMLElement).inert = true; }"
+          @before-enter="(el) => { (el as HTMLElement).inert = false; }"
           ><component :is="Component" /></Transition
       ></RouterView>
     </main>

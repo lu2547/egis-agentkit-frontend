@@ -115,8 +115,12 @@ const resources = [
     is_skill_market_visible: true,
     resource_view_type: "private",
     payload: {
+      category: "内容创作",
+      avatar: "skill:ppt",
+      files: [{ path: "references/style.md", size: 128 }, { path: "scripts/check.py", size: 256 }],
+      base_version: "1.0.0",
       markdown:
-        '# 报告写作\n\n<script>window.badMarkdown=true</script><img src=x onerror="window.badMarkdown=true">\n\n[危险](javascript:alert(1))\n\n## 结构\n\n- 摘要\n- 分析\n- 建议',
+        '---\nname: 报告写作\ndescription: 遵循团队的写作规范，输出清晰文档。\nversion: 1.0.0\n---\n\n# 报告写作\n\n<script>window.badMarkdown=true</script><img src=x onerror="window.badMarkdown=true">\n\n[危险](javascript:alert(1))\n\n## 结构\n\n- 摘要\n- 分析\n- 建议',
     },
   },
 ];
@@ -136,6 +140,7 @@ const files = [
     modified_at: date,
   },
 ];
+let skillResources = structuredClone(resources), skillImports = [], skillImportSequence = 1;
 let role = "admin",
   tasks = [],
   projects = [],
@@ -143,10 +148,14 @@ let role = "admin",
   projectSequence = 1,
   projectChanges = {},
   fileContents = {},
+  deliveries = {},
   messages = {},
   streams = new Map(),
   uploads = {};
 function reset() {
+  skillResources = structuredClone(resources);
+  skillImports = [];
+  skillImportSequence = 1;
   uploads = {};
   projectChanges = {};
   fileContents = {};
@@ -176,9 +185,12 @@ function reset() {
     },
   ];
   messages = { s1: [] };
+  deliveries = {};
 }
 reset();
 const replyEvents = (sid, replyId, confirmed = false) => {
+  // This fixture creates deliveries only on the first completed reply.
+  if (!deliveries[sid]) deliveries[sid] = files.map(file => ({ ...file, area: "artifacts", reply_id: replyId }));
   const list = [
     {
       type: "REPLY_START",
@@ -327,17 +339,45 @@ createServer(async (req, res) => {
           value: "bypass",
           label: "Bypass",
           description: "跳过大部分工具权限检查",
-          is_enabled: false,
-        },
-        {
-          value: "dont_ask",
-          label: "Don't Ask",
-          description: "自动拒绝需要确认的操作",
           is_enabled: true,
         },
       ],
       default_permission_mode: "default",
     });
+  if (p === "/manager/composer/options") {
+    const category = url.searchParams.get("category"),
+      query = (url.searchParams.get("query") || "").toLocaleLowerCase(),
+      sid = url.searchParams.get("session_id"),
+      task = tasks.find((item) => item.session_id === sid),
+      pid = task?.project_id || url.searchParams.get("project_id"),
+      limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit") || 10))),
+      offset = Number(url.searchParams.get("cursor") || 0);
+    let options = [];
+    if (category === "experts" && (!sid || task?.definition_id === "personal"))
+      options = definitions.filter((definition) => definition.is_usable && definition.agent_type === "expert").map((definition) => ({
+        id: definition.id, name: definition.agent_display_name,
+        detail: definition.payload.description, kind: "expert", definition,
+      }));
+    if (category === "skills" && (!sid || task?.definition_id === "personal"))
+      options = skillResources.filter((skill) => skill.is_usable && skill.is_installed && skill.is_enabled).map((skill) => ({
+        id: `${skill.resource_id}@${skill.resource_version}`, name: skill.display_name,
+        detail: skill.description, kind: "skill", insert_text: `请使用${skill.display_name}技能 `,
+      }));
+    if (category === "context" && pid)
+      options = [
+        ...(uploads[pid] || []).map((file) => ({ ...file, area: "uploads" })),
+        ...(pid === "project-1" ? files.map((file) => ({ ...file, area: "artifacts" })) : []),
+      ].filter((file) => !file.is_directory).map((file) => ({
+        id: `file:${file.area}:${file.path}`, name: file.name,
+        detail: file.area === "artifacts" ? `artifacts/${file.path}` : file.path,
+        kind: "file", reference: file.area === "artifacts" ? `artifacts/${file.path}` : file.path,
+      }));
+    const matching = options.filter((item) => `${item.name} ${item.detail}`.toLocaleLowerCase().includes(query));
+    return json(res, {
+      items: matching.slice(offset, offset + limit),
+      next_cursor: offset + limit < matching.length ? String(offset + limit) : null,
+    });
+  }
   if (p === "/manager/agents") return json(res, { items: definitions });
   if (p === "/manager/teams/team-1")
     return json(res, {
@@ -463,6 +503,8 @@ createServer(async (req, res) => {
     !projects.some((project) => project.id === projectId)
   )
     return json(res, { detail: "未找到项目" }, 404);
+  if (p.startsWith("/manager/tasks/") && p.endsWith("/artifacts"))
+    return json(res, { items: deliveries[p.split("/")[3]] || [] });
   if (p.endsWith("/files")) {
     const area = url.searchParams.get("area");
     if (req.method === "POST") {
@@ -636,14 +678,51 @@ createServer(async (req, res) => {
     });
     return json(res, { status: "accepted" }, 202);
   }
-  if (p === "/manager/skills") return json(res, { items: resources });
-  if (p.startsWith("/manager/skills/")) {
+  if (p === "/manager/skills/imports") {
+    if (req.method === "POST") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const field = name => raw.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]+)`))?.[1] || "";
+      const job = { job_id: `import-${skillImportSequence++}`, status: "queued", stage: "queued", progress: 0, filename: raw.match(/filename="([^"\r\n]+)"/)?.[1] || "skill.zip", category: field("category"), avatar: field("avatar"), attempts: 1, created_at: date, updated_at: date, polls: 0 };
+      skillImports.unshift(job);
+      return json(res, job, 202);
+    }
+    for (const job of skillImports) {
+      if (job.status === "queued" || job.status === "running") {
+        job.polls++;
+        job.status = job.polls > 2 ? "succeeded" : "running";
+        job.stage = job.status === "succeeded" ? "completed" : "validating";
+        job.progress = job.status === "succeeded" ? 100 : job.polls * 30;
+        if (job.status === "succeeded") {
+          job.resource_id = `imported-${job.job_id}`;
+          job.resource_version = "2.3.0";
+          skillResources.push({ ...skillResources[1], resource_id: job.resource_id, resource_version: job.resource_version, display_name: "导入的技能", payload: { category: job.category, avatar: job.avatar, markdown: "---\nname: 导入的技能\ndescription: 来自技能包\nversion: 2.3.0\n---\n技能说明" } });
+        }
+      }
+    }
+    return json(res, { items: skillImports });
+  }
+  if (p.startsWith("/manager/skills/imports/")) {
+    const job = skillImports.find(item => item.job_id === p.split("/")[4]);
+    if (!job) return json(res, { detail: "导入任务不存在" }, 404);
+    if (p.endsWith("/retry")) Object.assign(job, { status: "queued", stage: "queued", progress: 0, error: null, attempts: job.attempts + 1, polls: 0 });
+    return json(res, job, p.endsWith("/retry") ? 202 : 200);
+  }
+  if (p === "/manager/skills" && req.method !== "POST")
+    return json(res, { items: skillResources.map(resource => ({ ...resource, payload: { ...resource.payload, markdown: undefined, files: undefined } })) });
+  if (p === "/manager/skills" || p.startsWith("/manager/skills/")) {
     if (p.endsWith("/installation"))
       return json(res, { detail: "未获授权，启停失败" }, 403);
-    return json(
-      res,
-      resources.find((r) => r.resource_id === p.split("/")[3]) || resources[0],
-    );
+    if (req.method === "POST" || req.method === "PUT") {
+      const input = await body(req);
+      const resourceId = p.split("/")[3] || input.resource_id;
+      const original = skillResources.find(resource => resource.resource_id === resourceId);
+      const field = name => input.markdown.match(new RegExp(`^\\s*${name}: *(.+)$`, "m"))?.[1] || "";
+      const saved = { ...(original || skillResources[1]), resource_id: resourceId, resource_version: field("version"), display_name: field("name"), description: field("description"), is_skill_market_visible: input.is_skill_market_visible, payload: { ...original?.payload, markdown: input.markdown, avatar: input.avatar, category: input.category, base_version: input.base_version } };
+      skillResources.push(saved);
+      return json(res, saved);
+    }
+    return json(res, skillResources.find(resource => resource.resource_id === p.split("/")[3] && (!url.searchParams.get("version") || resource.resource_version === url.searchParams.get("version"))) || skillResources[0]);
   }
   if (p === "/manager/connectors") return json(res, { items: [] });
   if (p === "/manager/preferences")

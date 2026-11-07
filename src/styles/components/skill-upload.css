@@ -1,5 +1,22 @@
-
 .upload-help {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.8;
+  margin: 0;
+}
+.skill-upload-form {
+  margin-bottom: 32px;
+}
+.skill-upload-form input[type="file"] {
+  max-width: 100%;
+  color: var(--text);
+  font: inherit;
+}
+.skill-upload-form input[type="file"]::file-selector-button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface);
+  padding: 7px 12px;
+  margin-right: 12px;
+  cursor: pointer;
 }

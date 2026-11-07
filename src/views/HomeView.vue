@@ -5,6 +5,7 @@ import { useRuntimeOptions } from "../composables/useRuntimeOptions";
 import { useRouter, useRoute } from "vue-router";
 import ConversationTopbar from "../components/layout/ConversationTopbar.vue";
 import TaskComposer from "../components/composer/TaskComposer.vue";
+import ComposerProjectBar from "../components/composer/ComposerProjectBar.vue";
 import PromptStarterList from "../components/composer/PromptStarterList.vue";
 import WorkspacePanel from "../components/workspace/WorkspacePanel.vue";
 import { manager } from "../api/manager";
@@ -19,7 +20,6 @@ const {
   models,
   defaultModelKey,
   projects,
-  tasks,
   refreshTasks,
   refreshProjects,
 } = useIdentity();
@@ -27,14 +27,15 @@ const runtime = useRuntimeOptions();
 const permissionMode = ref("default");
 const router = useRouter(),
   route = useRoute();
-const projectId = computed(() =>
+const routeProjectId = computed(() =>
   typeof route.params.projectId === "string" ? route.params.projectId : "",
 );
-const project = computed(() =>
-  projects.value.find((item) => item.id === projectId.value),
-);
-const projectTasks = computed(() =>
-  tasks.value.filter((task) => task.project_id === projectId.value),
+const selectedProjectId = ref("");
+const projectId = computed(
+  () =>
+    selectedProjectId.value ||
+    projects.value.find((project) => project.is_default)?.id ||
+    "",
 );
 const text = ref(
     typeof route.query.prompt === "string" ? route.query.prompt : "",
@@ -49,8 +50,9 @@ let preparedTask: { key: string; task: Task } | undefined;
 const workspaceOpen = ref(false);
 const fileRevision = ref(0);
 watch(
-  projectId,
+  routeProjectId,
   (value) => {
+    selectedProjectId.value = value;
     workspaceOpen.value = !!value;
     preparedTask = undefined;
     attachments.clear();
@@ -60,6 +62,19 @@ watch(
   },
   { immediate: true },
 );
+watch(projectId, () => {
+  preparedTask = undefined;
+  fileRevision.value = 0;
+});
+watch(projects, (items, previous) => {
+  const selectedId = selectedProjectId.value;
+  if (
+    selectedId &&
+    previous.some((project) => project.id === selectedId) &&
+    !items.some((project) => project.id === selectedId)
+  )
+    selectedProjectId.value = "";
+});
 const homeSearch = ref("");
 const effectiveModelKey = computed(
   () =>
@@ -171,37 +186,13 @@ async function submit() {
         @update:search-query="homeSearch = $event"
       />
       <div class="welcome">
-        <BrandIdentity v-if="!projectId" welcome />
-        <h2>
-          {{
-            projectId
-              ? project?.project_name || "项目"
-              : "今天，想一起完成什么？"
-          }}
-        </h2>
-        <p>
-          {{
-            projectId
-              ? "在项目中开始新对话，所有对话共享右侧工作空间。"
-              : "从一个想法开始，把工作交给养老险GPT。"
-          }}
-        </p>
+        <BrandIdentity welcome />
+        <h2>今天，想一起完成什么？</h2>
+        <p>从一个想法开始，把工作交给养老险GPT。</p>
         <div v-if="selected" class="summoning">
           正在与 {{ definitionName(selected) }} 一起工作
         </div>
         <PromptStarterList :prompts="prompts" @select="starter" />
-        <div
-          v-if="projectId && projectTasks.length"
-          class="project-conversations"
-          aria-label="项目对话"
-        >
-          <RouterLink
-            v-for="task in projectTasks"
-            :key="task.session_id"
-            :to="`/tasks/${encodeURIComponent(task.session_id)}`"
-            >{{ task.name }}<span aria-hidden="true">›</span></RouterLink
-          >
-        </div>
       </div>
       <div class="home-content">
         <div
@@ -212,6 +203,8 @@ async function submit() {
           {{ error || runtime.error.value }}
         </div>
         <TaskComposer
+          :project-id="projectId"
+          :file-revision="fileRevision"
           v-model="text"
           :models="models"
           :model-key="effectiveModelKey"
@@ -239,7 +232,16 @@ async function submit() {
           @remove-attachment="attachments.remove"
           @select="selected = $event"
           @submit="submit"
-        />
+        >
+          <template #footer>
+            <ComposerProjectBar
+              :project-id="projectId"
+              :projects="projects"
+              :disabled="pending"
+              @select="selectedProjectId = $event"
+            />
+          </template>
+        </TaskComposer>
       </div>
     </div>
     <WorkspacePanel

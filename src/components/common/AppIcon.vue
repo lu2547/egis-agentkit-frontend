@@ -9,6 +9,7 @@ import {
   Sparkles,
   Link,
   Folder,
+  FolderOpen,
   FileText,
   ChevronRight,
   ChevronDown,
@@ -47,6 +48,7 @@ const icons: Record<string, unknown> = {
   spark: Sparkles,
   link: Link,
   folder: Folder,
+  "folder-open": FolderOpen,
   file: FileText,
   chevron: ChevronRight,
   down: ChevronDown,
@@ -80,7 +82,11 @@ const component = computed(() => icons[props.name] || FileText);
     class="personal-brand-icon"
     :style="{ width: `${size + 3}px`, height: `${size + 3}px` }"
     aria-hidden="true"
-  ><img src="/brand/sheep-head-v1.png" alt="" style="width:100%;height:100%;object-fit:contain" /></span>
+    ><img
+      src="/brand/sheep-head-v1.png"
+      alt=""
+      style="width: 100%; height: 100%; object-fit: contain"
+  /></span>
   <span
     v-else-if="['experts', 'skill', 'connector'].includes(name)"
     class="catalog-icon"

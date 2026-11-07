@@ -49,11 +49,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 32px;
+  min-height: 32px;
   margin-top: 12px;
 }
 .composer-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-right: auto;
@@ -99,16 +100,42 @@
 .send-button:not(:disabled):hover {
   opacity: 0.85;
 }
-.stop-button { position: relative; overflow: hidden; }
-.stop-glyph { width: 12px; height: 12px; border-radius: 3px; background: currentColor; flex-shrink: 0; }
+.stop-button {
+  position: relative;
+  overflow: hidden;
+}
+.stop-glyph {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: currentColor;
+  flex-shrink: 0;
+}
 .stop-button:not(:disabled)::after {
-  content: ""; position: absolute; inset: -4px;
-  background: linear-gradient(100deg, transparent 35%, color-mix(in srgb, var(--bg) 24%, transparent) 50%, transparent 65%);
-  transform: translateX(-110%); animation: control-shimmer 2.4s ease-in-out infinite;
+  content: "";
+  position: absolute;
+  inset: -4px;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in srgb, var(--bg) 24%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-110%);
+  animation: control-shimmer 2.4s ease-in-out infinite;
   pointer-events: none;
 }
-@keyframes control-shimmer { to { transform: translateX(110%); } }
-@media (prefers-reduced-motion: reduce) { .stop-button::after { animation: none !important; display: none; } }
+@keyframes control-shimmer {
+  to {
+    transform: translateX(110%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stop-button::after {
+    animation: none !important;
+    display: none;
+  }
+}
 .selected {
   display: inline-flex;
   align-items: center;
@@ -136,8 +163,18 @@
 .expert-dot {
   font-size: 12px;
 }
-.personal-logo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
-.selected :deep(.catalog-avatar) { width: 20px; height: 20px; border-radius: 6px; font-size: 12px; }
+.personal-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.selected :deep(.catalog-avatar) {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 12px;
+}
 .composer-note {
   color: var(--muted);
   opacity: 0.8;
