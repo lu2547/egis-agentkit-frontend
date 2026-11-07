@@ -1,0 +1,15 @@
+
+.timeline-shell { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; background: var(--bg); color: var(--text); font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+.conversation-scroll { width: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.message-list { box-sizing: border-box; width: 100%; max-width: 960px; margin: 0 auto; padding: 24px 40px 12px; }
+.scroll-bottom { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--surface); border-radius: 50%; background: var(--bg); color: var(--text); box-shadow: var(--shadow); cursor: pointer; }
+.scroll-bottom:hover { background: var(--surface); }
+.empty-conversation { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 220px; padding: 24px; box-sizing: border-box; }
+.empty-conversation h1 { font-size: 22px; font-weight: 600; margin: 18px 0 6px; }
+.empty-conversation p { color: var(--muted); font-size: 14px; margin: 0; }
+@media (max-width: 540px) { .message-list { padding: 20px 24px 12px; } }
+
+.older { text-align: center; margin: 5px 0 20px; }
+.message-entry { scroll-margin: 24px; }
+
+.message-entry.search-match { outline: 2px solid color-mix(in srgb, var(--accent), transparent 70%); outline-offset: 9px; border-radius: 8px; }

@@ -1,0 +1,55 @@
+.activity-group {
+  margin: 12px 0 20px;
+  min-width: 0;
+}
+.activity-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  cursor: pointer;
+}
+.activity-group-heading:hover {
+  color: var(--text);
+}
+.activity-group-heading:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.activity-expander {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 21px;
+  height: 21px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: var(--card-shadow);
+}
+.activity-expander svg {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.activity-expander .folded {
+  transform: rotate(-90deg);
+}
+.activity-list {
+  list-style: none;
+  margin: 6px 0 0 10px;
+  padding: 0 0 0 17px;
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.activity-list li {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

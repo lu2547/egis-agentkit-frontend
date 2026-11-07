@@ -1,0 +1,203 @@
+/* WorkBuddy ComposerMenu geometry, with AgentKit theme tokens. */
+.composer-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.add-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.add-button:hover,
+.add-button.active {
+  background: var(--hover);
+}
+.add-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.add-menu {
+  position: fixed;
+  z-index: 1300;
+  box-sizing: border-box;
+  width: 200px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  animation: composer-menu-appear var(--motion-fast, 120ms) ease both;
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-row:hover,
+.menu-row.active,
+.catalog-item:hover {
+  background: var(--surface);
+}
+.menu-row:focus-visible,
+.catalog-item:focus-visible,
+.add-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.menu-row:disabled,
+.catalog-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.menu-row > span {
+  flex: 1;
+}
+.menu-row svg,
+.catalog-search {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.menu-row .next {
+  margin-left: auto;
+}
+.menu-divider {
+  height: 1px;
+  margin: 7px 0;
+  background: var(--border);
+}
+.submenu {
+  position: absolute;
+  left: calc(100% + 5px);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(240px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: composer-menu-appear var(--motion-fast, 120ms) ease both;
+}
+@keyframes composer-menu-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.submenu.is-stacked {
+  z-index: 2;
+}
+.submenu-back {
+  flex-shrink: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+.submenu > .menu-row {
+  flex-shrink: 0;
+}
+.submenu::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  z-index: -1;
+}
+.catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 4px 7px 9px;
+}
+.catalog-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.catalog-search input::placeholder {
+  color: var(--muted);
+}
+.picker-list {
+  flex: 1;
+  min-height: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.catalog-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.catalog-item small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.catalog-name {
+  min-width: 0;
+}
+.catalog-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-state {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.check {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.menu-hint {
+  padding: 2px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}

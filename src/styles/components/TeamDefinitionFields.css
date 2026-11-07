@@ -1,0 +1,15 @@
+
+.team-fields {
+  display: grid;
+  gap: 19px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.team-fields h3 {
+  margin-bottom: 0;
+}
+.help {
+  font-size: 12px;
+  line-height: 1.8;
+  margin-top: -8px;
+}

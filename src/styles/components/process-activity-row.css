@@ -1,0 +1,129 @@
+.activity-row {
+  margin: 0;
+  min-width: 0;
+}
+.activity-row > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 29px;
+  padding: 1px 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.activity-row > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-row > summary::marker {
+  content: "";
+}
+.activity-row > summary:hover {
+  color: var(--text);
+}
+.activity-row > summary:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.activity-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.activity-row[data-status="success"] .activity-icon {
+  color: var(--success);
+}
+.activity-row[data-status="error"] .activity-icon {
+  color: var(--danger);
+}
+.activity-row[data-status="denied"] .activity-icon {
+  color: var(--warning);
+}
+.activity-title {
+  flex-shrink: 0;
+}
+.activity-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+  min-width: 0;
+}
+.activity-state {
+  margin-left: auto;
+  padding-left: 4px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.activity-row[data-status="error"] .activity-state {
+  color: var(--danger);
+}
+.activity-chevron {
+  flex-shrink: 0;
+  opacity: 0;
+  margin-left: auto;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast);
+}
+.activity-row[open] > summary .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-row > summary:hover .activity-chevron,
+.activity-row > summary:focus-visible .activity-chevron,
+.activity-row[open] > summary .activity-chevron {
+  opacity: 0.75;
+}
+.activity-detail {
+  margin: 5px 0 12px 22px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.activity-detail h5 {
+  margin: 12px 0 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.activity-meta {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.activity-detail pre {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.75;
+  color: var(--text);
+}
+.activity-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+@keyframes activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinning {
+  animation: activity-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+  }
+}

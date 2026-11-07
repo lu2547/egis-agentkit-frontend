@@ -1,0 +1,66 @@
+.pdf-preview {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--surface);
+}
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.pdf-toolbar button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.pdf-toolbar button:hover {
+  background: var(--hover);
+}
+.pdf-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.pdf-toolbar button:focus-visible {
+  outline: 2px solid var(--border-hover);
+}
+.pdf-divider {
+  height: 16px;
+  border-left: 1px solid var(--border);
+  margin-inline: 5px;
+}
+.pdf-pages {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  text-align: center;
+}
+.pdf-pages canvas {
+  display: block;
+  background: #fff;
+  margin: auto;
+  box-shadow: var(--card-shadow);
+}
+.pdf-loading {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pdf-preview > .error {
+  padding: 16px;
+}

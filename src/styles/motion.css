@@ -1,0 +1,202 @@
+/* Shared motion rhythm. Layout, overlays and interaction feedback use the same curves. */
+:root {
+  --motion-fast: 120ms;
+  --motion-normal: 200ms;
+  --motion-layout: 280ms;
+  --motion-exit: 160ms;
+  --motion-scroll: 160ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+.page-enter-active {
+  transition:
+    opacity var(--motion-normal) var(--ease-out),
+    transform var(--motion-normal) var(--ease-out);
+}
+.page-leave-active {
+  transition: opacity var(--motion-fast) ease;
+  pointer-events: none;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+.scrim-enter-active,
+.scrim-leave-active {
+  transition: opacity var(--motion-normal) ease;
+}
+.scrim-enter-from,
+.scrim-leave-to {
+  opacity: 0;
+}
+.scrim-leave-active {
+  pointer-events: none;
+}
+.workbench .sidebar-slot.nav-drawer-enter-active,
+.workbench .sidebar-slot.nav-drawer-leave-active {
+  transition:
+    transform var(--motion-layout) var(--ease-out),
+    opacity var(--motion-normal) ease;
+}
+.nav-drawer-enter-from,
+.nav-drawer-leave-to {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+.nav-drawer-leave-active {
+  pointer-events: none;
+}
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: opacity var(--motion-normal) ease;
+}
+.dialog-enter-active .dialog-panel,
+.dialog-leave-active .dialog-panel {
+  transition:
+    transform var(--motion-normal) var(--ease-out),
+    opacity var(--motion-normal) ease;
+}
+.dialog-enter-from,
+.dialog-leave-to {
+  opacity: 0;
+}
+.dialog-enter-from .dialog-panel,
+.dialog-leave-to .dialog-panel {
+  transform: translateY(10px) scale(0.98);
+  opacity: 0;
+}
+.dialog-leave-active {
+  pointer-events: none;
+  transition-duration: var(--motion-exit);
+}
+.workbench .workspace-panel.workspace-enter-active,
+.workbench .workspace-panel.workspace-leave-active {
+  transition:
+    width var(--motion-layout) var(--ease-out),
+    opacity var(--motion-normal) ease,
+    border-color var(--motion-normal) ease;
+}
+.workspace-enter-from,
+.workspace-leave-to {
+  width: 0 !important;
+  min-width: 0;
+  opacity: 0;
+  border-left-color: transparent;
+}
+.workspace-leave-active {
+  pointer-events: none;
+}
+.workspace-enter-active .workspace-content,
+.workspace-leave-active .workspace-content {
+  transition: transform var(--motion-layout) var(--ease-out);
+}
+.workspace-enter-from .workspace-content,
+.workspace-leave-to .workspace-content {
+  transform: translateX(16px);
+}
+.motion-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-normal) var(--ease-out),
+    opacity var(--motion-normal) ease;
+}
+.motion-collapse.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.motion-collapse-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+@keyframes message-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.message-arriving {
+  animation: message-arrive var(--motion-normal) var(--ease-out) both;
+}
+@keyframes surface-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.artifact-list {
+  animation: surface-arrive var(--motion-normal) var(--ease-out);
+}
+button:not(.resize-handle):not(.panel-mask),
+.nav-item,
+.conversation-select,
+.file-row {
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    scale var(--motion-fast) var(--ease-out);
+}
+button:not(.resize-handle):not(.panel-mask):not(:disabled):active {
+  scale: 0.97;
+}
+.workbench,
+.app-sidebar,
+.workspace-panel,
+.composer,
+.topbar,
+.catalog-header,
+.dialog-panel,
+.t-popup__content {
+  transition-property: background-color, color, border-color;
+  transition-duration: var(--motion-normal);
+  transition-timing-function: ease;
+}
+:root .workbench .catalog-card,
+:root .workbench .sm-card,
+:root .workbench .artifact-card {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-normal) ease,
+    transform var(--motion-normal) var(--ease-out);
+}
+
+.process-heading .icon {
+  transition: transform var(--motion-normal) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .catalog-card:hover,
+  .sm-card:hover,
+  .artifact-card:hover {
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .page-enter-from,
+  .nav-drawer-enter-from,
+  .dialog-enter-from .dialog-panel,
+  .workspace-enter-from .workspace-content {
+    transform: none;
+  }
+}

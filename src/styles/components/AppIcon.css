@@ -1,0 +1,2 @@
+.catalog-icon{display:inline-block;flex:none;background:currentColor;mask-size:contain;mask-position:center;mask-repeat:no-repeat}
+.catalog-icon-experts{mask-image:url('/catalog/icons/experts.svg')}.catalog-icon-skill{mask-image:url('/catalog/icons/skills.svg')}.catalog-icon-connector{mask-image:url('/catalog/icons/connectors.svg')}

@@ -1,0 +1,32 @@
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.attachments > span {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 10px;
+  max-width: 100%;
+}
+.attachments > span > span {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachments small {
+  font-size: 9px;
+  opacity: 0.65;
+}
+.attachments .plain {
+  padding: 3px !important;
+  display: flex;
+}

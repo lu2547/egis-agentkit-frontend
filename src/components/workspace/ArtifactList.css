@@ -1,0 +1,31 @@
+.artifact-list {
+  width: 100%;
+  margin: 12px 0 20px;
+  padding: 0;
+  container-type: inline-size;
+}
+.artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.view-all {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  padding: 16px 0 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.view-all:hover {
+  color: var(--accent);
+}
+.view-all span {
+  font-size: 19px;
+  vertical-align: -1px;
+}
+@container (max-width: 380px) {
+  .artifact-grid {
+    grid-template-columns: 1fr;
+  }
+}

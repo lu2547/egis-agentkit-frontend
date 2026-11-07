@@ -1,0 +1,162 @@
+/* Reference ChatComposer + ComposerMenu, connected to AgentKit controls. */
+.composer {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 134px;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--bg);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--text) 1%, transparent);
+  display: flex;
+  flex-direction: column;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--border), var(--text) 12%);
+}
+.composer :deep(.t-textarea) {
+  flex: 1;
+}
+.composer :deep(.t-textarea__inner) {
+  width: 100%;
+  min-height: 64px;
+  max-height: 180px;
+  box-sizing: border-box;
+  padding: 2px 4px;
+  resize: none;
+  overflow-y: auto;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.composer :deep(.t-textarea__inner::placeholder) {
+  color: var(--muted);
+  opacity: 0.88;
+}
+.composer :deep(.t-textarea__info_wrapper) {
+  display: none;
+}
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  margin-top: 12px;
+}
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  min-width: 0;
+}
+.model-select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 150px;
+  padding: 6px;
+}
+.model-select:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.model-select {
+  width: auto;
+  max-width: 160px;
+  min-width: 0;
+}
+.send-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+}
+.send-button:disabled {
+  background: var(--subtle);
+  color: var(--bg);
+  cursor: not-allowed;
+}
+.send-button:not(:disabled):hover {
+  opacity: 0.85;
+}
+.stop-button { position: relative; overflow: hidden; }
+.stop-glyph { width: 12px; height: 12px; border-radius: 3px; background: currentColor; flex-shrink: 0; }
+.stop-button:not(:disabled)::after {
+  content: ""; position: absolute; inset: -4px;
+  background: linear-gradient(100deg, transparent 35%, color-mix(in srgb, var(--bg) 24%, transparent) 50%, transparent 65%);
+  transform: translateX(-110%); animation: control-shimmer 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes control-shimmer { to { transform: translateX(110%); } }
+@media (prefers-reduced-motion: reduce) { .stop-button::after { animation: none !important; display: none; } }
+.selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 180px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  overflow: hidden;
+}
+.selected .plain {
+  padding: 5px 0;
+  color: var(--muted);
+}
+.selected-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.expert-dot {
+  font-size: 12px;
+}
+.personal-logo { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
+.selected :deep(.catalog-avatar) { width: 20px; height: 20px; border-radius: 6px; font-size: 12px; }
+.composer-note {
+  color: var(--muted);
+  opacity: 0.8;
+  text-align: center;
+  font-size: 11px;
+  line-height: 18px;
+  margin: 8px 0 7px;
+}
+@media (max-width: 540px) {
+  .composer :deep(.t-textarea__inner) {
+    font-size: 14px;
+  }
+  .composer-tools {
+    gap: 2px;
+  }
+}
+
+@media (max-width: 600px) {
+  .model-select {
+    max-width: 110px;
+  }
+}

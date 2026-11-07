@@ -1,0 +1,40 @@
+
+.permission-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 10px 0;
+}
+.permission-card > p {
+  font-size: 11px;
+  color: var(--text);
+}
+.permission-card h4 {
+  font-size: 13px;
+  margin: 9px 0;
+  font-weight: 550;
+}
+.permission-card pre {
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.7;
+  background: var(--surface);
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 190px;
+  overflow: auto;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.permission-card .muted {
+  font-size: 11px;
+}
+.permission-card .error {
+  margin-top: 10px;
+}

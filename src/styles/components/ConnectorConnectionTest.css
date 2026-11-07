@@ -1,0 +1,23 @@
+
+.test-result {
+  margin-top: 15px;
+}
+.connected {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 15px;
+}
+.tool-item {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.tool-item strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.tool-item p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.8;
+}

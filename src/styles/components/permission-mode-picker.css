@@ -1,0 +1,206 @@
+.permission-mode-picker {
+  display: inline-flex;
+  min-width: 0;
+}
+.permission-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: 170px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.permission-mode-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.permission-mode-trigger > svg {
+  flex-shrink: 0;
+}
+.permission-mode-trigger:hover,
+.permission-mode-trigger.is-open {
+  background: var(--hover);
+  color: var(--text);
+}
+.permission-mode-trigger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.permission-mode-chevron {
+  opacity: 0.7;
+}
+.permission-mode-popover {
+  position: fixed;
+  z-index: 160;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(392px, calc(100vw - 24px));
+  padding: 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-family: inherit;
+}
+.permission-mode-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 7px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.permission-mode-help {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.permission-mode-help:hover {
+  color: var(--text);
+}
+.permission-mode-explanation {
+  flex-shrink: 0;
+  margin: 0 7px 7px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.permission-mode-explanation p {
+  margin: 0;
+}
+.permission-mode-explanation p + p {
+  margin-top: 5px;
+}
+.permission-mode-options {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.permission-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 62px;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.permission-mode-option:not(:disabled):hover,
+.permission-mode-option:focus-visible {
+  background: var(--hover);
+}
+.permission-mode-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.permission-mode-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.permission-mode-label {
+  font-size: 14px;
+  line-height: 1.45;
+}
+.permission-mode-description {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.permission-mode-check {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.permission-mode-unavailable {
+  margin-left: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.permission-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.is-full-access.permission-mode-trigger,
+.is-full-access.permission-mode-option,
+.is-full-access .permission-mode-icon,
+.is-full-access .permission-mode-description,
+.is-full-access .permission-mode-check {
+  color: var(--permission-full-access, #e76d2b);
+}
+.permission-mode-trigger:focus-visible,
+.permission-mode-help:focus-visible,
+.permission-mode-option:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 2px;
+}
+.permission-mode-popup-enter-active,
+.permission-mode-popup-leave-active {
+  transition:
+    opacity var(--motion-normal, 200ms) ease,
+    transform var(--motion-normal, 200ms) var(--ease-out, ease);
+}
+.permission-mode-popup-enter-from,
+.permission-mode-popup-leave-to {
+  opacity: 0;
+  transform: translateY(4px) scale(0.97);
+}
+.permission-mode-popup-leave-active {
+  pointer-events: none;
+  transition-duration: var(--motion-fast, 120ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .permission-mode-popup-enter-active,
+  .permission-mode-popup-leave-active {
+    transition: none;
+  }
+  .permission-mode-popup-enter-from,
+  .permission-mode-popup-leave-to {
+    transform: none;
+  }
+}
+@media (max-width: 540px) {
+  .permission-mode-trigger {
+    max-width: 143px;
+    padding-inline: 7px;
+    font-size: 12px;
+    gap: 5px;
+  }
+  .permission-mode-heading {
+    font-size: 11px;
+    gap: 6px;
+  }
+}

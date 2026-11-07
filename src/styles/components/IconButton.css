@@ -1,0 +1,5 @@
+
+.icon-button{width:32px;height:32px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer;padding:6px;transition:background .15s}
+.icon-button:hover,.icon-button.is-active{background:var(--hover)}
+.icon-button:disabled{opacity:.35;cursor:not-allowed}
+.icon-button :deep(svg){width:20px;height:20px;stroke-width:1.7}

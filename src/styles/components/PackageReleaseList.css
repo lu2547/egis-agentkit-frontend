@@ -1,0 +1,23 @@
+
+.package-row {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 20px 5px;
+  border-bottom: 1px solid var(--line);
+}
+.package-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.package-row strong {
+  font-size: 13px;
+  font-weight: 500;
+  margin-right: 12px;
+}
+.package-row p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,10 @@
+
+.context-picker { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); max-height: 280px; overflow-y: auto; z-index: 55; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.picker-heading { display: flex; align-items: center; gap: 6px; color: var(--muted); padding: 5px 7px 9px; font-size: 12px; }
+.picker-heading span { margin-left: auto; font-size: 10px; }
+.context-option { display: flex; width: 100%; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 8px; background: transparent; color: var(--text); font-family: inherit; text-align: left; cursor: pointer; }
+.context-option.selected, .context-option:hover { background: var(--surface); }
+.option-text { display: grid; flex: 1; min-width: 0; gap: 2px; font-size: 13px; }
+.option-text small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.kind { font-size: 11px; color: var(--muted); }
+.empty { margin: 12px 8px; font-size: 13px; color: var(--muted); }

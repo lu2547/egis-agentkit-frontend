@@ -1,0 +1,126 @@
+.preferences {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 540px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 24px;
+}
+.document-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: none;
+}
+.document-tabs button {
+  min-width: 164px;
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  padding: 14px 22px;
+  border-radius: 12px;
+  color: var(--muted);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.document-tabs button:hover,
+.document-tabs button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+.document-tabs span {
+  display: block;
+  font-size: 19px;
+  font-weight: 600;
+}
+.document-tabs small {
+  display: block;
+  margin-top: 5px;
+  font-size: 14px;
+}
+.document-panel,
+.document-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.document-description {
+  font-size: 16px;
+  color: var(--muted);
+  margin: 0 0 16px;
+  line-height: 1.7;
+}
+.document-editor {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 340px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    17px/1.85 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    "PingFang SC",
+    "Microsoft YaHei",
+    monospace;
+  transition: border-color 160ms ease;
+}
+.document-editor:hover,
+.document-editor:focus {
+  border-color: var(--border-hover);
+  outline: none;
+  box-shadow: none;
+}
+.document-editor::placeholder {
+  color: var(--muted);
+}
+.document-panel > .error,
+.saved {
+  margin-top: 16px;
+  font-size: 15px;
+}
+.saved {
+  color: var(--text);
+}
+.form-actions {
+  margin-top: 24px;
+}
+@media (max-width: 600px) {
+  .preferences {
+    gap: 18px;
+  }
+  .document-tabs {
+    gap: 8px;
+  }
+  .document-tabs button {
+    min-width: 0;
+    flex: 1;
+    padding: 12px;
+  }
+  .document-tabs span {
+    font-size: 17px;
+  }
+  .document-tabs small {
+    font-size: 13px;
+  }
+  .document-editor {
+    padding: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-tabs button,
+  .document-editor {
+    transition: none;
+  }
+}

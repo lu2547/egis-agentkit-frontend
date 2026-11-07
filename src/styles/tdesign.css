@@ -1,0 +1,85 @@
+/* Match the specificity of TDesign's :root[theme-mode] and :root.dark.
+   Mapping only :root lets its default blue palette win after theme setup. */
+:root,
+:root[theme-mode] {
+  --td-brand-color-1: var(--surface);
+  --td-brand-color-2: var(--hover);
+  --td-brand-color-3: var(--border-hover);
+  --td-brand-color-4: var(--subtle);
+  --td-brand-color-5: var(--muted);
+  --td-brand-color-6: var(--accent-hover);
+  --td-brand-color-7: var(--accent);
+  --td-brand-color-8: var(--accent-active);
+  --td-brand-color-9: var(--text);
+  --td-brand-color-10: var(--text);
+  --td-brand-color: var(--accent);
+  --td-brand-color-hover: var(--accent-hover);
+  --td-brand-color-active: var(--accent-active);
+  --td-brand-color-focus: var(--focus-ring);
+  --td-brand-color-disabled: var(--border-hover);
+  --td-brand-color-light: var(--accent-soft);
+  --td-brand-color-light-hover: var(--hover);
+  --td-bg-color-page: var(--surface);
+  --td-bg-color-container: var(--bg);
+  --td-bg-color-container-hover: var(--hover);
+  --td-bg-color-container-active: var(--hover);
+  --td-bg-color-container-select: var(--hover);
+  --td-bg-color-secondarycontainer: var(--surface);
+  --td-bg-color-secondarycontainer-hover: var(--hover);
+  --td-bg-color-component: var(--surface);
+  --td-bg-color-component-hover: var(--hover);
+  --td-bg-color-component-active: var(--hover);
+  --td-bg-color-component-disabled: var(--surface);
+  --td-bg-color-specialcomponent: var(--bg);
+  --td-text-color-primary: var(--text);
+  --td-text-color-secondary: var(--muted);
+  --td-text-color-placeholder: var(--subtle);
+  --td-text-color-disabled: var(--subtle);
+  --td-text-color-anti: var(--inverse);
+  --td-text-color-brand: var(--text);
+  --td-text-color-link: var(--text);
+  --td-border-level-1-color: var(--border);
+  --td-border-level-2-color: var(--border);
+  --td-component-stroke: var(--border);
+  --td-shadow-2: var(--shadow);
+  --td-radius-default: 8px;
+  --td-font-family: inherit;
+}
+.t-popup__content,
+.t-dialog,
+.t-drawer__content {
+  background: var(--bg);
+  color: var(--text);
+}
+.t-input,
+.t-textarea__inner {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* One boundary per field: focus changes the existing thin border. */
+:where(button, a, select, summary, [tabindex]):focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.t-button:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.t-input:focus-within,
+.t-input.t-is-focused,
+.t-textarea__inner:focus,
+.t-textarea__inner:focus-visible {
+  border-color: var(--border-hover);
+  box-shadow: none;
+  outline: none;
+}
+.t-input__inner:focus,
+.t-input__inner:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+:where(input, textarea):not(.t-input__inner):not(.t-textarea__inner):focus-visible {
+  outline: 1px solid var(--border-hover);
+  outline-offset: 0;
+}
