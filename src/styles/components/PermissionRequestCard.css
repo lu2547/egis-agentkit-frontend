@@ -29,8 +29,20 @@
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   justify-content: flex-end;
+}
+.rule-scope {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.rule-scope ul {
+  margin: 2px 0 0;
+  padding-inline-start: 18px;
 }
 .permission-card .muted {
   font-size: 11px;

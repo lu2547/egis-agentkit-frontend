@@ -16,6 +16,7 @@ const props = defineProps<{
     replyId: string,
     tool: ToolCallBlock,
     allowed: boolean,
+    rememberForSession?: boolean,
   ) => Promise<void>;
 }>();
 defineEmits<{ older: []; file: [path: string] }>();

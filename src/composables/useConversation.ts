@@ -9,6 +9,7 @@ import {
   SessionScope,
   type SessionLease,
 } from "../domain/agentEventReducer";
+import { sessionApprovalRules } from "../domain/permissionApproval";
 import { runtime } from "../api/runtime";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
@@ -199,17 +200,22 @@ export function useConversation() {
     replyId: string,
     tool: ToolCallBlock,
     confirmed: boolean,
+    rememberForSession = false,
   ) {
     if (!task.value || !lease) return;
     const current = lease,
       selected = task.value;
     error.value = "";
+    const rules =
+      confirmed && rememberForSession ? sessionApprovalRules(tool) : [];
     const event: UserConfirmResultEvent = {
       type: EventType.USER_CONFIRM_RESULT,
       id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
       reply_id: replyId,
-      confirm_results: [{ confirmed, tool_call: tool, rules: null }],
+      confirm_results: [
+        { confirmed, tool_call: tool, rules: rules.length ? rules : null },
+      ],
     };
     try {
       state.value.phase = "streaming";

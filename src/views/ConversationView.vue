@@ -397,8 +397,13 @@ const artifactsByReply = computed(() =>
             :key="tool.id"
             :tool="tool"
             :confirm="
-              (call, allowed) =>
-                conversation.confirm(entry.reply_id, call, allowed)
+              (call, allowed, rememberForSession) =>
+                conversation.confirm(
+                  entry.reply_id,
+                  call,
+                  allowed,
+                  rememberForSession,
+                )
             "
           />
         </section>

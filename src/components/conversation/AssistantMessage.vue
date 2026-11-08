@@ -13,6 +13,7 @@ const props = defineProps<{
     replyId: string,
     tool: ToolCallBlock,
     allowed: boolean,
+    rememberForSession?: boolean,
   ) => Promise<void>;
 }>();
 defineEmits<{ file: [path: string] }>();
@@ -46,7 +47,10 @@ const replyError = computed(() =>
         v-for="tool in presentation.confirmations"
         :key="tool.id"
         :tool="tool"
-        :confirm="(call, allowed) => confirm(message.id, call, allowed)"
+        :confirm="
+          (call, allowed, rememberForSession) =>
+            confirm(message.id, call, allowed, rememberForSession)
+        "
       />
       <MarkdownContent
         v-if="presentation.answer"

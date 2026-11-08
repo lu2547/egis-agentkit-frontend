@@ -644,6 +644,16 @@ createServer(async (req, res) => {
             input: "{}",
             state: "asking",
             created_at: date,
+            suggested_rules: text.includes("记住")
+              ? [
+                  {
+                    tool_name: "检索工作资料",
+                    rule_content: "研究资料/**",
+                    behavior: "allow",
+                    source: "suggested",
+                  },
+                ]
+              : [],
           },
         ],
       });

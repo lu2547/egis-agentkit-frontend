@@ -22,9 +22,60 @@ test("permission remains actionable when process is collapsed and disappears aft
   await expect(
     page.getByRole("button", { name: "允许此次操作" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "本会话记住此授权" }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "允许此次操作" }).click();
   await expect(page.getByText("需要你的确认")).toHaveCount(0);
 });
+
+for (const choice of ["remember", "once", "deny"] as const) {
+  test(`confirmation sends session rules only when approved with remember selected (${choice})`, async ({
+    page,
+  }) => {
+    if (choice === "remember")
+      await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/tasks/s1");
+    await page.locator("textarea").fill("测试确认并记住");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    const remember = page.getByRole("checkbox", { name: "本会话记住此授权" });
+    await expect(remember).toBeVisible();
+    await expect(remember).not.toBeChecked();
+    if (choice !== "once") {
+      await page.getByText("本会话记住此授权", { exact: true }).click();
+      await expect(remember).toBeChecked();
+      await expect(page.getByText("研究资料/**", { exact: true })).toBeVisible();
+    }
+    const submitted = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().endsWith("/chat/"),
+    );
+    const action = {
+      remember: "允许并记住",
+      deny: "拒绝",
+      once: "允许此次操作",
+    }[choice];
+    await page.getByRole("button", { name: action }).click();
+    const { session_id, input } = (await submitted).postDataJSON();
+    expect(session_id).toBe("s1");
+    expect(input.confirm_results).toEqual([
+      expect.objectContaining({
+        confirmed: choice !== "deny",
+        rules:
+          choice === "remember"
+            ? [
+                {
+                  tool_name: "检索工作资料",
+                  rule_content: "研究资料/**",
+                  behavior: "allow",
+                  source: "session",
+                },
+              ]
+            : null,
+      }),
+    ]);
+  });
+}
 
 test("plus menu opens searchable resources and file picker", async ({
   page,
