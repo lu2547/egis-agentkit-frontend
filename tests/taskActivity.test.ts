@@ -6,8 +6,11 @@ import {
 import type { Task } from "../src/types/api";
 const task = (values: Partial<Task>): Task => ({
   session_id: "s1",
+  project_id: "p1",
+  plan: [],
   agent_id: "a1",
   definition_id: "personal",
+  resource_version: "1",
   definition_display_name: "个人助理",
   name: "任务",
   updated_at: "old",

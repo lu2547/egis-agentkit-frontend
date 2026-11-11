@@ -2,7 +2,6 @@
 import { ref, watch, onUnmounted, computed, defineAsyncComponent } from "vue";
 import { requestRaw, errorText } from "../../api/http";
 import { workspacePath } from "../../api/manager";
-import { workspace } from "../../api/workspace";
 import { checkOfficeArchive } from "./officeArchive";
 import MarkdownContent from "../conversation/MarkdownContent.vue";
 import AppIcon from "../common/AppIcon.vue";
@@ -15,11 +14,9 @@ const isTextFile = (path: string, mime: string) =>
     path,
   );
 const props = defineProps<{
-  sessionId: string;
-  projectId?: string;
+  projectId: string;
   area: string;
   path: string;
-  global?: boolean;
 }>();
 const loading = ref(false),
   error = ref(""),
@@ -47,12 +44,7 @@ function reset() {
   officeError.value = "";
 }
 watch(
-  () => [
-    props.global ? "" : props.projectId || props.sessionId,
-    props.area,
-    props.path,
-    props.global,
-  ],
+  () => [props.projectId, props.area, props.path],
   async () => {
     reset();
     if (!props.path) return;
@@ -61,13 +53,9 @@ watch(
     loading.value = true;
     error.value = "";
     try {
-      const response = props.global
-        ? await workspace.file(props.path, signal)
-        : await requestRaw(
-            `${workspacePath(props.sessionId, props.projectId)}/file`,
-            { signal },
-            { area: props.area, path: props.path },
-          );
+      const path = workspacePath(props.projectId);
+      const query = { area: props.area, path: props.path };
+      const response = await requestRaw(`${path}/file`, { signal }, query);
       const blob = await response.blob();
       if (signal.aborted) return;
       mime.value = blob.type.split(";")[0];
@@ -75,15 +63,7 @@ watch(
       if (mime.value === "application/pdf" || /\.pdf$/i.test(props.path))
         pdfBlob.value = blob;
       if (/\.(pptx?|doc|xls|odt|ods|odp)$/i.test(props.path)) {
-        const converted = await requestRaw(
-          props.global
-            ? "/manager/workspace/preview"
-            : `${workspacePath(props.sessionId, props.projectId)}/preview`,
-          { signal },
-          props.global
-            ? { path: props.path }
-            : { path: props.path, area: props.area },
-        );
+        const converted = await requestRaw(`${path}/preview`, { signal }, query);
         const convertedBlob = await converted.blob();
         if (!signal.aborted) pdfBlob.value = convertedBlob;
       }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { Definition, DefinitionRef } from "../../types/api";
-import { definitionName } from "../../types/api";
+import { definitionName, definitionRef } from "../../types/api";
 const props = defineProps<{
   name: string;
   displayName: string;
@@ -14,17 +15,40 @@ const emit = defineEmits<{
   "update:prompt": [v: string];
   "update:members": [v: DefinitionRef[]];
 }>();
-function update(value: unknown) {
-  emit(
-    "update:members",
-    (Array.isArray(value) ? value : []).map((v) => {
-      const [id, view] = String(v).split("|");
-      return {
-        definition_id: id,
-        resource_view_type: view as DefinitionRef["resource_view_type"],
-      };
-    }),
+const memberKey = (member: DefinitionRef) =>
+  JSON.stringify([member.definition_id, member.resource_view_type, member.resource_version]);
+/** 保留已选的历史成员版本，同时提供目录中的可用版本。 */
+const choices = computed(() => {
+  const byVersion = new Map(
+    props.experts.filter((d) => (d.agent_type === "expert" || d.agent_type === "remote") && d.is_usable)
+      .map((d) => {
+        const member = definitionRef(d);
+        return [memberKey(member), { member, name: definitionName(d) }] as const;
+      }),
   );
+  for (const member of props.members) {
+    const key = memberKey(member);
+    if (!byVersion.has(key)) {
+      byVersion.set(key, { member, name: member.definition_id });
+    }
+  }
+  return byVersion;
+});
+const options = computed(() =>
+  [...choices.value].filter(([key, { member }]) =>
+    !props.members.some((current) =>
+      current.definition_id === member.definition_id && memberKey(current) !== key,
+    ),
+  ).map(([value, { member, name }]) => ({
+    label: `${name} · ${member.resource_version}`,
+    value,
+  })),
+);
+function update(value: unknown) {
+  const members = (Array.isArray(value) ? value : [])
+    .map((key) => choices.value.get(key)?.member)
+    .filter((member): member is DefinitionRef => !!member);
+  emit("update:members", members);
 }
 </script>
 <template>
@@ -65,20 +89,11 @@ function update(value: unknown) {
       ><t-select
         multiple
         filterable
-        :value="
-          members.map((r) => `${r.definition_id}|${r.resource_view_type}`)
-        "
-        :options="
-          experts
-            .filter((d) => d.agent_type === 'expert' && d.is_usable)
-            .map((d) => ({
-              label: definitionName(d),
-              value: `${d.id}|${d.resource_view_type}`,
-            }))
-        "
+        :value="members.map(memberKey)"
+        :options="options"
         placeholder="选择至少一位专家"
         @change="update"
-      /><small>成员保留各自的提示词与 Skill/MCP 配置。</small>
+      /><small>成员固定使用所选发布版本的指令与能力配置。</small>
     </div>
   </div>
 </template>

@@ -51,7 +51,7 @@ for (const name of [
     await page.goto("/tasks/s1");
     const panel = page.locator(".workspace-panel");
     await panel
-      .getByRole("button", { name: new RegExp(name.replace(".", "\\.")) })
+      .locator("button.file-open").filter({ hasText: name })
       .click();
     const canvas = panel.locator("canvas");
     await expect(canvas).toBeVisible();
@@ -100,7 +100,7 @@ test("code preview treats source as text and keeps HTML scripts isolated", async
   await page.goto("/tasks/s1");
   await page
     .locator(".workspace-panel")
-    .getByRole("button", { name: /example\.java/ })
+    .locator("button.file-open").filter({ hasText: /example\.java/ })
     .click();
   await expect(page.locator(".text-preview")).toContainText(
     "public class Example",

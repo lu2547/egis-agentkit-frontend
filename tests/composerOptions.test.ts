@@ -8,8 +8,12 @@ const option = (id: string): ComposerOption => ({
   detail: "",
   kind: "file",
 });
-const page = (start: number, next: string | null): ComposerOptionsPage => ({
-  items: Array.from({ length: 10 }, (_, index) =>
+const page = (
+  start: number,
+  next: string | null,
+  count = 10,
+): ComposerOptionsPage => ({
+  items: Array.from({ length: count }, (_, index) =>
     option(String(start + index)),
   ),
   next_cursor: next,
@@ -35,11 +39,11 @@ describe("composer request pagination", () => {
     expect(pager.state.items).toHaveLength(10);
     expect(pager.state.error).toBe("");
   });
-  it("loads ten per request and advances across the page boundary", async () => {
+  it("uses the server page size and advances across the page boundary", async () => {
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(page(0, "next"))
-      .mockResolvedValueOnce(page(10, null));
+      .mockResolvedValueOnce(page(0, "next", 6))
+      .mockResolvedValueOnce(page(6, null, 4));
     const pager = createComposerPager(fetch);
     await pager.reset({
       category: "context",
@@ -47,18 +51,18 @@ describe("composer request pagination", () => {
       session_id: "session",
     });
     expect(fetch.mock.calls[0][0]).toMatchObject({
-      limit: 10,
       category: "context",
       query: "report",
       session_id: "session",
     });
-    pager.state.activeIndex = 9;
+    expect(fetch.mock.calls[0][0]).not.toHaveProperty("limit");
+    pager.state.activeIndex = 5;
     await pager.move(1);
     expect(fetch.mock.calls[1][0].cursor).toBe("next");
-    expect(pager.state.items).toHaveLength(20);
-    expect(pager.state.activeIndex).toBe(10);
+    expect(pager.state.items).toHaveLength(10);
+    expect(pager.state.activeIndex).toBe(6);
     await pager.move(-1);
-    expect(pager.state.activeIndex).toBe(9);
+    expect(pager.state.activeIndex).toBe(5);
   });
 
   it("aborts old queries and ignores late results after a category or scope reset", async () => {

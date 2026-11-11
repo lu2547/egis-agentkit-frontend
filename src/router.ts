@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useIdentity } from "./composables/useIdentity";
 import WorkbenchLayout from "./layouts/WorkbenchLayout.vue";
 export const router = createRouter({
   history: createWebHistory(),
@@ -53,16 +54,19 @@ export const router = createRouter({
           path: "connectors",
           component: () => import("./views/ConnectorsView.vue"),
         },
-        {
-          path: "settings/assistant",
-          redirect: "/experts?tab=personal",
-        },
+        { path: "tools", component: () => import("./views/ToolsView.vue") },
         {
           path: "share-requests",
           component: () => import("./views/ShareRequestsView.vue"),
         },
         {
+          path: "admin/access-denied",
+          name: "admin-access-denied",
+          component: () => import("./views/AdminView.vue"),
+        },
+        {
           path: "admin/:section",
+          meta: { adminOnly: true },
           component: () => import("./views/AdminView.vue"),
         },
         {
@@ -72,4 +76,11 @@ export const router = createRouter({
       ],
     },
   ],
+});
+
+router.beforeEach((to) => {
+  const { user, isAdmin } = useIdentity();
+  if (to.meta.adminOnly && user.value && !isAdmin.value) {
+    return { name: "admin-access-denied" };
+  }
 });

@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { manager } from "../api/manager";
 import { getToken, setToken, errorText } from "../api/http";
 import type {
@@ -20,6 +20,9 @@ const user = ref<User | null>(null),
   defaultModelKey = ref(""),
   error = ref(""),
   loading = ref(false);
+const isAdmin = computed(
+  () => user.value?.is_enabled === true && user.value.role_type === "admin",
+);
 export function useIdentity() {
   async function refreshProjects() {
     const request = ++projectGeneration;
@@ -77,6 +80,7 @@ export function useIdentity() {
   }
   return {
     user,
+    isAdmin,
     tasks,
     projects,
     assistant,

@@ -15,20 +15,13 @@ const pending = ref(false),
 const { data, loading, error, load } = useAsyncData(async () => {
   const catalog = await manager.resources("skills");
   const resourceId = String(route.params.resourceId || "");
-  const selected = catalog.items.find(
-    (r) =>
-      r.resource_id === resourceId &&
-      r.is_editable &&
-      (!route.query.version || r.resource_version === route.query.version),
-  );
-  if (resourceId && !selected)
+  const version = typeof route.query.version === "string"
+    ? route.query.version
+    : catalog.items.find((item) => item.resource_id === resourceId && item.is_editable)?.resource_version;
+  if (resourceId && !version)
     throw new Error("找不到可编辑的技能，或你没有编辑权限。");
-  const resource = selected
-    ? await manager.resource(
-        "skills",
-        selected.resource_id,
-        selected.resource_version,
-      )
+  const resource = resourceId && version
+    ? await manager.resource("skills", resourceId, version)
     : undefined;
   if (resource && !resource.is_editable)
     throw new Error("你没有编辑这个技能的权限。");
@@ -52,17 +45,14 @@ watch(
   { immediate: true },
 );
 function back() {
-  return router.push("/skills");
+  return router.push(route.query.system === "1" ? "/admin/skills" : "/skills");
 }
 async function save(body: SkillSaveInput) {
   pending.value = true;
   saveError.value = "";
   try {
-    await manager.saveResource(
-      "skills",
-      body,
-      data.value?.resource?.resource_id,
-    );
+    if (route.query.system === "1") await manager.registerSystemResource("skill", body);
+    else await manager.saveResource("skills", body, data.value?.resource?.resource_id);
     await back();
   } catch (e) {
     saveError.value = errorText(e);

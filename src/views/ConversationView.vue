@@ -3,7 +3,7 @@ import { ref, watch, computed, nextTick, onScopeDispose } from "vue";
 import { useRoute } from "vue-router";
 import { manager } from "../api/manager";
 import type { Definition, Collaborator } from "../types/api";
-import { definitionName } from "../types/api";
+import { definitionName, definitionRef } from "../types/api";
 import CollaboratorChips from "../components/conversation/CollaboratorChips.vue";
 import ConversationTopbar from "../components/layout/ConversationTopbar.vue";
 import { useRuntimeOptions } from "../composables/useRuntimeOptions";
@@ -70,25 +70,35 @@ function selectExpert(definition: Definition | null) {
   if (!definition || uploading.value || conversation.submitting.value) return;
   if (
     !conversation.task.value?.collaboration_allowed ||
-    definition.agent_type !== "expert"
+    !["expert", "remote"].includes(definition.agent_type || "")
   ) {
     conversation.error.value =
       "仅个人助理对话可以邀请专家协作，固定专家团成员不在这里调整。";
     return;
   }
   const target: Collaborator = {
-    definition_id: definition.id,
-    resource_view_type: definition.resource_view_type,
+    ...definitionRef(definition),
     display_name: definitionName(definition),
     status: "pending",
     avatar: definition.payload.avatar,
   };
-  if (pendingExperts.value.some((item) => sameExpert(item, target))) return;
-  if (pendingExperts.value.length >= 16) {
+  const joined = (conversation.task.value?.collaborators || []).find(
+    (member) => member.status === "joined" && sameExpert(member, target),
+  );
+  if (joined && joined.resource_version !== target.resource_version) {
+    conversation.error.value = "已加入的专家版本无法更换。";
+    return;
+  }
+  const pending = pendingExperts.value.find((item) => sameExpert(item, target));
+  if (pending?.resource_version === target.resource_version) return;
+  if (!pending && pendingExperts.value.length >= 16) {
     conversation.error.value = "本次最多选择 16 位协作专家。";
     return;
   }
-  stagedExperts.value = [...pendingExperts.value, target];
+  stagedExperts.value = [
+    ...pendingExperts.value.filter((item) => !sameExpert(item, target)),
+    target,
+  ];
   invitationDirty.value = true;
   invitationRequestId = "";
 }
@@ -156,7 +166,8 @@ watch(
   },
 );
 async function attach(files: File[]) {
-  if (!conversation.task.value || conversation.loading.value) return;
+  const task = conversation.task.value;
+  if (!task || conversation.loading.value || uploading.value) return;
   const current = generation,
     targetSid = sid.value;
   attachments.add(files);
@@ -164,25 +175,26 @@ async function attach(files: File[]) {
   conversation.error.value = "";
   try {
     await attachments.ensureUploaded(
-      targetSid,
+      task.project_id,
       files,
       attachmentController.signal,
-      projectId.value,
     );
-    if (generation === current && sid.value === targetSid) fileRevision.value++;
   } catch (error) {
     if (generation === current && sid.value === targetSid)
       conversation.error.value = errorText(error);
   } finally {
-    if (generation === current && sid.value === targetSid)
+    if (generation === current && sid.value === targetSid) {
+      fileRevision.value++;
       uploading.value = false;
+    }
   }
 }
 async function send() {
   const value = text.value.trim();
+  const task = conversation.task.value;
   if (
     !value ||
-    !conversation.task.value ||
+    !task ||
     uploading.value ||
     conversation.submitting.value ||
     conversation.state.value.phase !== "idle"
@@ -194,11 +206,10 @@ async function send() {
   uploading.value = true;
   try {
     const message = await attachments.upload(
-      targetSid,
+      task.project_id,
       value,
       selectedFiles,
       attachmentController.signal,
-      projectId.value,
     );
     if (generation !== current || sid.value !== targetSid) return;
     fileRevision.value++;
@@ -213,6 +224,7 @@ async function send() {
         pendingExperts.value.map((member) => ({
           definition_id: member.definition_id,
           resource_view_type: member.resource_view_type,
+          resource_version: member.resource_version,
         })),
       );
       if (generation !== current || sid.value !== targetSid) return;
@@ -487,7 +499,6 @@ const artifactsByReply = computed(() =>
     <WorkspacePanel
       v-if="conversation.task.value || projectId"
       ref="workspace"
-      :session-id="sid"
       :project-id="projectId"
       :revision="artifactRevision"
       :visible="workspaceOpen"

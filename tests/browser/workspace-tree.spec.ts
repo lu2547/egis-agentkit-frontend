@@ -61,12 +61,12 @@ for (const theme of ["light", "dark"] as const) {
       "资料",
     ]);
     await expect(
-      panel.getByRole("button", { name: ".work", exact: true }),
-    ).toHaveClass(/is-hidden-directory/);
+      panel.locator(".file-row.is-hidden-directory").getByRole("button", { name: ".work", exact: true }),
+    ).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`workspace-tree-${theme}.png`),
     });
-    await panel.getByRole("button", { name: /需求.md/ }).click();
+    await panel.locator("button.file-open").filter({ hasText: /需求.md/ }).click();
     await expect(panel.locator(".file-preview")).toContainText(
       "uploads:需求.md",
     );
@@ -75,7 +75,7 @@ for (const theme of ["light", "dark"] as const) {
       .click();
     await panel.getByRole("button", { name: "资料", exact: true }).click();
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/资料");
-    await panel.getByRole("button", { name: /背景.md/ }).click();
+    await panel.locator("button.file-open").filter({ hasText: /背景.md/ }).click();
     await expect(panel.locator(".file-preview")).toContainText(
       "uploads:资料/背景.md",
     );
@@ -88,7 +88,7 @@ for (const theme of ["light", "dark"] as const) {
       .click();
     await panel.getByRole("button", { name: ".work", exact: true }).click();
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/.work");
-    await panel.getByRole("button", { name: /generate.py/ }).click();
+    await panel.locator("button.file-open").filter({ hasText: /generate.py/ }).click();
     await expect(panel.locator(".file-preview")).toContainText(
       "work:generate.py",
     );
@@ -100,7 +100,7 @@ for (const theme of ["light", "dark"] as const) {
       .getByRole("button", { name: "工作空间", exact: true })
       .click();
     await panel.locator(".file-row").filter({ hasText: "产物" }).click();
-    await panel.getByRole("button", { name: /report.md/ }).click();
+    await panel.locator("button.file-open").filter({ hasText: /report.md/ }).click();
     await expect(panel.locator(".file-preview")).toContainText(
       "artifacts:report.md",
     );
@@ -114,7 +114,7 @@ for (const theme of ["light", "dark"] as const) {
     });
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间");
     await expect(
-      panel.getByRole("button", { name: /新增资料.txt/ }),
+      panel.locator("button.file-open").filter({ hasText: /新增资料.txt/ }),
     ).toBeVisible();
   });
 }

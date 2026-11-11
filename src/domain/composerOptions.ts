@@ -31,7 +31,6 @@ export function createComposerPager(
     const signal = controller.signal;
     const params = {
       ...query,
-      limit: 10,
       cursor: initial ? undefined : state.cursor!,
     };
     state.loading = true;

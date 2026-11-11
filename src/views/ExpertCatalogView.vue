@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onScopeDispose, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import { useIdentity } from "../composables/useIdentity";
 import { useAsyncData } from "../composables/useAsyncData";
 import AsyncState from "../components/common/AsyncState.vue";
+import ShareRequestDialog from "../components/catalog/ShareRequestDialog.vue";
 import CatalogHeader from "../components/catalog/CatalogHeader.vue";
 import ResourceCategoryTabs from "../components/catalog/ResourceCategoryTabs.vue";
 import ExpertCard from "../components/experts/ExpertCard.vue";
@@ -20,7 +21,11 @@ const kind = ref<"agent" | "team" | "personal">(route.query.tab === "personal" ?
   search = ref(""),
   category = ref("全部"),
   detail = ref<Definition | null>(null),
-  notice = ref("");
+  detailPending = ref(false),
+  detailError = ref(""),
+  notice = ref(""),
+  shareSource = ref<Definition | null>(null),
+  shareUpdate = ref(false);
 const { data, loading, error, load } = useAsyncData(async () => {
   const [agents, teams] = await Promise.all([
     manager.definitions("agents"),
@@ -33,7 +38,8 @@ watch(() => route.query.tab, value => {
   kind.value = value === "personal" ? "personal" : value === "team" ? "team" : "agent";
   category.value = "全部";
   mine.value = "all";
-  detail.value = null;
+  closeDetail();
+  shareSource.value = null;
 });
 const current = computed(() =>
   (data.value || []).filter((d) => d.definition_type === kind.value && d.agent_type !== "personal"),
@@ -59,24 +65,49 @@ function summon(d: Definition, prompt?: string) {
     query: {
       definition: d.id,
       view: d.resource_view_type,
+      version: d.resource_version,
+      kind: d.definition_type,
       ...(prompt ? { prompt } : {}),
     },
   });
 }
+let detailRequest: AbortController | undefined;
+function closeDetail() {
+  detailRequest?.abort();
+  detail.value = null;
+  detailPending.value = false;
+}
+onScopeDispose(closeDetail);
+
+/** 打开详情时重新读取该用户当前可见的定义。 */
+async function openDetail(d: Definition) {
+  closeDetail();
+  detail.value = d;
+  detailRequest?.abort();
+  detailRequest = new AbortController();
+  const { signal } = detailRequest;
+  detailPending.value = true;
+  detailError.value = "";
+  try {
+    const selected = await manager.definition(
+      d.definition_type === "team" ? "teams" : "agents",
+      d.id, d.resource_view_type, undefined, signal,
+    );
+    if (!signal.aborted) detail.value = selected;
+  } catch (error) {
+    if (!signal.aborted) detailError.value = errorText(error);
+  } finally {
+    if (!signal.aborted) detailPending.value = false;
+  }
+}
 function edit(d: Definition) {
   router.push({
     path: `/${d.definition_type === "team" ? "teams" : "experts"}/${encodeURIComponent(d.id)}/edit`,
-    query: { returnTo: route.fullPath },
+    query: {
+      returnTo: route.fullPath,
+      view: d.owner_type === "system" ? "system" : "private",
+    },
   });
-}
-async function share() {
-  if (!detail.value) return;
-  try {
-    await manager.share(detail.value.definition_type, detail.value.id);
-    notice.value = "共享申请已提交，审核通过后面向所有用户。";
-  } catch (e) {
-    notice.value = errorText(e);
-  }
 }
 </script>
 <template>
@@ -102,19 +133,30 @@ async function share() {
       ><div class="card-grid">
         <ExpertCard
           v-for="definition in filtered"
-          :key="`${definition.id}-${definition.resource_view_type}`"
+          :key="`${definition.id}-${definition.resource_view_type}-${definition.resource_version}`"
           :definition="definition"
-          @detail="detail = definition"
+          @detail="openDetail(definition)"
           @summon="summon(definition)"
           @edit="edit(definition)"
         /></div></AsyncState
     ><ExpertDetailDialog
       :definition="detail"
       :definitions="data || []"
-      @close="detail = null"
+      :pending="detailPending"
+      :error="detailError"
+      @close="closeDetail"
       @summon="detail && summon(detail, $event)"
       @edit="detail && edit(detail)"
-      @share="share"
+      @share="shareUpdate = $event; shareSource = detail; closeDetail()"
+    />
+    <ShareRequestDialog
+      :visible="!!shareSource"
+      :resource-type="shareSource?.definition_type"
+      :resource-id="shareSource?.id || ''"
+      :version="shareSource?.version_label || shareSource?.resource_version || ''"
+      :update="shareUpdate"
+      @close="shareSource && openDetail(shareSource); shareSource = null"
+      @submitted="shareSource = null; notice = '共享申请已提交。'; load()"
     />
     </div>
   </section>

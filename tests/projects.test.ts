@@ -25,18 +25,14 @@ describe("project API targeting", () => {
       project_id: "p 1",
     });
   });
-  it("targets shared project files and changes while preserving the legacy session route", async () => {
-    await manager.files("s1", "uploads", "资料", undefined, false, "p 1");
+  it("targets project files and changes using the project ID", async () => {
+    await manager.files("p 1", "uploads", "资料");
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/api/manager/projects/p%201/files?area=uploads&path=%E8%B5%84%E6%96%99",
     );
-    await workspace.changes("s1", undefined, undefined, "p 1");
+    await workspace.changes("p 1");
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "/api/manager/projects/p%201/file-changes",
-    );
-    await manager.files("s1", "work");
-    expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "/api/manager/tasks/s1/files?area=work&path=",
     );
   });
 });

@@ -14,7 +14,7 @@ import IconButton from "../common/IconButton.vue";
 import DialogShell from "../common/DialogShell.vue";
 defineProps<{ collapsed: boolean }>();
 const emit = defineEmits<{ navigate: []; collapse: []; search: [] }>();
-const { user, tasks, projects, refreshTasks, refreshProjects, logout } =
+const { user, isAdmin, tasks, projects, refreshTasks, refreshProjects, logout } =
   useIdentity();
 const taskActivity = useTaskActivity();
 const activity = taskActivity.activity;
@@ -51,7 +51,7 @@ const projectIds = computed(
 );
 const recentTasks = computed(() =>
   tasks.value.filter(
-    (task) => !task.project_id || !projectIds.value.has(task.project_id),
+    (task) => !projectIds.value.has(task.project_id),
   ),
 );
 watch(
@@ -90,7 +90,7 @@ const action = ref<"create" | "rename" | "remove" | null>(null),
   pending = ref(false),
   error = ref("");
 const isCatalog = computed(() =>
-  ["/experts", "/teams", "/skills", "/connectors"].some((path) =>
+  ["/experts", "/teams", "/skills", "/connectors", "/tools"].some((path) =>
     route.path.startsWith(path),
   ),
 );
@@ -100,6 +100,7 @@ const sections = [
   { to: "/experts?tab=team", icon: "team", label: "专家团" },
   { to: "/skills", icon: "skill", label: "技能" },
   { to: "/connectors", icon: "connector", label: "连接器" },
+  { to: "/tools", icon: "grid", label: "工具" },
 ];
 const catalogMenu = ref(false);
 function navigate(to: string) {
@@ -308,10 +309,10 @@ onBeforeUnmount(() => {
           <button @click="navigate('/share-requests')">
             <AppIcon name="experts" :size="16" />共享申请</button
           ><button
-            v-if="user?.role_type === 'admin'"
+            v-if="isAdmin"
             @click="navigate('/admin/users')"
           >
-            <AppIcon name="shield" :size="16" />管理中心
+            <AppIcon name="shield" :size="16" />管理
           </button>
         </div>
       </div>
@@ -433,7 +434,7 @@ onBeforeUnmount(() => {
         ><span v-if="!collapsed" class="account-copy"
           ><strong>{{ user?.username }}</strong
           ><small>{{
-            user?.role_type === "admin" ? "管理员" : "个人工作空间"
+            isAdmin ? "管理员用户" : "普通用户"
           }}</small></span
         >
       </button>
@@ -451,10 +452,10 @@ onBeforeUnmount(() => {
         ><button @click="navigate('/share-requests')">
           <AppIcon name="experts" :size="16" />共享申请</button
         ><button
-          v-if="user?.role_type === 'admin'"
+          v-if="isAdmin"
           @click="navigate('/admin/users')"
         >
-          <AppIcon name="shield" :size="16" />管理中心</button
+          <AppIcon name="shield" :size="16" />管理</button
         ><button @click="logout">
           <AppIcon name="logout" :size="16" />退出登录
         </button>

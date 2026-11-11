@@ -14,17 +14,11 @@ const statuses = {
   failed: "导入失败",
 };
 const stages: Record<string, string> = {
-  pending: "等待处理",
   queued: "等待处理",
   validating: "校验技能包",
-  extracting: "解压技能包",
   preparing: "准备技能包",
   registering: "登记技能",
   retrying: "等待重试",
-  importing: "导入技能",
-  installing: "安装技能",
-  saving: "保存技能",
-  publishing: "发布技能",
   completed: "导入完成",
   failed: "导入失败",
 };

@@ -393,3 +393,7 @@ button:focus-visible {
     pointer-events: auto;
   }
 }
+.upload-error {
+  margin: 0 16px 8px;
+  overflow-wrap: anywhere;
+}

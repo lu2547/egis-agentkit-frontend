@@ -134,10 +134,12 @@ function scroll(event: Event) {
         <WandSparkles v-else-if="item.kind === 'skill'" :size="17" />
         <Terminal v-else-if="item.kind === 'command'" :size="17" />
         <FileTypeIcon v-else :name="item.name" :size="22" />
-        <span class="option-text"
-          ><span>{{ item.name }}</span
-          ><small>{{ item.detail }}</small></span
-        >
+        <span class="option-text">
+          <span>{{ item.display_name || item.name }}</span>
+          <small :title="item.kind === 'file' ? item.detail : undefined">
+            {{ item.detail }}
+          </small>
+        </span>
         <span class="kind">{{
           { expert: "专家", skill: "技能", file: "文件", command: "命令" }[
             item.kind

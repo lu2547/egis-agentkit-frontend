@@ -440,14 +440,15 @@ onBeforeUnmount(() => {
                 </button>
                 <button
                   v-for="definition in filteredDefinitions"
-                  :key="`${definition.id}-${definition.resource_view_type}`"
+                  :key="`${definition.id}-${definition.resource_view_type}-${definition.resource_version}`"
                   type="button"
                   class="catalog-item"
                   role="menuitemradio"
                   :aria-checked="
                     selected?.id === definition.id &&
                     selected.resource_view_type ===
-                      definition.resource_view_type
+                      definition.resource_view_type &&
+                    selected.resource_version === definition.resource_version
                   "
                   @click="selectExpert(definition)"
                 >
@@ -458,7 +459,8 @@ onBeforeUnmount(() => {
                     v-if="
                       selected?.id === definition.id &&
                       selected.resource_view_type ===
-                        definition.resource_view_type
+                        definition.resource_view_type &&
+                      selected.resource_version === definition.resource_version
                     "
                     :size="14"
                     class="check"

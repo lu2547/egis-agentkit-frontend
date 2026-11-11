@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onScopeDispose, watch } from "vue";
 import BrandIdentity from "../components/common/BrandIdentity.vue";
 import { useRuntimeOptions } from "../composables/useRuntimeOptions";
 import { useRouter, useRoute } from "vue-router";
@@ -14,7 +14,7 @@ import { useIdentity } from "../composables/useIdentity";
 import { useAttachments } from "../composables/useAttachments";
 import { queueDraft } from "../composables/usePendingDraft";
 import type { Definition, Task } from "../types/api";
-import { definitionName } from "../types/api";
+import { definitionName, definitionRef } from "../types/api";
 const {
   assistant,
   models,
@@ -24,7 +24,7 @@ const {
   refreshProjects,
 } = useIdentity();
 const runtime = useRuntimeOptions();
-const permissionMode = ref("default");
+const permissionMode = ref("");
 const router = useRouter(),
   route = useRoute();
 const routeProjectId = computed(() =>
@@ -45,7 +45,12 @@ const text = ref(
   pending = ref(false),
   error = ref(""),
   modelKey = ref("");
+const requestedDefinition = typeof route.query.definition === "string" ? route.query.definition : "";
+const resolvingDefinition = ref(!!requestedDefinition);
+const definitionUnavailable = ref(false);
 const attachments = useAttachments();
+let uploadController = new AbortController();
+onScopeDispose(() => uploadController.abort());
 let preparedTask: { key: string; task: Task } | undefined;
 const workspaceOpen = ref(false);
 const fileRevision = ref(0);
@@ -63,6 +68,8 @@ watch(
   { immediate: true },
 );
 watch(projectId, () => {
+  uploadController.abort();
+  uploadController = new AbortController();
   preparedTask = undefined;
   fileRevision.value = 0;
 });
@@ -105,19 +112,44 @@ onMounted(async () => {
       manager.definitions("teams"),
     ]);
     definitions.value = [...agents.items, ...teams.items];
-    if (route.query.definition)
-      selected.value =
-        definitions.value.find(
-          (d) =>
-            d.id === route.query.definition &&
-            (!route.query.view || d.resource_view_type === route.query.view),
-        ) || null;
+    if (requestedDefinition) {
+      const catalogEntry = definitions.value.find(
+        (d) => d.id === requestedDefinition &&
+          (!route.query.view || d.resource_view_type === route.query.view),
+      );
+      const version = route.query.version;
+      if (typeof version === "string") {
+        const kind = route.query.kind || catalogEntry?.definition_type;
+        const view = route.query.view || catalogEntry?.resource_view_type;
+        if ((kind !== "agent" && kind !== "team") ||
+            (view !== "private" && view !== "shared" && view !== "system"))
+          throw new Error("无法读取选定的专家版本。");
+        selected.value = await manager.definition(
+          kind === "team" ? "teams" : "agents", requestedDefinition, view, version,
+        );
+      } else if (catalogEntry) {
+        selected.value = catalogEntry;
+      } else {
+        throw new Error("无法读取选定的专家。");
+      }
+    }
   } catch (e) {
+    definitionUnavailable.value = !!requestedDefinition;
     error.value = errorText(e);
+  } finally {
+    resolvingDefinition.value = false;
   }
 });
+function chooseDefinition(definition: Definition | null) {
+  if (resolvingDefinition.value) return;
+  selected.value = definition;
+  if (definitionUnavailable.value) {
+    definitionUnavailable.value = false;
+    error.value = "";
+  }
+}
 async function submit() {
-  if (pending.value || !text.value.trim()) return;
+  if (pending.value || resolvingDefinition.value || definitionUnavailable.value || !text.value.trim()) return;
   const definition = selected.value || assistant.value;
   if (!definition) {
     error.value = "个人助理尚未就绪，请刷新工作空间。";
@@ -129,10 +161,12 @@ async function submit() {
   }
   pending.value = true;
   error.value = "";
+  const signal = uploadController.signal;
   try {
     const key = JSON.stringify([
       definition.id,
       definition.resource_view_type,
+      definition.resource_version,
       modelKey.value,
       permissionMode.value,
       projectId.value,
@@ -141,22 +175,20 @@ async function submit() {
       preparedTask?.key === key
         ? preparedTask.task
         : await manager.createTask(
-            {
-              definition_id: definition.id,
-              resource_view_type: definition.resource_view_type,
-            },
+            definitionRef(definition),
             modelKey.value || undefined,
             permissionMode.value,
             projectId.value || undefined,
           );
+    signal.throwIfAborted();
     preparedTask = { key, task };
     const message = await attachments.upload(
-      task.session_id,
+      task.project_id,
       text.value.trim(),
       undefined,
-      undefined,
-      task.project_id,
+      signal,
     );
+    signal.throwIfAborted();
     queueDraft(task.session_id, message);
     await router.push(`/tasks/${encodeURIComponent(task.session_id)}`);
     if (router.currentRoute.value.params.sessionId !== task.session_id)
@@ -165,7 +197,7 @@ async function submit() {
     void refreshTasks();
     void refreshProjects();
   } catch (e) {
-    error.value = errorText(e);
+    if (!signal.aborted) error.value = errorText(e);
   } finally {
     pending.value = false;
   }
@@ -226,11 +258,11 @@ async function submit() {
                 : '个人助理'
           "
           :pending="pending"
-          :disabled="runtime.loading.value || !!runtime.error.value"
+          :disabled="runtime.loading.value || !!runtime.error.value || resolvingDefinition"
           :attachments="attachments.files.value"
           @attach="attachments.add"
           @remove-attachment="attachments.remove"
-          @select="selected = $event"
+          @select="chooseDefinition"
           @submit="submit"
         >
           <template #footer>
@@ -245,7 +277,6 @@ async function submit() {
       </div>
     </div>
     <WorkspacePanel
-      :session-id="''"
       :project-id="projectId || undefined"
       :revision="String(fileRevision)"
       :visible="workspaceOpen"

@@ -3,6 +3,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
   }
@@ -35,8 +36,10 @@ export async function requestRaw(
   const response = await fetch(apiUrl(path, params), { ...init, headers });
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
+    let code: string | undefined;
     try {
       const error = await response.json();
+      if (typeof error.code === "string") code = error.code;
       detail =
         typeof error.detail === "string"
           ? error.detail
@@ -48,7 +51,7 @@ export async function requestRaw(
       setToken(null);
       window.dispatchEvent(new Event("egis:unauthorized"));
     }
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, detail, code);
   }
   return response;
 }

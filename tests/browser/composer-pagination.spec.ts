@@ -8,7 +8,7 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 for (const theme of ["light", "dark"] as const) {
-  test(`picker tabs request pages of ten and keyboard selection follows scroll in ${theme}`, async ({
+  test(`picker uses server pagination and keyboard selection follows scroll in ${theme}`, async ({
     page,
   }) => {
     await page.addInitScript(
@@ -16,9 +16,11 @@ for (const theme of ["light", "dark"] as const) {
       theme,
     );
     const cursors: (string | null)[] = [];
+    const pageSize = 8;
+    const total = 23;
     await page.route("**/api/manager/composer/options?**", (route) => {
       const params = new URL(route.request().url()).searchParams;
-      expect(params.get("limit")).toBe("10");
+      expect(params.has("limit")).toBe(false);
       if (params.get("category") !== "context")
         return route.fulfill({ json: { items: [], next_cursor: null } });
       const offset = Number(params.get("cursor") || 0);
@@ -26,7 +28,7 @@ for (const theme of ["light", "dark"] as const) {
       return route.fulfill({
         json: {
           items: Array.from(
-            { length: Math.min(10, 23 - offset) },
+            { length: Math.min(pageSize, total - offset) },
             (_, index) => ({
               id: `file-${offset + index}`,
               name: `资料${String(offset + index).padStart(2, "0")}.txt`,
@@ -35,7 +37,8 @@ for (const theme of ["light", "dark"] as const) {
               reference: `资料${offset + index}.txt`,
             }),
           ),
-          next_cursor: offset + 10 < 23 ? String(offset + 10) : null,
+          next_cursor:
+            offset + pageSize < total ? String(offset + pageSize) : null,
         },
       });
     });
@@ -46,10 +49,11 @@ for (const theme of ["light", "dark"] as const) {
     await expect(
       picker.getByRole("tab", { name: "上下文", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
-    await expect(picker.getByRole("option")).toHaveCount(10);
-    for (let index = 0; index < 10; index++) await input.press("ArrowDown");
+    await expect(picker.getByRole("option")).toHaveCount(pageSize);
+    for (let index = 0; index < pageSize; index++)
+      await input.press("ArrowDown");
     await expect(picker.getByRole("option", { selected: true })).toContainText(
-      "资料10.txt",
+      "资料08.txt",
     );
     await expect
       .poll(async () =>
@@ -64,13 +68,13 @@ for (const theme of ["light", "dark"] as const) {
         return row.top >= list.top && row.bottom <= list.bottom;
       });
     expect(visible).toBe(true);
-    expect(cursors).toContain("10");
+    expect(cursors).toContain(String(pageSize));
     await picker.locator(".context-options").evaluate((el) => {
       el.scrollTop = el.scrollHeight;
       el.dispatchEvent(new Event("scroll"));
     });
-    await expect(picker.getByRole("option")).toHaveCount(23);
-    expect(cursors).toContain("20");
+    await expect(picker.getByRole("option")).toHaveCount(total);
+    expect(cursors).toContain(String(pageSize * 2));
     await picker.getByRole("tab", { name: "专家", exact: true }).click();
     await expect(picker.getByRole("option")).toHaveCount(0);
     await expect(

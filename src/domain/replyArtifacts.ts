@@ -4,7 +4,7 @@ import type { ReplyArtifact } from "../types/api";
 export function groupReplyArtifacts(files: ReplyArtifact[]) {
   const result: Record<string, ReplyArtifact[]> = Object.create(null);
   for (const file of files) {
-    if (!file.reply_id || file.is_directory) continue;
+    if (file.is_directory) continue;
     (result[file.reply_id] ||= []).push(file);
   }
   return result;

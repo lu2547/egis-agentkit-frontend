@@ -7,21 +7,25 @@ import { ResourceDetailState } from "../../domain/resourceState";
 import CatalogAvatar from "../common/CatalogAvatar.vue";
 import AsyncState from "../common/AsyncState.vue";
 import MarkdownContent from "../conversation/MarkdownContent.vue";
+import ShareRequestDialog from "./ShareRequestDialog.vue";
 import ConnectorConnectionTest from "../connectors/ConnectorConnectionTest.vue";
+import ConnectorAuthorization from "../connectors/ConnectorAuthorization.vue";
 const props = defineProps<{
   resource: Resource | null;
   resources: Resource[];
-  kind: "skills" | "connectors";
+  kind: "skills" | "connectors" | "tools";
 }>();
 defineEmits<{ close: []; edit: [r: Resource] }>();
 const detail = reactive(new ResourceDetailState<Resource>()),
-  notice = ref("");
+  notice = ref(""),
+  shareOpen = ref(false),
+  shareUpdate = ref(false);
 watch(
   () => props.resource,
   (r) => {
     notice.value = "";
-    if (r) void select(r.resource_version);
-    else detail.dispose();
+    shareOpen.value = false;
+    if (r) void select(r.resource_version); else detail.dispose();
   },
 );
 onUnmounted(() => detail.dispose());
@@ -53,19 +57,6 @@ async function download() {
     notice.value = errorText(e);
   }
 }
-async function share() {
-  if (!detail.value) return;
-  try {
-    await manager.share(
-      props.kind === "skills" ? "skill" : "mcp",
-      detail.value.resource_id,
-      detail.value.resource_version,
-    );
-    notice.value = "共享申请已提交。";
-  } catch (e) {
-    notice.value = errorText(e);
-  }
-}
 </script>
 <template>
   <t-drawer
@@ -75,24 +66,13 @@ async function share() {
     :size="'min(620px, 100vw)'"
     @close="$emit('close')"
     ><div v-if="resource" class="resource-detail">
-      <div class="detail-identity"><CatalogAvatar :avatar="resource.payload.avatar" :name="resource.display_name" /><strong>{{ resource.display_name }}</strong></div>
-      <div class="version-row">
-        <span class="muted">发布版本</span
-        ><t-select
-          :value="detail.selectedVersion"
-          :options="
-            [
-              ...new Set(
-                resources
-                  .filter((r) => r.resource_id === resource?.resource_id)
-                  .map((r) => r.resource_version),
-              ),
-            ].map((v) => ({ label: v, value: v }))
-          "
-          style="width: 140px"
-          @change="(v: unknown) => select(String(v))"
-        />
+      <div class="detail-identity">
+        <CatalogAvatar
+          :avatar="resource.payload.avatar"
+          :name="resource.display_name"
+        /><strong>{{ resource.display_name }}</strong>
       </div>
+      <p class="muted">v{{ detail.value?.version_label || resource.version_label || resource.resource_version }}</p>
       <AsyncState
         :loading="detail.loading"
         :error="detail.error"
@@ -117,19 +97,31 @@ async function share() {
                 @click="$emit('edit', detail.value)"
                 >发布新版本</t-button
               ><t-button
-                v-if="detail.value.is_editable"
+                v-if="detail.value.can_share"
                 variant="text"
-                @click="share"
-                >申请共享</t-button
-              >
+                @click="shareUpdate = false; shareOpen = true"
+                >申请共享</t-button>
+              <t-button v-if="detail.value.can_share_update" variant="text"
+                @click="shareUpdate = true; shareOpen = true">共享新版本</t-button>
             </div></template
-          ><template v-else
+          ><template v-else-if="kind === 'connectors'"
             ><div class="connector-summary">
               <span class="badge">{{
                 connectorConfig.transport || "MCP"
               }}</span>
               <p>{{ connectorConfig.url || "" }}</p>
             </div>
+            <ConnectorAuthorization
+              v-if="
+                detail.value.is_usable &&
+                detail.value.auth_type &&
+                detail.value.auth_type !== 'none'
+              "
+              :key="`${resource.resource_id}-auth-${detail.selectedVersion}`"
+              :resource-id="resource.resource_id"
+              :version="detail.selectedVersion"
+              :method="detail.value.auth_type"
+            />
             <ConnectorConnectionTest
               :key="`${resource.resource_id}-${detail.selectedVersion}`"
               :resource-id="resource.resource_id"
@@ -142,17 +134,37 @@ async function share() {
                 @click="$emit('edit', detail.value)"
                 >发布新版本</t-button
               ><t-button
-                v-if="detail.value.is_editable"
+                v-if="detail.value.can_share"
                 variant="text"
-                @click="share"
-                >申请共享</t-button
-              >
+                @click="shareUpdate = false; shareOpen = true"
+                >申请共享</t-button>
+              <t-button v-if="detail.value.can_share_update" variant="text"
+                @click="shareUpdate = true; shareOpen = true">共享新版本</t-button>
             </div></template
-          ></template
+          ><template v-else>
+            <p class="muted">{{ detail.value.is_system_default ? "系统默认工具" : "由专家配置使用的工具" }}</p>
+            <details v-if="detail.value.payload.input_schema">
+              <summary>输入参数</summary>
+              <pre>{{ JSON.stringify(detail.value.payload.input_schema, null, 2) }}</pre>
+            </details>
+          </template></template
         ></AsyncState
       >
       <div v-if="notice" class="detail-notice" role="status">{{ notice }}</div>
     </div></t-drawer
   >
+  <ShareRequestDialog
+    v-if="kind !== 'tools'"
+    :visible="shareOpen"
+    :resource-type="kind === 'skills' ? 'skill' : 'mcp'"
+    :resource-id="detail.value?.resource_id || ''"
+    :version="detail.value?.version_label || detail.selectedVersion"
+    :update="shareUpdate"
+    @close="shareOpen = false"
+    @submitted="
+      shareOpen = false;
+      notice = '共享申请已提交。';
+    "
+  />
 </template>
 <style scoped src="../../styles/components/resource-detail.css"></style>

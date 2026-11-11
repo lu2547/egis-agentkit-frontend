@@ -52,7 +52,10 @@ const definitions = names.map((name, i) => ({
   is_usable: true,
   is_editable: i === 2,
   is_deletable: i === 2,
-  config_version: 1,
+  can_share_update: i === 2,
+  config_version: i === 2 ? 3 : 1,
+  resource_version: i === 2 ? "3" : "1",
+  version_label: i === 2 ? "1.2" : "1.0",
 }));
 const assistant = {
   ...definitions[0],
@@ -78,10 +81,10 @@ const team = {
   team_display_name: "研究与策略专家团",
   payload: {
     ...definitions[0].payload,
-    orchestrator: { definition_id: "lead", resource_view_type: "system" },
+    orchestrator: { definition_id: "lead", resource_view_type: "system", resource_version: "2" },
     members: [
-      { definition_id: "expert-0", resource_view_type: "system" },
-      { definition_id: "expert-1", resource_view_type: "system" },
+      { definition_id: "expert-0", resource_view_type: "system", resource_version: "1" },
+      { definition_id: "expert-1", resource_view_type: "system", resource_version: "1" },
     ],
   },
 };
@@ -104,6 +107,7 @@ const resources = [
   {
     resource_id: "writing",
     resource_version: "1.0.0",
+    version_label: "1.0",
     owner_type: "user",
     owner_id: "demo",
     display_name: "报告写作",
@@ -114,6 +118,7 @@ const resources = [
     is_enabled: true,
     is_skill_market_visible: true,
     resource_view_type: "private",
+    can_share: true,
     payload: {
       category: "内容创作",
       avatar: "skill:ppt",
@@ -175,6 +180,7 @@ function reset() {
     {
       session_id: "s1",
       project_id: "project-1",
+      plan: [],
       agent_id: "a1",
       name: "整理行业研究与行动建议",
       definition_id: "expert-0",
@@ -342,7 +348,7 @@ createServer(async (req, res) => {
           is_enabled: true,
         },
       ],
-      default_permission_mode: "default",
+      default_permission_mode: "bypass",
     });
   if (p === "/manager/composer/options") {
     const category = url.searchParams.get("category"),
@@ -378,7 +384,31 @@ createServer(async (req, res) => {
       next_cursor: offset + limit < matching.length ? String(offset + limit) : null,
     });
   }
-  if (p === "/manager/agents") return json(res, { items: definitions });
+  if (p === "/manager/agents" && req.method === "GET") {
+    const types = url.searchParams.getAll("type");
+    const matching = types.length
+      ? definitions.filter((definition) => types.includes(definition.agent_type))
+      : definitions;
+    const offset = Number(url.searchParams.get("cursor") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    return json(res, {
+      items: matching.slice(offset, offset + limit),
+      next_cursor: offset + limit < matching.length ? String(offset + limit) : null,
+    });
+  }
+  if (p.endsWith("/versions") && req.method === "GET") {
+    const definition = [...definitions, team].find((row) =>
+      p === `/manager/${row.definition_type === "team" ? "teams" : "agents"}/${row.id}/versions`,
+    );
+    if (definition) return json(res, { items: [{
+      resource_version: definition.resource_version,
+      resource_view_type: definition.resource_view_type,
+    }] });
+  }
+  if (p.startsWith("/manager/agents/") && req.method === "GET") {
+    const definition = definitions.find((row) => p === `/manager/agents/${row.id}`);
+    if (definition) return json(res, definition);
+  }
   if (p === "/manager/teams/team-1")
     return json(res, {
       ...team,
@@ -451,10 +481,12 @@ createServer(async (req, res) => {
     const task = {
       session_id: `s${++taskSequence}`,
       project_id: input.project_id || projects[0]?.id,
+      plan: [],
       agent_id: "a1",
       name: "新的工作任务",
       definition_id: input.definition_id,
-      permission_mode: input.permission_mode || "default",
+      resource_version: input.resource_version,
+      permission_mode: input.permission_mode || "bypass",
       model_key: input.model_key || "test",
       definition_display_name: "研究分析专家",
       updated_at: date,
@@ -494,18 +526,15 @@ createServer(async (req, res) => {
     }
     return json(res, task);
   }
-  const projectId = p.startsWith("/manager/projects/")
-    ? p.split("/")[3]
-    : tasks.find((task) => task.session_id === p.split("/")[3])?.project_id ||
-      p.split("/")[3];
+  const projectId = p.startsWith("/manager/projects/") ? p.split("/")[3] : null;
   if (
-    p.startsWith("/manager/projects/") &&
+    projectId &&
     !projects.some((project) => project.id === projectId)
   )
     return json(res, { detail: "未找到项目" }, 404);
   if (p.startsWith("/manager/tasks/") && p.endsWith("/artifacts"))
     return json(res, { items: deliveries[p.split("/")[3]] || [] });
-  if (p.endsWith("/files")) {
+  if (projectId && p.endsWith("/files")) {
     const area = url.searchParams.get("area");
     if (req.method === "POST") {
       let bytes = Buffer.alloc(0);
@@ -561,13 +590,13 @@ createServer(async (req, res) => {
       path: "",
     });
   }
-  if (p.endsWith("/file-changes"))
+  if (projectId && p.endsWith("/file-changes"))
     return json(res, {
       items: projectChanges[projectId] || [],
       next_cursor: null,
       scan_error: null,
     });
-  if (p.endsWith("/file")) {
+  if (projectId && p.endsWith("/file")) {
     const path = url.searchParams.get("path");
     const content =
       fileContents[`${projectId}:${url.searchParams.get("area")}:${path}`];
@@ -734,13 +763,37 @@ createServer(async (req, res) => {
     }
     return json(res, skillResources.find(resource => resource.resource_id === p.split("/")[3] && (!url.searchParams.get("version") || resource.resource_version === url.searchParams.get("version"))) || skillResources[0]);
   }
-  if (p === "/manager/connectors") return json(res, { items: [] });
+  if (p === "/manager/connectors" || p === "/manager/tools") return json(res, { items: [] });
   if (p === "/manager/preferences")
     return json(res, {
       agent_md: "# 工作规范",
       soul_md: "# 角色与风格",
       user_md: "# 关于我",
     });
+  if (p === "/manager/share-recipients") return json(res, {
+    items: [
+      { principal_type: "group", principal_id: "company", display_name: "全公司" },
+      { principal_type: "user", principal_id: "analyst", display_name: "分析师" },
+      { principal_type: "group", principal_id: "research", display_name: "研究部" },
+    ],
+  });
+  if (p === "/manager/share-requests" && req.method === "POST") {
+    const input = await body(req);
+    const source = input.resource_type === "agent"
+      ? definitions.find((item) => item.id === input.resource_id)
+      : skillResources.find((item) => item.resource_id === input.resource_id);
+    return json(res, {
+      resource_type: input.resource_type,
+      resource_id: input.resource_id,
+      resource_version: source?.resource_version,
+      version_label: source?.version_label,
+      review_id: "review",
+      review_type: input.target ? "share" : "update",
+      share_scope_type: input.target?.principal_type ?? null,
+      principal_id: input.target?.principal_id ?? null,
+      review_status_type: "pending",
+    }, 201);
+  }
   if (p === "/manager/share-requests") return json(res, { items: [] });
   if (p.startsWith("/manager/admin/")) {
     if (role !== "admin") return json(res, { detail: "仅管理员" }, 403);

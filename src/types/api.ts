@@ -9,12 +9,27 @@ export interface User {
 export interface DefinitionRef {
   definition_id: string;
   resource_view_type: ViewType;
+  resource_version: string;
+}
+export interface DefinitionVersion {
+  resource_view_type: ViewType;
+  resource_version: string;
 }
 export interface ResourceBinding {
-  resource_type: "skill" | "mcp";
+  resource_type: "skill" | "mcp" | "tool";
   resource_id: string;
   resource_version: string;
   resource_view_type: ViewType;
+}
+export interface RemoteAgentConfig {
+  transport: "http_sync" | "http_callback" | "websocket";
+  protocol_version: "v1";
+  endpoint: string;
+  credential_ref: string;
+  callback_secret_ref?: string;
+  cancel_endpoint?: string;
+  timeout_seconds?: number;
+  retries?: number;
 }
 export interface DefinitionPayload {
   description: string;
@@ -27,12 +42,16 @@ export interface DefinitionPayload {
   bindings?: ResourceBinding[];
   orchestrator?: DefinitionRef;
   members?: DefinitionRef[];
-  implementation?: { assembly_ref: string; assembly_version: string };
+  remote_config?: RemoteAgentConfig | null;
 }
 export interface Definition {
+  version_label?: string;
+  can_share?: boolean;
+  can_share_update?: boolean;
+  has_shared_version?: boolean;
   id: string;
   definition_type: "agent" | "team";
-  agent_type?: string;
+  agent_type?: "personal" | "expert" | "remote" | "orchestrator";
   owner_type: string;
   owner_id: string;
   agent_name?: string;
@@ -41,6 +60,7 @@ export interface Definition {
   team_display_name?: string;
   payload: DefinitionPayload;
   resource_view_type: ViewType;
+  resource_version: string;
   is_usable: boolean;
   is_editable: boolean;
   is_deletable: boolean;
@@ -70,22 +90,38 @@ export interface Task {
   collaboration_allowed?: boolean;
   pending_collaboration_request_id?: string | null;
   collaborators?: Collaborator[];
-  project_id?: string;
+  project_id: string;
   is_running?: boolean;
   is_waiting?: boolean;
   session_id: string;
   agent_id: string;
   name: string;
   definition_id: string;
+  resource_version: string;
   definition_display_name: string;
   agent_display_names?: Record<string, string>;
   updated_at: string;
   permission_mode?: string;
   model_key?: string | null;
-  plan?: { id: string; subject: string; state: string }[];
+  plan: { id: string; subject: string; state: string }[];
+}
+export type ResourceCatalog = "skills" | "connectors" | "tools";
+export type InstallableCatalog = Exclude<ResourceCatalog, "tools">;
+export type CatalogKind = "skill" | "mcp";
+export type ShareableKind = CatalogKind | "agent" | "team";
+export type ConnectorAuthType = "none" | "api_key" | "oauth";
+export interface ConnectorDependencyAuthorization {
+  resource_id: string;
+  resource_version: string;
+  display_name: string;
+  auth_type: Exclude<ConnectorAuthType, "none">;
 }
 export interface Resource {
-  resource_view_type?: ViewType;
+  version_label?: string;
+  can_share?: boolean;
+  can_share_update?: boolean;
+  has_shared_version?: boolean;
+  resource_view_type: ViewType;
   resource_id: string;
   resource_version: string;
   owner_type: string;
@@ -96,8 +132,23 @@ export interface Resource {
   is_editable: boolean;
   is_installed: boolean;
   is_enabled: boolean;
+  is_system_default?: boolean;
+  is_agent_tool?: boolean;
   is_skill_market_visible?: boolean;
+  is_available?: boolean;
+  auth_type?: ConnectorAuthType | null;
   payload: Record<string, unknown>;
+}
+export interface AdminResource extends Resource {
+  bound_agents: { id: string; name: string }[];
+  grant_sources: {
+    id: string;
+    principal_type: PrincipalType;
+    principal_id: string;
+    grant_source_type: string;
+    agent_id?: string | null;
+    team_id?: string | null;
+  }[];
 }
 export interface SkillSaveInput {
   resource_id: string;
@@ -152,16 +203,43 @@ export interface WorkspaceFile {
   size: number;
   modified_at: string;
 }
+export type PrincipalType = "user" | "group";
+export interface ShareTarget {
+  principal_type: PrincipalType;
+  principal_id: string;
+}
+export interface ShareRecipient extends ShareTarget {
+  display_name: string;
+}
+export interface GrantResource {
+  resource_type: ShareableKind;
+  resource_id: string;
+  resource_view_type: string;
+  resource_owner_type: string;
+  resource_owner_id: string;
+  display_name: string;
+}
+export const principalName = (type: PrincipalType, id: string) =>
+  `${type === "group" ? "组织组" : "用户"} · ${id}`;
+
 export interface Review {
   review_id: string;
-  resource_type: string;
+  resource_type: ShareableKind;
   resource_id: string;
+  resource_version: string;
+  version_label?: string;
+  review_type?: "share" | "update";
+  share_scope_type: PrincipalType | null;
+  principal_id: string | null;
   review_status_type: string;
-  shared_version: number;
   review_reason: string;
-  snapshot: Record<string, unknown>;
-  source_versions?: Record<string, unknown>;
 }
+/** 在召唤、邀请和团队配置中保留用户选择的发布版本。 */
+export const definitionRef = (d: Definition): DefinitionRef => ({
+  definition_id: d.id,
+  resource_view_type: d.resource_view_type,
+  resource_version: d.resource_version,
+});
 export function definitionName(d: Definition) {
   return (
     d.team_display_name ||
@@ -178,6 +256,7 @@ export type ComposerCategory = "context" | "experts" | "skills" | "commands";
 export interface ComposerOption {
   id: string;
   name: string;
+  display_name?: string;
   detail: string;
   kind: "expert" | "skill" | "file" | "command";
   definition?: Definition;

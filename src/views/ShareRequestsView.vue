@@ -12,7 +12,7 @@ onMounted(load);
     <header class="page-title">
       <div>
         <h1>我的共享申请</h1>
-        <p>管理专家、团队与技能的共享快照和审核结果。</p>
+        <p>查看专家、专家团、技能和连接器的共享版本及审核结果。</p>
       </div>
     </header>
     <AsyncState

@@ -4,12 +4,24 @@ import type {
   ComposerOptionsQuery,
   Definition,
   DefinitionRef,
+  DefinitionVersion,
+  ViewType,
   Task,
   Project,
   User,
   Resource,
+  ResourceCatalog,
+  InstallableCatalog,
+  CatalogKind,
+  AdminResource,
+  ConnectorAuthType,
+  ConnectorDependencyAuthorization,
   ModelOption,
   Review,
+  ShareTarget,
+  ShareableKind,
+  ShareRecipient,
+  GrantResource,
   WorkspaceFile,
   ReplyArtifact,
   RuntimeOptions,
@@ -17,10 +29,8 @@ import type {
   SkillImportJob,
 } from "../types/api";
 const id = encodeURIComponent;
-export const workspacePath = (sid: string, projectId?: string) =>
-  projectId
-    ? `/manager/projects/${id(projectId)}`
-    : `/manager/tasks/${id(sid)}`;
+export const workspacePath = (projectId: string) =>
+  `/manager/projects/${id(projectId)}`;
 export const manager = {
   composerOptions: (params: ComposerOptionsQuery, signal?: AbortSignal) =>
     http<ComposerOptionsPage>(
@@ -34,10 +44,32 @@ export const manager = {
       "/auth/login",
       json("POST", { user_id, password }),
     ),
-  definitions: (kind: "agents" | "teams") =>
-    http<{ items: Definition[] }>(`/manager/${kind}`),
-  definition: (kind: "agents" | "teams", definitionId: string, view: string) =>
-    http<Definition>(`/manager/${kind}/${id(definitionId)}`, {}, { view }),
+  async definitions(kind: "agents" | "teams") {
+    if (kind === "teams") return http<{ items: Definition[] }>("/manager/teams");
+    const items: Definition[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { items: Definition[]; next_cursor: string | null } =
+        await http("/manager/agents", {}, { cursor });
+      items.push(...page.items);
+      cursor = page.next_cursor;
+    } while (cursor !== null);
+    return { items };
+  },
+  definition: (
+    kind: "agents" | "teams",
+    definitionId: string,
+    view: ViewType,
+    resource_version?: string,
+    signal?: AbortSignal,
+  ) =>
+    http<Definition>(
+      `/manager/${kind}/${id(definitionId)}`,
+      { signal },
+      { view, resource_version },
+    ),
+  definitionVersions: (kind: "agents" | "teams", definitionId: string) =>
+    http<{ items: DefinitionVersion[] }>(`/manager/${kind}/${id(definitionId)}/versions`),
   assistant: () => http<Definition>("/manager/assistant"),
   saveDefinition: (
     kind: "agents" | "teams",
@@ -98,8 +130,8 @@ export const manager = {
     http<Task>(`/manager/tasks/${id(sid)}/settings`, json("PATCH", settings)),
   models: () =>
     http<{ items: ModelOption[]; default_key?: string }>("/manager/models"),
-  resources: (kind: "skills" | "connectors") =>
-    http<{ items: Resource[] }>(`/manager/${kind}`),
+  resources: (kind: ResourceCatalog) =>
+    http<{ items: Resource[]; dependency_authorizations?: ConnectorDependencyAuthorization[] }>(`/manager/${kind}`),
   resource: (
     kind: string,
     resourceId: string,
@@ -110,6 +142,17 @@ export const manager = {
       `/manager/${kind}/${id(resourceId)}`,
       { signal },
       { version },
+    ),
+  resourceVersions: (kind: ResourceCatalog, resourceId: string) =>
+    http<{ items: Resource[] }>(`/manager/${kind}/${id(resourceId)}/versions`),
+  adminResources: (kind: CatalogKind) =>
+    http<{ items: AdminResource[] }>(`/manager/admin/resources/${kind}`),
+  registerSystemResource: (kind: "skill" | "mcp", body: unknown) =>
+    http<Resource>(`/manager/admin/resources/${kind}`, json("POST", body)),
+  setResourceAvailability: (kind: CatalogKind, resourceId: string, version: string, is_enabled: boolean) =>
+    http<AdminResource>(
+      `/manager/admin/resources/${kind}/${id(resourceId)}`,
+      json("PATCH", { is_enabled }), { version },
     ),
   saveResource: (kind: string, body: unknown, resourceId?: string) =>
     http<Resource>(
@@ -135,12 +178,12 @@ export const manager = {
       `/manager/skills/imports/${id(jobId)}/retry`,
       json("POST"),
     ),
-  install: (kind: string, resourceId: string, version: string) =>
+  install: (kind: InstallableCatalog, resourceId: string, version: string) =>
     http<unknown>(`/manager/${kind}/${id(resourceId)}/install`, json("POST"), {
       version,
     }),
   toggle: (
-    kind: string,
+    kind: InstallableCatalog,
     resourceId: string,
     version: string,
     is_enabled: boolean,
@@ -149,6 +192,26 @@ export const manager = {
       `/manager/${kind}/${id(resourceId)}/installation`,
       json("PATCH", { is_enabled }),
       { version },
+    ),
+  connectorAuthorization: (resourceId: string, version: string) =>
+    http<{ authorized: boolean; auth_type: ConnectorAuthType }>(
+      `/manager/connectors/${id(resourceId)}/authorization`, {}, { version },
+    ),
+  saveConnectorKey: (resourceId: string, version: string, key: string) =>
+    http<{ authorized: boolean }>(
+      `/manager/connectors/${id(resourceId)}/authorization/key`, json("PUT", { key }), { version },
+    ),
+  startConnectorOAuth: (resourceId: string, version: string) =>
+    http<{ authorization_url: string; state: string }>(
+      `/manager/connectors/${id(resourceId)}/authorization/start`, json("POST"), { version },
+    ),
+  finishConnectorOAuth: (resourceId: string, version: string, state: string, code: string | null) =>
+    http<{ authorized: boolean }>(
+      `/manager/connectors/${id(resourceId)}/authorization/callback`, json("POST", { state, code }), { version },
+    ),
+  revokeConnectorAuthorization: (resourceId: string, version: string) =>
+    http<{ authorized: boolean }>(
+      `/manager/connectors/${id(resourceId)}/authorization`, json("DELETE"), { version },
     ),
   connectorTest: (resourceId: string, version: string) =>
     http<{
@@ -163,55 +226,56 @@ export const manager = {
   savePreferences: (body: unknown) =>
     http<unknown>("/manager/preferences", json("PUT", body)),
   reviews: () => http<{ items: Review[] }>("/manager/share-requests"),
+  shareRecipients: () => http<{ items: ShareRecipient[] }>("/manager/share-recipients"),
+  grantResources: () => http<{ items: GrantResource[] }>("/manager/admin/grant-resources"),
   share: (
-    resource_type: string,
+    resource_type: ShareableKind,
     resource_id: string,
-    resource_version?: string,
+    target?: ShareTarget,
   ) =>
     http<unknown>(
       "/manager/share-requests",
-      json("POST", { resource_type, resource_id, resource_version }),
+      json("POST", { resource_type, resource_id, target }),
     ),
   sessionArtifacts: (sid: string, signal?: AbortSignal) =>
     http<{ items: ReplyArtifact[] }>(`/manager/tasks/${id(sid)}/artifacts`, {
       signal,
     }),
   files: (
-    sid: string,
+    projectId: string,
     area: string,
     path = "",
     signal?: AbortSignal,
     recursive = false,
-    projectId?: string,
   ) =>
     http<{ items: WorkspaceFile[] }>(
-      `${workspacePath(sid, projectId)}/files`,
+      `${workspacePath(projectId)}/files`,
       { signal },
       { area, path, ...(recursive ? { recursive: "true" } : {}) },
     ),
-  deleteFile: (sid: string, area: string, path: string, projectId?: string) =>
+  deleteFile: (projectId: string, area: string, path: string) =>
     http<void>(
-      `${workspacePath(sid, projectId)}/files`,
+      `${workspacePath(projectId)}/files`,
       { method: "DELETE" },
       { area, path },
     ),
   uploadFile: (
-    sid: string,
+    projectId: string,
     file: File,
     signal?: AbortSignal,
-    projectId?: string,
+    overwrite = false,
   ) => {
     const body = new FormData();
     body.append("file", file);
     return http<WorkspaceFile>(
-      `${workspacePath(sid, projectId)}/files`,
+      `${workspacePath(projectId)}/files`,
       { method: "POST", body, signal },
-      { area: "uploads" },
+      { area: "uploads", overwrite: overwrite ? "true" : undefined },
     );
   },
-  deliver: (sid: string, path: string, projectId?: string) =>
+  deliver: (projectId: string, path: string) =>
     http<unknown>(
-      `${workspacePath(sid, projectId)}/deliver`,
+      `${workspacePath(projectId)}/deliver`,
       json("POST", { path }),
     ),
   adminList: <T>(kind: string) =>
@@ -223,10 +287,6 @@ export const manager = {
     ),
   adminDelete: (kind: string, key: string) =>
     http<unknown>(`/manager/admin/${kind}/${id(key)}`, json("DELETE")),
-  disablePackage: (key: string, version: string) =>
-    http<unknown>(`/manager/admin/packages/${id(key)}`, json("DELETE"), {
-      version,
-    }),
   decide: (reviewId: string, is_approved: boolean, reason: string) =>
     http<unknown>(
       `/manager/admin/share-reviews/${id(reviewId)}/decision`,

@@ -1,12 +1,12 @@
 import { ref } from "vue";
-import { manager } from "../api/manager";
+import { UploadCancelled, uploadProjectFile } from "./uploadProjectFile";
 import type { WorkspaceFile } from "../types/api";
 /** Existing sessions upload immediately; sends reuse uploaded references. */
 export function useAttachments() {
   const files = ref<File[]>([]);
   const uploads = new Map<
     File,
-    { scopeId: string; promise: Promise<WorkspaceFile> }
+    { projectId: string; promise: Promise<WorkspaceFile> }
   >();
   function add(selected: File[]) {
     files.value = [...files.value, ...selected];
@@ -15,21 +15,20 @@ export function useAttachments() {
     files.value = files.value.filter((_, i) => i !== index);
   }
   async function ensureUploaded(
-    sessionId: string,
+    projectId: string,
     selected: File[],
     signal?: AbortSignal,
-    projectId?: string,
   ) {
-    const scopeId = projectId ? `project:${projectId}` : sessionId;
     const references: WorkspaceFile[] = [];
+    let cancelled: UploadCancelled | undefined;
     for (const file of selected) {
       if (signal?.aborted)
         throw new DOMException("Upload cancelled", "AbortError");
       let pending = uploads.get(file);
-      if (!pending || pending.scopeId !== scopeId) {
+      if (!pending || pending.projectId !== projectId) {
         pending = {
-          scopeId,
-          promise: manager.uploadFile(sessionId, file, signal, projectId),
+          projectId,
+          promise: uploadProjectFile(projectId, file, signal),
         };
         uploads.set(file, pending);
       }
@@ -37,28 +36,28 @@ export function useAttachments() {
         references.push(await pending.promise);
       } catch (error) {
         if (uploads.get(file) === pending) uploads.delete(file);
+        if (error instanceof UploadCancelled) {
+          files.value = files.value.filter((item) => item !== file);
+          cancelled ??= error;
+          continue;
+        }
         throw error;
       }
     }
+    if (cancelled) throw cancelled;
     return references;
   }
   async function upload(
-    sessionId: string,
+    projectId: string,
     text: string,
     selected = [...files.value],
     signal?: AbortSignal,
-    projectId?: string,
   ) {
-    const references = await ensureUploaded(
-      sessionId,
-      selected,
-      signal,
-      projectId,
-    );
+    const references = await ensureUploaded(projectId, selected, signal);
     return (
       text +
       (references.length
-        ? `\n\n已上传的项目资料（工作空间根目录）：\n${references.map((file) => `- ${file.path}`).join("\n")}`
+        ? `\n\n已上传的项目资料（工作空间根目录）：\n${[...new Set(references.map((file) => file.path))].map((path) => `- ${path}`).join("\n")}`
         : "")
     );
   }

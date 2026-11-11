@@ -38,6 +38,38 @@ test("slash searches installed skills in its focused input and Escape does not s
   await expect(page.locator(".context-picker")).toHaveCount(0);
 });
 
+test("context picker presents the display name and inserts the exact file path", async ({
+  page,
+}) => {
+  const filename = "report_20261107_223808-a964f31821cf.pdf";
+  const reference = `artifacts/scratch/${filename}`;
+  await page.route("**/api/manager/composer/options?**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "report",
+            name: filename,
+            display_name: "年金分析报告.pdf",
+            detail: reference,
+            kind: "file",
+            reference,
+          },
+        ],
+        next_cursor: null,
+      },
+    }),
+  );
+  await page.goto("/tasks/s1");
+  const input = page.locator(".composer textarea");
+  await input.fill("@");
+  const option = page.getByRole("option", { name: /年金分析报告\.pdf/ });
+  await expect(option).toBeVisible();
+  await expect(option).toContainText(reference);
+  await option.click();
+  await expect(input).toHaveValue(`【项目文件：${reference}】 `);
+});
+
 test("old deliveries remain with their original reply and do not follow a new reply", async ({
   page,
 }) => {

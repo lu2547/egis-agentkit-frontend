@@ -13,23 +13,29 @@ const files = ["preview.docx", "preview.xlsx"].map((name) => ({
 }));
 
 async function stubWorkspace(page: Page) {
+  await page.route("**/api/manager/projects", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.items.push({ ...data.items[0], id: "project-2", project_name: "第二个项目" });
+    await route.fulfill({ response, json: data });
+  });
   await page.route("**/api/manager/tasks", (route) =>
     route.fulfill({
       json: {
         items: [
-          { session_id: "s1", name: "第一个对话", agent_id: "a1" },
-          { session_id: "s2", name: "另一个对话", agent_id: "a1" },
+          { session_id: "s1", project_id: "project-1", name: "第一个对话", agent_id: "a1" },
+          { session_id: "s2", project_id: "project-2", name: "另一个对话", agent_id: "a1" },
         ],
       },
     }),
   );
-  await page.route("**/api/manager/tasks/*/files**", (route) => {
+  await page.route("**/api/manager/projects/*/files?**", (route) => {
     const url = new URL(route.request().url());
     return route.fulfill({
       json: { items: url.searchParams.get("area") === "uploads" ? files : [] },
     });
   });
-  await page.route("**/api/manager/tasks/*/file?**", (route) => {
+  await page.route("**/api/manager/projects/*/file?**", (route) => {
     const path = new URL(route.request().url()).searchParams.get("path");
     const file = files.find((entry) => entry.path === path);
     if (!file)
@@ -44,6 +50,7 @@ async function stubWorkspace(page: Page) {
     return route.fulfill({
       json: {
         session_id: id,
+        project_id: id === "s1" ? "project-1" : "project-2",
         agent_id: "a1",
         name: id === "s1" ? "第一个对话" : "另一个对话",
         definition_id: "personal",
@@ -69,13 +76,13 @@ test.beforeEach(async ({ page, request }) => {
   await stubWorkspace(page);
 });
 
-test("local DOCX and XLSX previews survive refresh and changing conversations", async ({
+test("local DOCX and XLSX previews survive refresh and stay scoped to their project", async ({
   page,
 }) => {
   await page.goto("/tasks/s1");
   const panel = page.locator(".workspace-panel");
   await expect(panel).toBeVisible();
-  await panel.getByRole("button", { name: /preview\.docx/ }).click();
+  await panel.locator("button.file-open").filter({ hasText: /preview\.docx/ }).click();
   await expect(panel.locator(".office-document")).toContainText(
     "养老险业务文档预览",
   );
@@ -100,7 +107,7 @@ test("local DOCX and XLSX previews survive refresh and changing conversations", 
     .locator(".breadcrumb")
     .getByRole("button", { name: "工作空间", exact: true })
     .click();
-  await panel.getByRole("button", { name: /preview\.xlsx/ }).click();
+  await panel.locator("button.file-open").filter({ hasText: /preview\.xlsx/ }).click();
   await expect(panel.getByLabel("选择工作表")).toHaveValue("0");
   await expect(panel.locator(".sheet-preview")).toContainText("客户清单");
   await expect(panel.locator(".sheet-preview")).toContainText("张三");

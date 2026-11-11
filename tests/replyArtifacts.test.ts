@@ -17,9 +17,8 @@ describe("reply artifact ownership", () => {
     expect(files["previous-reply"]).toEqual([old]);
     expect(files["new-thinking-reply"]).toBeUndefined();
   });
-  it("does not guess a reply for historical project files", () => {
+  it("groups files by reply and skips directories", () => {
     const files = groupReplyArtifacts([
-      file("", "legacy.pptx"),
       file("one", "one.docx"),
       file("two", "two.pptx"),
       { ...file("two", "directory"), is_directory: true },

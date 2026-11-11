@@ -16,6 +16,7 @@ test("projects open an empty shared workspace and keep files and preview across 
   request,
 }) => {
   await page.goto("/");
+  await page.locator(".projects-section .section-heading").hover();
   await page.getByRole("button", { name: "新建项目", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "新建项目" });
   await dialog.getByLabel("项目名称").fill("养老险客户服务");
@@ -31,7 +32,7 @@ test("projects open an empty shared workspace and keep files and preview across 
     mimeType: "text/plain",
     buffer: Buffer.from("项目共享资料"),
   });
-  await panel.getByRole("button", { name: /客户资料.txt/ }).click();
+  await panel.locator("button.file-open").filter({ hasText: /客户资料.txt/ }).click();
   await expect(panel.locator(".text-preview")).toHaveText("项目共享资料");
   const before = await (
     await request.get(`${api}/manager/tasks`, { headers })
@@ -105,7 +106,7 @@ test("deleting a conversation preserves project files and deleting its project c
     page.getByRole("heading", { name: "今天，想一起完成什么？", exact: true }),
   ).toBeVisible();
   await expect(
-    panel.getByRole("button", { name: /保留资料.txt/ }),
+    panel.locator("button.file-open").filter({ hasText: /保留资料.txt/ }),
   ).toBeVisible();
   const files = await (
     await request.get(`${api}/manager/projects/project-1/files?area=uploads`, {
@@ -277,19 +278,18 @@ test("home uses the backend default project even after it is renamed", async ({
     headers,
     data: { project_name: "日常工作" },
   });
-  await page.route("**/api/manager/projects", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    await route.fulfill({
-      response,
+  const response = await request.get(`${api}/manager/projects`, { headers });
+  const { items } = await response.json();
+  await page.route("**/api/manager/projects", (route) =>
+    route.fulfill({
       json: {
-        items: data.items.map((project: { id: string }) => ({
+        items: items.map((project: { id: string }) => ({
           ...project,
           is_default: project.id === "project-2",
         })),
       },
-    });
-  });
+    }),
+  );
   await page.goto("/");
   await expect(page.locator(".composer-project-bar")).toContainText("日常工作");
   await composer(page).fill("默认项目中的新会话");
@@ -307,6 +307,7 @@ test("project plus opens a draft in that project without creating a session earl
   request,
 }) => {
   await page.goto("/tasks/s1");
+  await page.locator(".project-row").filter({ hasText: "行业研究" }).hover();
   await page
     .getByRole("button", { name: "在行业研究中新建对话", exact: true })
     .click();

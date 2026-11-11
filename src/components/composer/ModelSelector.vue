@@ -8,8 +8,9 @@ import {
   useId,
   watch,
 } from "vue";
-import { Check, ChevronDown, Cpu } from "lucide-vue-next";
+import { Check, ChevronDown } from "lucide-vue-next";
 import type { ModelOption } from "../../types/api";
+import ModelIcon from "./ModelIcon.vue";
 
 const props = defineProps<{
   model: string;
@@ -109,7 +110,7 @@ onBeforeUnmount(() =>
       :aria-controls="menuId"
       @click="toggle"
     >
-      <Cpu :size="16" :stroke-width="1.6" />
+      <ModelIcon :model="selected" />
       <span class="model-name">{{ selected?.display_name ?? model }}</span>
       <ChevronDown :size="12" class="chevron" :class="{ rotated: open }" />
     </button>
@@ -134,7 +135,7 @@ onBeforeUnmount(() =>
         :tabindex="index === activeIndex ? 0 : -1"
         @click="choose(item.key)"
       >
-        <Cpu :size="16" :stroke-width="1.6" />
+        <ModelIcon :model="item" />
         <span class="option-name">{{ item.display_name }}</span>
         <Check v-if="item.key === model" :size="14" class="check" />
         <span v-else class="check-space" />

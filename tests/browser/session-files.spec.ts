@@ -39,7 +39,7 @@ test("selection uploads into the current session before sending, refreshes uploa
     mimeType: "text/plain",
     buffer: Buffer.from("hello"),
   });
-  await expect(panel.getByRole("button", { name: /资料.txt/ })).toBeVisible();
+  await expect(panel.locator("button.file-open").filter({ hasText: /资料.txt/ })).toBeVisible();
   expect(count).toBe(1);
   await page.locator(".composer textarea").fill("阅读资料");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
@@ -58,6 +58,8 @@ test("home retries a rejected attachment on the same prepared task", async ({
     uploads = 0;
   const task = {
     session_id: "retry",
+    project_id: "project-1",
+    plan: [],
     agent_id: "a1",
     name: "重试会话",
     definition_id: "personal",
@@ -74,7 +76,7 @@ test("home retries a rejected attachment on the same prepared task", async ({
   await page.route("**/api/manager/tasks/retry", (route) =>
     route.fulfill({ json: task }),
   );
-  await page.route("**/api/manager/tasks/retry/files?**", (route) => {
+  await page.route("**/api/manager/projects/project-1/files?**", (route) => {
     if (route.request().method() !== "POST")
       return route.fulfill({ json: { items: [] } });
     uploads++;
@@ -104,6 +106,58 @@ test("home retries a rejected attachment on the same prepared task", async ({
   await expect(page).toHaveURL("/tasks/retry");
   expect(created).toBe(1);
   expect(uploads).toBe(2);
+});
+
+test("a duplicate upload requires confirmation and the delete dialog has padding", async ({
+  page,
+}) => {
+  const file = { name: "重复资料.txt", path: "重复资料.txt", area: "uploads", size: 5, is_directory: false };
+  const uploads: boolean[] = [];
+  await page.route("**/api/manager/projects/project-1/files?**", (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (route.request().method() !== "POST") {
+      return route.fulfill({ json: { items: query.get("area") === "uploads" ? [file] : [] } });
+    }
+    const overwrite = query.get("overwrite") === "true";
+    uploads.push(overwrite);
+    return overwrite
+      ? route.fulfill({ json: file })
+      : route.fulfill({ status: 409, json: { code: "upload_name_conflict", detail: "同名文件已存在" } });
+  });
+  await page.goto("/tasks/s1");
+  const input = page.locator('.composer input[type="file"]');
+  const select = () => input.setInputFiles({ name: file.name, mimeType: "text/plain", buffer: Buffer.from("new") });
+  const overwrite = page.getByRole("dialog", { name: "覆盖同名文件" });
+  await select();
+  await overwrite.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("上传失败");
+  expect(uploads).toEqual([false]);
+  await expect(page.locator(".composer .attachments")).toHaveCount(0);
+
+  await select();
+  await overwrite.getByRole("button", { name: "覆盖", exact: true }).click();
+  await expect.poll(() => uploads).toEqual([false, false, true]);
+  await expect(page.locator(".composer .attachments")).toContainText(file.name);
+
+  const panel = page.locator(".workspace-panel");
+  await panel.locator('input[type="file"]').setInputFiles({
+    name: file.name, mimeType: "text/plain", buffer: Buffer.from("panel"),
+  });
+  await overwrite.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("上传失败");
+  expect(uploads).toEqual([false, false, true, false]);
+  await panel.locator(".file-row").filter({ hasText: file.name }).hover();
+  await panel.getByRole("button", { name: `删除${file.name}` }).click();
+  const dialog = page.getByRole("dialog", { name: "删除文件", exact: true });
+  const [box, title, confirm] = await Promise.all([
+    dialog.boundingBox(),
+    dialog.getByRole("heading").boundingBox(),
+    dialog.getByRole("button", { name: "删除", exact: true }).boundingBox(),
+  ]);
+  expect(title!.x - box!.x).toBeGreaterThanOrEqual(20);
+  expect(title!.y - box!.y).toBeGreaterThanOrEqual(20);
+  expect(box!.x + box!.width - confirm!.x - confirm!.width).toBeGreaterThanOrEqual(20);
+  expect(box!.y + box!.height - confirm!.y - confirm!.height).toBeGreaterThanOrEqual(20);
 });
 for (const theme of ["light", "dark"] as const)
   test(`form fields keep one thin edge and page scrolling reaches the main edge in ${theme}`, async ({

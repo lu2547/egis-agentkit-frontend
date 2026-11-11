@@ -7,6 +7,46 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+test("expert catalog includes definitions from later pages", async ({ page }) => {
+  await page.route(/\/api\/manager\/agents(?:\?|$)/, async (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set("limit", "3");
+    const response = await route.fetch({ url: url.href });
+    await route.fulfill({ response });
+  });
+  await page.goto("/experts");
+  await expect(
+    page.getByRole("button", { name: "查看研究分析专家" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "查看项目协作伙伴" }),
+  ).toBeVisible();
+});
+
+test("Escape restores expert card focus without a pointer-open outline", async ({ page }) => {
+  await page.goto("/experts");
+  const opener = page.getByRole("button", { name: "查看研究分析专家" });
+  const detail = page.getByRole("dialog", { name: "研究分析专家" });
+
+  await opener.click();
+  await expect(detail).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
+  await expect(opener).toBeFocused();
+  await expect(opener).toHaveCSS("outline-style", "none");
+
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(opener).toBeFocused();
+  await expect(opener).toHaveCSS("outline-style", "solid");
+  await page.keyboard.press("Enter");
+  await expect(detail).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
+  await expect(opener).toBeFocused();
+  await expect(opener).toHaveCSS("outline-style", "solid");
+});
+
 test("catalog navigation and filters use ownership and installation state", async ({
   page,
 }) => {
@@ -27,6 +67,7 @@ test("catalog navigation and filters use ownership and installation state", asyn
     "专家团",
     "技能",
     "连接器",
+    "工具",
   ]);
   await expect(
     page.getByRole("button", { name: "添加专家", exact: true }),
@@ -51,10 +92,94 @@ test("catalog navigation and filters use ownership and installation state", asyn
   await expect(page.getByRole("button", { name: "添加连接器" })).toHaveCount(0);
 });
 
+test("expert creation explains what is missing at the save button", async ({ page }) => {
+  let submitted: unknown;
+  await page.route("**/api/manager/agents", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: { id: "created" } });
+  });
+  await page.goto("/experts/new");
+  await page.getByPlaceholder("说明专家的角色、工作方法与交付要求").fill("生成 Markdown");
+  const save = page.getByRole("button", { name: "保存专家", exact: true });
+  await save.click({ timeout: 2000 });
+  await expect(page.getByRole("alert")).toContainText("请输入英文名称");
+  expect(submitted).toBeUndefined();
+
+  await page.getByPlaceholder("例如 research_expert").fill(" markdown_writer ");
+  await save.click();
+  await expect(page.getByRole("alert")).toContainText("请输入展示名称");
+  await page.getByPlaceholder("例如 研究专家").fill("写作专家");
+  await save.click();
+  await expect.poll(() => submitted).toMatchObject({
+    agent_name: "markdown_writer",
+    agent_display_name: "写作专家",
+    payload: { system_prompt: "生成 Markdown", bindings: [] },
+  });
+  await expect(page).toHaveURL(/\/experts$/);
+});
+
+test("expert editor reads its single definition and keeps its owner", async ({ page }) => {
+  const listRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "GET" && ["/api/manager/agents", "/api/manager/teams"].includes(path))
+      listRequests.push(path);
+  });
+  await page.route("**/api/manager/agents/expert-0?view=system", (route) =>
+    route.fulfill({
+      json: {
+        id: "expert-0",
+        definition_type: "agent",
+        agent_type: "expert",
+        agent_name: "system_expert",
+        agent_display_name: "系统专家",
+        owner_type: "system",
+        owner_id: "platform",
+        resource_view_type: "system",
+        config_version: 4,
+        is_editable: true,
+        payload: { description: "", category: "办公协同", tags: [], starter_prompts: [], bindings: [] },
+      },
+    }),
+  );
+  let submitted: unknown;
+  await page.route("**/api/manager/agents/expert-0", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ json: { id: "expert-0" } });
+  });
+  await page.goto("/experts/expert-0/edit?view=system");
+  await expect(page.getByPlaceholder("例如 研究专家")).toHaveValue("系统专家");
+  expect(listRequests).toEqual([]);
+  await page.getByRole("button", { name: "保存专家", exact: true }).click();
+  await expect.poll(() => submitted).toMatchObject({
+    owner_type: "system",
+    owner_id: "platform",
+    config_version: 4,
+  });
+});
+
 test("expert avatar saves a stable ID and appears when reopened", async ({
   page,
 }) => {
   let saved: any;
+  const created = () => ({
+    id: "created",
+    definition_type: "agent",
+    agent_type: "expert",
+    owner_type: "user",
+    owner_id: "demo",
+    resource_view_type: "private",
+    is_usable: true,
+    is_editable: true,
+    is_deletable: true,
+    config_version: 1,
+    ...saved,
+  });
+  await page.route("**/api/manager/agents/created?view=private", (route) =>
+    route.fulfill({ json: created() }),
+  );
   await page.route("**/api/manager/agents", async (route) => {
     if (route.request().method() === "POST") {
       saved = route.request().postDataJSON();
@@ -63,20 +188,7 @@ test("expert avatar saves a stable ID and appears when reopened", async ({
     }
     const response = await route.fetch();
     const data = await response.json();
-    if (saved)
-      data.items.push({
-        id: "created",
-        definition_type: "agent",
-        agent_type: "expert",
-        owner_type: "user",
-        owner_id: "demo",
-        resource_view_type: "private",
-        is_usable: true,
-        is_editable: true,
-        is_deletable: true,
-        config_version: 1,
-        ...saved,
-      });
+    if (saved) data.items.push(created());
     await route.fulfill({ response, json: data });
   });
   await page.goto("/experts/new");

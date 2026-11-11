@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import type { Review } from "../../types/api";
+import { principalName, type Review } from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 const props = defineProps<{ reviews: Review[]; admin?: boolean }>();
@@ -48,9 +48,12 @@ async function decide(allowed: boolean) {
         <span class="badge">{{
           types[review.resource_type] || review.resource_type
         }}</span
-        ><strong>{{ review.resource_id }}</strong>
+        ><strong>{{ review.resource_id }} · {{ review.version_label || review.resource_version }}</strong>
         <p>
-          {{ review.review_reason || "审核通过后，将向全部用户共享此快照。" }}
+          {{ review.share_scope_type && review.principal_id ? principalName(review.share_scope_type, review.principal_id) : "现有共享受众" }}
+          <template v-if="review.review_reason">
+            · {{ review.review_reason }}</template
+          >
         </p>
       </div>
       <span
@@ -69,32 +72,27 @@ async function decide(allowed: boolean) {
         "
         >{{
           admin && review.review_status_type === "pending"
-            ? "审核快照"
-            : "查看快照"
+            ? "审核版本"
+            : "查看申请"
         }}</t-button
       >
     </article>
     <t-dialog
       role="dialog"
       aria-modal="true"
-      aria-label="共享快照"
+      aria-label="共享申请详情"
       :visible="!!selected"
-      header="共享快照"
+      header="共享申请详情"
       :footer="false"
       width="760px"
       @close="selected = null"
       ><template v-if="selected"
-        ><p class="snapshot-note">
-          这是申请时冻结的内容。作者的私有修改不会改变此快照。
+        ><p>{{ types[selected.resource_type] }} {{ selected.resource_id }} · 发布版本 {{ selected.version_label || selected.resource_version }}</p>
+        <p>
+          接收对象
+          {{ selected.share_scope_type && selected.principal_id ? principalName(selected.share_scope_type, selected.principal_id) : "现有共享受众" }}
         </p>
-        <h3 class="section-title">依赖版本</h3>
-        <pre class="snapshot-code">{{
-          JSON.stringify(selected.source_versions || {}, null, 2)
-        }}</pre>
-        <h3 class="section-title">共享内容</h3>
-        <pre class="snapshot-code">{{
-          JSON.stringify(selected.snapshot, null, 2)
-        }}</pre>
+        <p class="muted">申请编号 {{ selected.review_id }}</p>
         <template v-if="admin && selected.review_status_type === 'pending'"
           ><div v-field-label class="field">
             <label>审核意见</label
@@ -108,7 +106,7 @@ async function decide(allowed: boolean) {
               @click="decide(false)"
               >拒绝共享</t-button
             ><t-button theme="primary" :loading="pending" @click="decide(true)"
-              >通过并向全部用户共享</t-button
+              >通过共享申请</t-button
             >
           </div></template
         ></template

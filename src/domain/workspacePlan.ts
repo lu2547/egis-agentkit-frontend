@@ -14,10 +14,10 @@ export function workspacePlan(messages: Msg[], initial: PlanItem[] = []): PlanIt
       try { input = JSON.parse(call.input); } catch { continue; }
       const output = typeof block.output === 'string' ? block.output : block.output.map(b => b.type === 'text' ? b.text : '').join('\n');
       if (call.name === 'TaskCreate' && typeof input.subject === 'string') {
-        const id = output.match(/Task (?:\(id=([^\)]+)\)|(\S+)) created successfully/)?.slice(1).find(Boolean);
+        const id = output.match(/Task \(id=([^)]+)\) created successfully/)?.[1];
         if (id) tasks.set(id, { id, subject: input.subject, status: 'pending' });
-      } else if (call.name === 'TaskUpdate' && typeof (input.task_id ?? input.taskId) === 'string') {
-        const taskId = (input.task_id ?? input.taskId) as string;
+      } else if (call.name === 'TaskUpdate' && typeof input.task_id === 'string') {
+        const taskId = input.task_id;
         const item = tasks.get(taskId);
         if (!item) continue;
         if (input.status === 'deleted') tasks.delete(taskId);

@@ -95,7 +95,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.screenshot({
       path: testInfo.outputPath(`file-icons-${theme}.png`),
     });
-    await panel.getByRole("button", { name: /readme.md/ }).click();
+    await panel.locator("button.file-open").filter({ hasText: /readme.md/ }).click();
     await expect(panel.locator(".file-preview header img")).toHaveAttribute(
       "src",
       "/file-icons/markdown.svg",

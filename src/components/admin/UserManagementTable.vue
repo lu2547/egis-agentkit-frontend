@@ -64,7 +64,7 @@ async function save() {
       ]"
       hover
       ><template #role_type="{ row }">{{
-        row.role_type === "admin" ? "管理员" : "用户"
+        row.role_type === "admin" ? "管理员用户" : "普通用户"
       }}</template
       ><template #groups="{ row }">{{
         row.group_ids?.join("、") || "无"
@@ -98,8 +98,8 @@ async function save() {
         ><t-select
           v-model="form.role_type"
           :options="[
-            { label: '用户', value: 'user' },
-            { label: '管理员', value: 'admin' },
+            { label: '普通用户', value: 'user' },
+            { label: '管理员用户', value: 'admin' },
           ]"
         />
       </div>

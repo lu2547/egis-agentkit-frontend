@@ -15,6 +15,7 @@ import {
   type WorkspaceLocation,
 } from "../../domain/workspaceView";
 import { useIdentity } from "../../composables/useIdentity";
+import { uploadProjectFile } from "../../composables/uploadProjectFile";
 import type { WorkspaceFile } from "../../types/api";
 import AppIcon from "../common/AppIcon.vue";
 import FileTypeIcon from "../common/FileTypeIcon.vue";
@@ -24,21 +25,20 @@ import WorkspaceDeleteDialog from "./WorkspaceDeleteDialog.vue";
 
 const props = withDefaults(
   defineProps<{
-    sessionId: string;
     projectId?: string;
     revision: string;
     visible: boolean;
     messages?: Msg[];
     plan?: { id: string; subject: string; state: string }[];
   }>(),
-  { messages: () => [] },
+  { messages: () => [], plan: () => [] },
 );
 const emit = defineEmits<{ close: []; uploaded: [] }>();
 type Tab = "plan" | "workspace" | "artifacts" | "changes" | "preview";
 type Area = WorkspaceArea;
 type Selection = { path: string; area: Area; scopeId: string };
 const scopeId = computed(() =>
-  props.projectId ? `project:${props.projectId}` : props.sessionId,
+  props.projectId ? `project:${props.projectId}` : "",
 );
 const tab = ref<Tab>("workspace"),
   lastList = ref<"workspace" | "artifacts">("workspace");
@@ -47,6 +47,7 @@ const artifactDirectory = ref(""),
   files = ref<WorkspaceFile[]>([]),
   loading = ref(false),
   error = ref(""),
+  uploadError = ref(""),
   width = ref(500),
   resizing = ref(false),
   uploading = ref(false);
@@ -95,17 +96,16 @@ function requestDelete(file: WorkspaceFile) {
 }
 async function deleteFile() {
   const target = deleteTarget.value;
-  if (!target || deleting.value || !target.path) return;
+  if (!props.projectId || !target || deleting.value || !target.path) return;
   const targetScope = scopeId.value;
   const area = target.area || currentLocation.value?.area || "uploads";
   deleting.value = true;
   deleteError.value = "";
   try {
     await manager.deleteFile(
-      props.sessionId,
+      props.projectId,
       area,
       target.path,
-      props.projectId,
     );
     if (scopeId.value !== targetScope) return;
     const preview = selected.value;
@@ -134,7 +134,6 @@ function select(value: Selection) {
 watch(
   selectionKey,
   () => {
-    // Files and preview belong to the project; legacy sessions remain isolated.
     controller?.abort();
     changeController?.abort();
     uploadController?.abort();
@@ -145,6 +144,7 @@ watch(
     directory.value = null;
     artifactDirectory.value = "";
     error.value = "";
+    uploadError.value = "";
     deleteTarget.value = null;
     deleteError.value = "";
     uploading.value = false;
@@ -156,18 +156,16 @@ watch(
   { immediate: true, flush: "sync" },
 );
 const plan = computed(() =>
-  props.plan === undefined
-    ? workspacePlan(props.messages)
-    : workspacePlan(
-        props.messages.filter(
-          (message) => message.role === "assistant" && !message.finished_at,
-        ),
-        props.plan.map((item) => ({
-          id: item.id,
-          subject: item.subject,
-          status: item.state,
-        })),
-      ),
+  workspacePlan(
+    props.messages.filter(
+      (message) => message.role === "assistant" && !message.finished_at,
+    ),
+    props.plan.map((item) => ({
+      id: item.id,
+      subject: item.subject,
+      status: item.state,
+    })),
+  ),
 );
 const currentLocation = computed<WorkspaceLocation | null>(() =>
   tab.value === "artifacts"
@@ -196,7 +194,7 @@ const crumbs = computed(() => {
 });
 async function loadChanges(more = false) {
   changeController?.abort();
-  if (!props.visible || tab.value !== "changes" || !scopeId.value) return;
+  if (!props.visible || tab.value !== "changes" || !props.projectId) return;
   changeController = new AbortController();
   const signal = changeController.signal,
     targetScope = scopeId.value;
@@ -204,10 +202,9 @@ async function loadChanges(more = false) {
   error.value = "";
   try {
     const result = await workspace.changes(
-      props.sessionId,
+      props.projectId,
       more ? (nextCursor.value ?? undefined) : undefined,
       signal,
-      props.projectId,
     );
     if (!signal.aborted && targetScope === scopeId.value) {
       changes.value = more ? [...changes.value, ...result.items] : result.items;
@@ -229,7 +226,7 @@ async function load() {
     return;
   files.value = [];
   error.value = "";
-  if (!scopeId.value) {
+  if (!props.projectId) {
     loading.value = false;
     return;
   }
@@ -240,12 +237,10 @@ async function load() {
   try {
     const location = currentLocation.value;
     const result = await manager.files(
-      props.sessionId,
+      props.projectId,
       location?.area || "uploads",
       location?.path || "",
       signal,
-      false,
-      props.projectId,
     );
     if (!signal.aborted && targetScope === scopeId.value)
       files.value = location
@@ -299,19 +294,19 @@ async function upload(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0],
     targetScope = scopeId.value;
-  if (!file || !targetScope || uploading.value) return;
+  if (!file || !props.projectId || uploading.value) return;
   uploadController = new AbortController();
   const signal = uploadController.signal;
   uploading.value = true;
-  error.value = "";
+  uploadError.value = "";
   try {
-    await manager.uploadFile(props.sessionId, file, signal, props.projectId);
+    await uploadProjectFile(props.projectId, file, signal);
     if (signal.aborted || targetScope !== scopeId.value) return;
     directory.value = null;
     await load();
     emit("uploaded");
   } catch (e) {
-    if (!signal.aborted) error.value = errorText(e);
+    if (!signal.aborted) uploadError.value = errorText(e);
   } finally {
     if (!signal.aborted) uploading.value = false;
     input.value = "";
@@ -443,6 +438,9 @@ onUnmounted(() => {
               }}<input type="file" :disabled="uploading" @change="upload"
             /></label>
           </div>
+          <p v-if="tab === 'workspace' && uploadError" class="error upload-error" role="alert">
+            {{ uploadError }}
+          </p>
           <div class="file-tree">
             <AsyncState
               :loading="loading"
@@ -538,8 +536,7 @@ onUnmounted(() => {
           ><button class="back" @click="showTab(lastList)">
             ‹ 返回{{ lastList === "workspace" ? "工作空间" : "产物" }}</button
           ><FilePreview
-            v-if="selected && selected.scopeId === scopeId"
-            :session-id="sessionId"
+            v-if="projectId && selected && selected.scopeId === scopeId"
             :project-id="projectId"
             :area="selected.area"
             :path="selected.path"

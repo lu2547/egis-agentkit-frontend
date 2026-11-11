@@ -11,6 +11,10 @@ test("home sends the chosen native permission mode when creating a task", async 
   page,
 }) => {
   await page.goto("/");
+  await expect(page.getByTestId("permission-mode-trigger")).toHaveAttribute(
+    "data-value",
+    "bypass",
+  );
   await page.getByTestId("permission-mode-trigger").click();
   await page
     .locator('[role="menuitemradio"][data-mode="accept_edits"]')
@@ -81,7 +85,7 @@ test("permission popup explains all native modes and supports keyboard dismissal
   const menu = page.getByRole("menu", { name: "权限模式选项" });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitemradio")).toHaveCount(4);
-  await expect(menu.locator('[data-mode="default"]')).toHaveAttribute(
+  await expect(menu.locator('[data-mode="bypass"]')).toHaveAttribute(
     "aria-checked",
     "true",
   );

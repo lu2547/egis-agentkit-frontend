@@ -10,9 +10,11 @@ import ExpertForm from "../components/experts/ExpertForm.vue";
 import ResourceFormHeader from "../components/common/ResourceFormHeader.vue";
 const route = useRoute(),
   router = useRouter();
+const { models, isAdmin } = useIdentity();
 const team = computed(() => route.path.startsWith("/teams"));
 const catalogPath = computed(() => {
   const source = route.query.returnTo;
+  if (source === "/admin/remote-agents" && isAdmin.value) return source;
   return typeof source === "string" && /^\/experts(?:\?|$)/.test(source)
     ? source
     : team.value
@@ -24,42 +26,29 @@ function returnToCatalog() {
 }
 const pending = ref(false),
   saveError = ref("");
-const { models } = useIdentity();
 const { data, loading, error, load } = useAsyncData(async () => {
-  const [agents, teams, skills, connectors] = await Promise.all([
-    manager.definitions("agents"),
-    manager.definitions("teams"),
+  const definitionId = route.params.definitionId;
+  const isTeam = team.value;
+  const view = route.query.view === "system" ? "system" : "private";
+  const [definition, agents, skills, connectors, tools] = await Promise.all([
+    typeof definitionId === "string"
+      ? manager.definition(isTeam ? "teams" : "agents", definitionId, view)
+      : undefined,
+    isTeam ? manager.definitions("agents") : undefined,
     manager.resources("skills"),
     manager.resources("connectors"),
+    manager.resources("tools"),
   ]);
-  let definition =
-    [...agents.items, ...teams.items].find(
-      (d) =>
-        d.id === route.params.definitionId &&
-        d.resource_view_type === "private",
-    ) ||
-    [...agents.items, ...teams.items].find(
-      (d) => d.id === route.params.definitionId && d.is_editable,
-    );
-  if (route.params.definitionId && !definition)
-    throw new Error("找不到可编辑的资源，或你没有编辑权限。");
   if (definition && !definition.is_editable)
     throw new Error("你没有编辑这个资源的权限。");
-  if (definition && team.value) {
-    definition = await manager.definition(
-      "teams",
-      definition.id,
-      definition.resource_view_type,
-    );
-    if (!definition.is_editable) throw new Error("你没有编辑这个资源的权限。");
-    if (!definition.orchestrator_config)
-      throw new Error("未能读取主理人配置，请刷新后重试。");
-  }
+  if (definition && isTeam && !definition.orchestrator_config)
+    throw new Error("未能读取主理人配置，请刷新后重试。");
   return {
     definition,
-    experts: agents.items,
+    experts: agents?.items ?? [],
     skills: skills.items,
     connectors: connectors.items,
+    tools: tools.items,
   };
 });
 watch(() => route.fullPath, load, { immediate: true });
@@ -88,17 +77,14 @@ async function save(body: unknown) {
         :title="`${route.params.definitionId ? '编辑' : '创建'}${team ? '专家团' : '专家'}`"
         :description="
           team
-            ? '配置主理人和固定成员，让多位专家协同工作。'
-            : '用清晰的指令与合适的能力，打造专属工作伙伴。'
+            ? '配置主理人和固定成员。每次保存都会发布新版本。'
+            : '配置专家的指令与能力。每次保存都会发布新版本。'
         "
         :return-label="`返回${team ? '专家团' : '专家'}目录`"
         @back="returnToCatalog"
       />
       <AsyncState :loading="loading" :error="error" @retry="load"
         ><div v-if="data">
-          <div v-if="saveError" class="error save-error" role="alert">
-            {{ saveError }}
-          </div>
           <ExpertForm
             :key="String(route.params.definitionId || route.path)"
             :definition="data.definition"
@@ -106,8 +92,12 @@ async function save(body: unknown) {
             :experts="data.experts"
             :skills="data.skills"
             :connectors="data.connectors"
+            :tools="data.tools"
             :models="models"
+            :is-admin="isAdmin"
+            :start-remote="isAdmin && route.query.execution === 'remote'"
             :pending="pending"
+            :save-error="saveError"
             @save="save"
             @cancel="returnToCatalog"
           /></div

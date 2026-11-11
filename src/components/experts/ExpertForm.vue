@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, computed } from "vue";
+import { computed, reactive, ref } from "vue";
 import type {
   Definition,
   Resource,
   ResourceBinding,
   DefinitionRef,
   ModelOption,
+  RemoteAgentConfig,
 } from "../../types/api";
 import { catalogIconUrl } from "../../domain/catalogIcons";
 import AvatarPicker from "../common/AvatarPicker.vue";
@@ -13,14 +14,19 @@ import ExpertIdentityFields from "./ExpertIdentityFields.vue";
 import AgentResourceBindings from "./AgentResourceBindings.vue";
 import TeamDefinitionFields from "./TeamDefinitionFields.vue";
 import ResourceFormActions from "../common/ResourceFormActions.vue";
+import RemoteExpertFields from "./RemoteExpertFields.vue";
 const props = defineProps<{
   definition?: Definition;
   team: boolean;
   experts: Definition[];
   skills: Resource[];
   connectors: Resource[];
+  tools?: Resource[];
   models: ModelOption[];
   pending: boolean;
+  saveError?: string;
+  isAdmin?: boolean;
+  startRemote?: boolean;
 }>();
 const emit = defineEmits<{ save: [body: unknown]; cancel: [] }>();
 const original = props.definition;
@@ -45,18 +51,50 @@ const form = reactive({
   leaderName: leader?.agent_name || "",
   leaderDisplayName: leader?.agent_display_name || "",
   leaderPrompt: leader?.payload.system_prompt || "",
+  executionType: original ? (original.agent_type === "remote" ? "remote" : "native") : (props.startRemote ? "remote" : "native"),
+  remote: {
+    transport: "http_sync",
+    protocol_version: "v1",
+    endpoint: "",
+    credential_ref: "",
+    ...original?.payload.remote_config,
+  } as RemoteAgentConfig,
 });
-const valid = computed(
-  () =>
-    /^[a-z][a-z0-9_-]{0,127}$/.test(form.name) &&
-    form.displayName.trim() &&
-    (!props.team ||
-      (form.members.length &&
-        /^[a-z][a-z0-9_-]{0,127}$/.test(form.leaderName) &&
-        form.leaderDisplayName.trim())),
+const isRemote = computed(() => !props.team && form.executionType === "remote");
+const canSaveRemote = computed(() => {
+  if (!isRemote.value) return true;
+  if (!props.isAdmin) return false;
+  const { endpoint, transport, credential_ref, callback_secret_ref } = form.remote;
+  const scheme = transport === "websocket" ? /^wss?:\/\// : /^https?:\/\//;
+  const isReference = (value = "") => /^EGIS_REMOTE_AGENT_[A-Z0-9_]+$/.test(value.trim());
+  return scheme.test(endpoint.trim()) && isReference(credential_ref)
+    && (transport !== "http_callback" || isReference(callback_secret_ref));
+});
+const namePattern = /^[a-z][a-z0-9_-]{0,127}$/;
+const validationError = computed(() => {
+  if (!form.name.trim()) return "请输入英文名称。";
+  if (!namePattern.test(form.name.trim()))
+    return "英文名称须以小写字母开头，只能包含小写字母、数字、下划线和短横线。";
+  if (!form.displayName.trim()) return "请输入展示名称。";
+  if (!canSaveRemote.value)
+    return props.isAdmin
+      ? "请检查远程连接地址和凭据引用。"
+      : "仅管理员可以保存远程专家。";
+  if (props.team) {
+    if (!namePattern.test(form.leaderName.trim())) return "请填写有效的主理人英文名称。";
+    if (!form.leaderDisplayName.trim()) return "请输入主理人展示名称。";
+    if (!form.members.length) return "请至少添加一位固定成员。";
+  }
+  return "";
+});
+const attemptedSave = ref(false);
+const formError = computed(() =>
+  attemptedSave.value && validationError.value ? validationError.value : props.saveError,
 );
 function submit() {
-  if (!valid.value) return;
+  if (props.pending) return;
+  attemptedSave.value = true;
+  if (validationError.value) return;
   const common = {
     description: form.description,
     category: form.category,
@@ -72,8 +110,8 @@ function submit() {
   };
   const body: Record<string, unknown> = props.team
     ? {
-        team_name: form.name,
-        team_display_name: form.displayName,
+        team_name: form.name.trim(),
+        team_display_name: form.displayName.trim(),
         payload: {
           ...common,
           ...(original ? { orchestrator: original.payload.orchestrator } : {}),
@@ -83,8 +121,8 @@ function submit() {
         ...(form.leaderName
           ? {
               orchestrator_config: {
-                agent_name: form.leaderName,
-                agent_display_name: form.leaderDisplayName,
+                agent_name: form.leaderName.trim(),
+                agent_display_name: form.leaderDisplayName.trim(),
                 payload: {
                   ...leader?.payload,
                   system_prompt: form.leaderPrompt,
@@ -96,19 +134,35 @@ function submit() {
           : {}),
       }
     : {
-        agent_name: form.name,
-        agent_display_name: form.displayName,
+        agent_type: isRemote.value ? "remote" : "expert",
+        agent_name: form.name.trim(),
+        agent_display_name: form.displayName.trim(),
         payload: {
           ...common,
-          system_prompt: form.prompt,
-          bindings: form.bindings,
           model_key: form.model || null,
-          ...(original?.payload.implementation
-            ? { implementation: original.payload.implementation }
-            : {}),
+          ...(isRemote.value
+            ? {
+                remote_config: {
+                  ...form.remote,
+                  endpoint: form.remote.endpoint.trim(),
+                  credential_ref: form.remote.credential_ref.trim(),
+                  callback_secret_ref: form.remote.transport === "http_callback"
+                    ? form.remote.callback_secret_ref?.trim() : undefined,
+                  cancel_endpoint: form.remote.transport !== "websocket"
+                    ? form.remote.cancel_endpoint?.trim() || undefined : undefined,
+                },
+              }
+            : {
+                system_prompt: form.prompt,
+                bindings: form.bindings,
+              }),
         },
       };
-  if (original) body.config_version = original.config_version;
+  if (original) {
+    body.config_version = original.config_version;
+    body.owner_type = original.owner_type;
+    body.owner_id = original.owner_id;
+  }
   emit("save", body);
 }
 </script>
@@ -139,7 +193,18 @@ function submit() {
     <div v-field-label class="field">
       <label>头像</label><AvatarPicker v-model="form.avatar" kind="expert" />
     </div>
-    <div v-if="!team" v-field-label class="field">
+    <div v-if="!team && isAdmin" v-field-label class="field">
+      <label>专家执行方式</label>
+      <t-select
+        v-model="form.executionType"
+        :options="[
+          { label: '原生专家', value: 'native' },
+          { label: '远程专家', value: 'remote' },
+        ]"
+      />
+    </div>
+    <RemoteExpertFields v-if="isRemote && isAdmin" v-model="form.remote" />
+    <div v-if="!team && !isRemote" v-field-label class="field">
       <label>系统指令</label
       ><t-textarea
         v-model="form.prompt"
@@ -149,16 +214,18 @@ function submit() {
       />
     </div>
     <TeamDefinitionFields
-      v-else
+      v-if="team"
       v-model:name="form.leaderName"
       v-model:display-name="form.leaderDisplayName"
       v-model:prompt="form.leaderPrompt"
       v-model:members="form.members"
       :experts="experts"
     /><AgentResourceBindings
+      v-if="!isRemote"
       v-model="form.bindings"
       :skills="skills"
       :connectors="connectors"
+      :tools="tools || []"
     />
     <div v-field-label class="field">
       <label>快捷提问</label
@@ -180,7 +247,8 @@ function submit() {
     <p class="save-note">
       保存后即可自己使用。需要面向其他用户时，可单独申请共享。
     </p>
-    <ResourceFormActions :submit-label="`保存${team ? '专家团' : '专家'}`" :disabled="!valid" :pending="pending" @cancel="$emit('cancel')" />
+    <p v-if="formError" class="save-error" role="alert">{{ formError }}</p>
+    <ResourceFormActions :submit-label="`保存${team ? '专家团' : '专家'}`" :disabled="pending" :pending="pending" @cancel="$emit('cancel')" />
   </form>
 </template>
 <style scoped src="../../styles/components/expert-form.css"></style>

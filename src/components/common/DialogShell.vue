@@ -7,7 +7,7 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ close: [] }>();
 const panel = ref<HTMLElement>();
-let previousFocus: HTMLElement | null = null;
+let previousFocus: { element: HTMLElement; visible: boolean } | undefined;
 let previousOverflow: string | undefined;
 const focusSelector =
   'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]';
@@ -22,8 +22,22 @@ function release() {
     document.body.style.overflow = previousOverflow;
     previousOverflow = undefined;
   }
-  if (previousFocus?.isConnected) previousFocus.focus();
-  previousFocus = null;
+  const opener = previousFocus;
+  previousFocus = undefined;
+  if (!opener?.element.isConnected) return;
+
+  const { element, visible } = opener;
+  element.focus();
+  // Esc can make a previously pointer-focused opener match :focus-visible.
+  if (visible || !element.matches(":focus-visible")) return;
+  element.dataset.dialogFocusReturn = "";
+  const listeners = new AbortController();
+  function showFocus() {
+    delete element.dataset.dialogFocusReturn;
+    listeners.abort();
+  }
+  element.addEventListener("blur", showFocus, { signal: listeners.signal });
+  element.addEventListener("keydown", showFocus, { signal: listeners.signal });
 }
 watch(
   () => props.open,
@@ -32,10 +46,11 @@ watch(
       release();
       return;
     }
+    const opener = document.activeElement;
     previousFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+      opener instanceof HTMLElement
+        ? { element: opener, visible: opener.matches(":focus-visible") }
+        : undefined;
     previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     await nextTick();

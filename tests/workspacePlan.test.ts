@@ -8,14 +8,14 @@ const result = (id: string, output: string, state = 'success') => ({ type: 'tool
 describe('workspace plan', () => {
   it('reconstructs successful native task creation and updates', () => {
     expect(workspacePlan([message([
-      call('a', 'TaskCreate', { subject: 'Inspect files' }), result('a', 'Task 1 created successfully: Inspect files'),
-      call('b', 'TaskUpdate', { taskId: '1', status: 'completed' }), result('b', 'Task 1 updated successfully'),
+      call('a', 'TaskCreate', { subject: 'Inspect files' }), result('a', 'Task (id=1) created successfully: Inspect files'),
+      call('b', 'TaskUpdate', { task_id: '1', status: 'completed' }), result('b', 'Update task (id=1) status.'),
     ])])).toEqual([{ id: '1', subject: 'Inspect files', status: 'completed' }]);
   });
   it('ignores prose and failed operations and reads native task lists', () => {
     expect(workspacePlan([message([
       { type: 'text', text: 'Plan: invent a task' },
-      call('a', 'TaskCreate', { subject: 'Failed' }), result('a', 'Task 1 created successfully: Failed', 'error'),
+      call('a', 'TaskCreate', { subject: 'Failed' }), result('a', 'Task (id=1) created successfully: Failed', 'error'),
       call('b', 'TaskList', {}), result('b', '2 [in_progress] Real work'),
     ])])).toEqual([{ id: '2', subject: 'Real work', status: 'in_progress' }]);
   });
