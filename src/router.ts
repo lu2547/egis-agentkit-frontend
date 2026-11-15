@@ -56,6 +56,10 @@ export const router = createRouter({
         },
         { path: "tools", component: () => import("./views/ToolsView.vue") },
         {
+          path: "knowledge-bases",
+          component: () => import("./views/KnowledgeBasesView.vue"),
+        },
+        {
           path: "share-requests",
           component: () => import("./views/ShareRequestsView.vue"),
         },

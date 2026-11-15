@@ -28,6 +28,11 @@ import type {
 } from "../../domain/previewReferences";
 import FilePreview from "./FilePreview.vue";
 import WorkspaceDeleteDialog from "./WorkspaceDeleteDialog.vue";
+import {
+  knowledgeSources,
+  type KnowledgeReference,
+} from "../../domain/knowledgeSources";
+import KnowledgeSourcesPanel from "../knowledge/KnowledgeSourcesPanel.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -44,6 +49,7 @@ const emit = defineEmits<{
   close: [];
   uploaded: [];
   reference: [value: PreviewReference, accept: PreviewAcceptance];
+  "knowledge-ready": [];
 }>();
 const previews = new Map<string, InstanceType<typeof FilePreview>>();
 function canLeavePreview() {
@@ -59,7 +65,7 @@ function openReference(value: PreviewAnchor) {
     if (preview && !preview.hasPendingChanges()) preview.refresh();
   }
 }
-type Tab = "plan" | "workspace" | "changes" | "preview";
+type Tab = "plan" | "workspace" | "changes" | "preview" | "knowledge";
 type Area = WorkspaceArea;
 type Selection = {
   path: string;
@@ -72,6 +78,37 @@ const scopeId = computed(() =>
   workspaceScopeId(props.projectId, props.sessionId),
 );
 const tab = ref<Tab>("workspace");
+const knowledgeReferences = computed(() =>
+  props.messages.flatMap(knowledgeSources),
+);
+const selectedCitation = ref("");
+function openKnowledgeSource(source: KnowledgeReference) {
+  if (
+    !canLeavePreview() ||
+    !knowledgeReferences.value.some((value) => value.key === source.key)
+  )
+    return;
+  selectedCitation.value = source.citationId;
+  tab.value = "knowledge";
+}
+watch(
+  () => [
+    props.sessionId,
+    knowledgeReferences.value.map((value) => value.key).join("|"),
+  ],
+  ([, keys], previous) => {
+    if (!keys) {
+      selectedCitation.value = "";
+      return;
+    }
+    if (keys !== previous?.[1] && canLeavePreview()) {
+      selectedCitation.value =
+        knowledgeReferences.value.at(-1)?.citationId || "";
+      tab.value = "knowledge";
+      emit("knowledge-ready");
+    }
+  },
+);
 const directory = ref<WorkspaceLocation | null>(null);
 const files = ref<WorkspaceFile[]>([]),
   loading = ref(false),
@@ -393,7 +430,13 @@ function openArtifacts() {
   directory.value = { area: "artifacts", path: "" };
   tab.value = "workspace";
 }
-defineExpose({ openReference, openFile, openTab: showTab, openArtifacts });
+defineExpose({
+  openReference,
+  openFile,
+  openTab: showTab,
+  openArtifacts,
+  openKnowledgeSource,
+});
 async function upload(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0],
@@ -475,6 +518,7 @@ onUnmounted(() => {
             <div class="view-title"><span>工作空间</span></div>
             <div class="header-actions">
               <button
+                v-if="tab !== 'knowledge'"
                 class="plain"
                 aria-label="刷新文件"
                 @click="tab === 'changes' ? loadChanges() : load()"
@@ -496,6 +540,7 @@ onUnmounted(() => {
                 ['workspace', '文件'],
                 ['changes', '变更'],
                 ['preview', '预览'],
+                ['knowledge', '知识来源'],
               ] as const"
               :key="item[0]"
               :class="{ active: tab === item[0] }"
@@ -505,7 +550,13 @@ onUnmounted(() => {
             </button>
           </nav>
         </header>
-        <section v-if="tab === 'plan'" class="plan">
+        <KnowledgeSourcesPanel
+          v-if="tab === 'knowledge'"
+          :session-id="sessionId"
+          :sources="knowledgeReferences"
+          :selected-citation="selectedCitation"
+        />
+        <section v-else-if="tab === 'plan'" class="plan">
           <div v-if="!plan.length" class="empty-message">
             <h3>暂无计划</h3>
             <p>当助手创建任务计划时，进度会显示在这里。</p>

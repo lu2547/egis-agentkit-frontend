@@ -425,10 +425,11 @@ test("management grants current access by stable resource and recipient", async 
     principal_type: "user",
     principal_id: "analyst",
   });
+  const row = page.getByRole("row").filter({ hasText: "报表连接器" });
+  await expect(row).toBeVisible();
   await expect(
     page.getByRole("columnheader", { name: "版本", exact: true }),
   ).toHaveCount(0);
-  const row = page.getByRole("row").filter({ hasText: "报表连接器" });
   await expect(row).toContainText("连接器广场 · 管理员直接授权");
   await expect(row).toContainText("分析师");
   await expect(row).toContainText("用户 · analyst");

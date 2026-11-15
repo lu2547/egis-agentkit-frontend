@@ -27,6 +27,7 @@ import ArtifactList from "../components/workspace/ArtifactList.vue";
 import WorkspacePanel from "../components/workspace/WorkspacePanel.vue";
 import MessageAnnotationLayer from "../components/conversation/MessageAnnotationLayer.vue";
 import type { TextAnnotation } from "../domain/textAnnotations";
+import type { KnowledgeReference } from "../domain/knowledgeSources";
 const route = useRoute(),
   router = useRouter(),
   conversation = useConversation(),
@@ -172,6 +173,13 @@ function openReference(value: PreviewReference) {
   }
   workspaceOpen.value = true;
   setTimeout(() => workspace.value?.openReference(value), 0);
+}
+function openKnowledgeSource(value: KnowledgeReference) {
+  workspaceOpen.value = true;
+  nextTick(() => workspace.value?.openKnowledgeSource(value));
+}
+function revealKnowledgePanel() {
+  if (window.innerWidth >= 1100) workspaceOpen.value = true;
 }
 const attachments = useAttachments(),
   uploading = ref(false),
@@ -479,6 +487,7 @@ const artifactsByReply = computed(() =>
           @older="conversation.older"
           @file="openFile($event, 'work')"
           @reference="openReference"
+          @knowledge="openKnowledgeSource"
           @annotation="annotationLayer?.focusAnnotation($event)"
         >
           <template #message-artifacts="{ message }">
@@ -613,6 +622,7 @@ const artifactsByReply = computed(() =>
       @close="workspaceOpen = false"
       @uploaded="fileRevision++"
       @reference="addReference"
+      @knowledge-ready="revealKnowledgePanel"
     />
   </section>
 </template>

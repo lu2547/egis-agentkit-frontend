@@ -3,10 +3,19 @@ import { computed } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { TextAnnotation } from "../../domain/textAnnotations";
-const props = defineProps<{ text: string; annotations?: TextAnnotation[] }>();
+import {
+  renderKnowledgeCitations,
+  type KnowledgeReference,
+} from "../../domain/knowledgeSources";
+const props = defineProps<{
+  text: string;
+  annotations?: TextAnnotation[];
+  knowledge?: KnowledgeReference[];
+}>();
 const emit = defineEmits<{
   file: [path: string];
   annotation: [value: TextAnnotation];
+  knowledge: [value: KnowledgeReference];
 }>();
 const html = computed(() => {
   const safe = DOMPurify.sanitize(
@@ -24,7 +33,8 @@ const html = computed(() => {
       FORBID_ATTR: ["style"],
     },
   );
-  if (!props.annotations?.length) return safe;
+  if (!props.annotations?.length)
+    return renderKnowledgeCitations(safe, props.knowledge || []);
   // 只替换正文 Text 节点，不改写属性、链接或代码，避免标记破坏净化后的 HTML。
   const template = document.createElement("template");
   template.innerHTML = safe;
@@ -57,13 +67,23 @@ const html = computed(() => {
       textNode.replaceWith(fragment);
     }
   }
-  return template.innerHTML;
+  return renderKnowledgeCitations(template.innerHTML, props.knowledge || []);
 });
 function link(event: MouseEvent) {
   const target = (event.target as Element).closest("a");
   if (!target) return;
   const href = target.getAttribute("href");
   if (!href) return;
+  if (href.startsWith("#kb-")) {
+    const source = props.knowledge?.find(
+      (value) => "#kb-" + value.citationId === href,
+    );
+    if (source) {
+      event.preventDefault();
+      emit("knowledge", source);
+    }
+    return;
+  }
   if (href.startsWith("#annotation-")) {
     const annotation = props.annotations?.find(
       (item) =>

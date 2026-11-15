@@ -8,6 +8,11 @@ import ReplyActions from "./ReplyActions.vue";
 import type { Task, ReplyFeedbackState } from "../../types/api";
 import PermissionRequestCard from "./PermissionRequestCard.vue";
 import type { TextAnnotation } from "../../domain/textAnnotations";
+import {
+  knowledgeSources,
+  type KnowledgeReference,
+} from "../../domain/knowledgeSources";
+import ReplyKnowledgeSources from "../knowledge/ReplyKnowledgeSources.vue";
 const props = defineProps<{
   message?: Msg;
   preparing?: boolean;
@@ -28,9 +33,13 @@ defineEmits<{
   file: [path: string];
   annotation: [value: TextAnnotation];
   branched: [task: Task];
+  knowledge: [value: KnowledgeReference];
 }>();
 const presentation = computed(() =>
   props.message ? presentTurn(props.message) : undefined,
+);
+const knowledge = computed(() =>
+  props.message ? knowledgeSources(props.message) : [],
 );
 const replyError = computed(() =>
   props.message?.error?.message === "The reply failed with an unknown error."
@@ -71,8 +80,14 @@ const replyError = computed(() =>
         :text="presentation.answer"
         data-annotation-content
         :annotations="annotations"
+        :knowledge="knowledge"
+        @knowledge="$emit('knowledge', $event)"
         @file="$emit('file', $event)"
         @annotation="$emit('annotation', $event)"
+      />
+      <ReplyKnowledgeSources
+        :sources="knowledge"
+        @open="$emit('knowledge', $event)"
       />
       <div
         v-if="message.finished_at && presentation.answer && annotations?.length"

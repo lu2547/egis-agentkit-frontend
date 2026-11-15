@@ -46,6 +46,7 @@ const toolTitles: Record<string, string> = {
   WebFetch: "读取网页",
   Skill: "使用技能",
   TeamSay: "联系团队成员",
+  SearchKnowledge: "检索知识库",
 };
 function excerpt(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);

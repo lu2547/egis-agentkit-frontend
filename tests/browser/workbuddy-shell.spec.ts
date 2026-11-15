@@ -71,14 +71,37 @@ test("conversation rename uses API and updates the open title and recent list", 
   );
   await expect(page.locator(".task-header h1")).toHaveText(saved);
 });
-test("sidebar search navigates real history and knowledge stays planned", async ({
+test("sidebar search navigates real history and knowledge opens the authorized catalog", async ({
   page,
 }) => {
+  await page.route("**/api/manager/knowledge/bases", (route) =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        label: "测试知识库",
+        items: [
+          {
+            id: "kb1",
+            name: "公司制度",
+            category: "制度",
+            description: "有权访问的资料",
+          },
+        ],
+      },
+    }),
+  );
   await page.goto("/");
-  await expect(page.getByRole("button", { name: /知识库/ })).toBeDisabled();
+  await expect(
+    page.getByRole("link", { name: "知识库", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "全局搜索", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "全局搜索" });
   await dialog.getByLabel("搜索历史对话").fill("行业研究");
   await dialog.getByRole("option").first().click();
   await expect(page).toHaveURL(/\/tasks\/s1$/);
+  await page.getByRole("link", { name: "知识库", exact: true }).click();
+  await expect(page).toHaveURL(/\/knowledge-bases$/);
+  await expect(
+    page.getByRole("heading", { name: "公司制度", exact: true }),
+  ).toBeVisible();
 });

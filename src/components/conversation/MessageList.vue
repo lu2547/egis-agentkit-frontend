@@ -33,6 +33,9 @@ defineEmits<{
   reference: [value: import("../../domain/previewReferences").PreviewReference];
   annotation: [value: TextAnnotation];
   branched: [task: import("../../types/api").Task];
+  knowledge: [
+    value: import("../../domain/knowledgeSources").KnowledgeReference,
+  ];
 }>();
 const viewport = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
@@ -109,6 +112,7 @@ watch(
             :annotations="replyAnnotations(messages, message.id)"
             @file="$emit('file', $event)"
             @annotation="$emit('annotation', $event)"
+            @knowledge="$emit('knowledge', $event)"
           />
           <slot
             v-if="message.role === 'assistant'"

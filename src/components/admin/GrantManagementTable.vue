@@ -175,7 +175,6 @@ async function revoke(grant: Grant) {
         { colKey: 'principal', title: '授权对象' },
         { colKey: 'resource_id', title: '资源' },
         { colKey: 'resource_type', title: '类型' },
-        { colKey: 'version', title: '版本' },
         { colKey: 'source', title: '来源' },
         { colKey: 'granted_by', title: '操作人' },
         { colKey: 'action', title: '操作', width: 110 },
