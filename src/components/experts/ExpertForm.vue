@@ -159,9 +159,8 @@ function submit() {
         },
       };
   if (original) {
-    if (props.team) body.config_version = original.config_version;
-    else {
-      body.owner_version = original.owner_version;
+    body.owner_version = original.owner_version;
+    if (!props.team) {
       delete body.agent_type;
     }
     if (props.team) {

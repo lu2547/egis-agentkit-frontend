@@ -67,7 +67,6 @@ export interface Definition {
   share_status_type?: string;
   owner_version?: number;
   version?: number;
-  config_version?: number;
   orchestrator_config?: {
     agent_name: string;
     agent_display_name: string;

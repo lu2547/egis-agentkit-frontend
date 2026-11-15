@@ -175,11 +175,11 @@ test("team editor submits its current team revision after previous edits", async
   await expect(page.getByPlaceholder("例如 研究专家")).toHaveValue("研究与策略专家团");
   await page.getByRole("button", { name: "保存专家团", exact: true }).click();
   await expect.poll(() => submitted).toMatchObject({
-    config_version: 2,
+    owner_version: 2,
     owner_type: "user",
     owner_id: "demo",
   });
-  expect(submitted).not.toHaveProperty("owner_version");
+  expect(submitted).not.toHaveProperty("config_version");
 });
 
 test("expert avatar saves a stable ID and appears when reopened", async ({
