@@ -95,6 +95,88 @@
 .workspace-tabs button:hover {
   color: var(--text);
 }
+.preview-view,
+.preview-document {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.preview-tab-bar {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.preview-file-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 6px 6px 0;
+  gap: 4px;
+}
+.preview-file-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 220px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  color: var(--muted);
+}
+.preview-file-tab.active {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--text);
+}
+.preview-file-tab > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.preview-file-tab > button[role="tab"] {
+  flex: 1;
+}
+.preview-file-tab span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-file-tab :deep(img),
+.preview-file-tab :deep(svg) {
+  flex: none;
+}
+.preview-file-tab > .preview-tab-close {
+  flex: none;
+  padding: 6px;
+  margin-right: 2px;
+  border-radius: 4px;
+  font-size: 16px;
+}
+.preview-tab-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.preview-tab-download {
+  flex: none;
+  padding: 8px;
+}
 .list-toolbar {
   display: flex;
   align-items: center;

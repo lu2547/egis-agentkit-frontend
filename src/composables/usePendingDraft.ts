@@ -1,6 +1,14 @@
-const pending = new Map<string, string>();
-export function queueDraft(sessionId: string, text: string) {
-  pending.set(sessionId, text);
+import type { PreviewReference } from "../domain/previewReferences";
+const pending = new Map<
+  string,
+  { text: string; references: PreviewReference[] }
+>();
+export function queueDraft(
+  sessionId: string,
+  text: string,
+  references: PreviewReference[] = [],
+) {
+  pending.set(sessionId, { text, references });
 }
 export function peekDraft(sessionId: string) {
   return pending.get(sessionId);

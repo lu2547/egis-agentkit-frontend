@@ -5,11 +5,19 @@ import type { Msg, ToolCallBlock } from "@agentscope-ai/agentscope/message";
 import { ArrowDown } from "lucide-vue-next";
 import UserMessage from "./UserMessage.vue";
 import AssistantMessage from "./AssistantMessage.vue";
+import {
+  replyAnnotations,
+  type TextAnnotation,
+} from "../../domain/textAnnotations";
 const props = defineProps<{
   messages: Msg[];
   displayNames?: Record<string, string>;
   defaultDisplayName?: string;
   personal?: boolean;
+  preparing?: boolean;
+  sessionId?: string;
+  branchDisabled?: boolean;
+  replyFeedback?: Record<string, import("../../types/api").ReplyFeedbackState>;
   loading: boolean;
   hasMore: boolean;
   confirm: (
@@ -19,7 +27,13 @@ const props = defineProps<{
     rememberForSession?: boolean,
   ) => Promise<void>;
 }>();
-defineEmits<{ older: []; file: [path: string] }>();
+defineEmits<{
+  older: [];
+  file: [path: string];
+  reference: [value: import("../../domain/previewReferences").PreviewReference];
+  annotation: [value: TextAnnotation];
+  branched: [task: import("../../types/api").Task];
+}>();
 const viewport = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
 const { sticky, onScroll, follow, scrollToBottom } = useScrollFollower(
@@ -73,19 +87,28 @@ watch(
         <div
           v-for="message in messages"
           :key="message.id"
+          :data-message-id="message.id"
           class="message-entry"
           :class="{ 'message-arriving': arriving.has(message.id) }"
         >
           <UserMessage
             v-if="message.role === 'user'"
             :message="message"
+            @reference="$emit('reference', $event)"
+            @annotation="$emit('annotation', $event)"
           /><AssistantMessage
             v-else-if="message.role === 'assistant'"
             :message="message"
             :confirm="confirm"
+            :session-id="sessionId"
+            :branch-disabled="branchDisabled"
+            :feedback="replyFeedback?.[message.id]"
+            @branched="$emit('branched', $event)"
             :display-name="displayNames?.[message.name] || defaultDisplayName"
             :personal="personal"
+            :annotations="replyAnnotations(messages, message.id)"
             @file="$emit('file', $event)"
+            @annotation="$emit('annotation', $event)"
           />
           <slot
             v-if="message.role === 'assistant'"
@@ -93,7 +116,15 @@ watch(
             :message="message"
           />
         </div>
-        <div v-if="!messages.length && !loading" class="empty">
+        <AssistantMessage
+          v-if="preparing"
+          class="assistant-preparing"
+          preparing
+          :display-name="defaultDisplayName"
+          :personal="personal"
+          :confirm="confirm"
+        />
+        <div v-if="!messages.length && !loading && !preparing" class="empty">
           <h3>从一个问题开始</h3>
           <p>输入目标、背景与交付要求，养老险GPT 会在这里记录工作过程。</p>
         </div>

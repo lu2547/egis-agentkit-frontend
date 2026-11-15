@@ -9,26 +9,23 @@ test.beforeEach(async ({ page, request }) => {
 test("catalog detail, summon, native stream and isolated artifact preview", async ({
   page,
 }) => {
-  await page.route(
-    "**/manager/agents/expert-0?view=system",
-    async (route) => {
-      const expert = await (await route.fetch()).json();
-      await route.fulfill({
-        json: {
-          ...expert,
-          payload: {
-            ...expert.payload,
-            description: "从资料中提炼结论和行动建议。",
-            bindings: ["skill", "mcp", "tool"].map((resourceType) => ({
-              resource_type: resourceType,
-              resource_id: `hidden-${resourceType}`,
-              resource_version: "1.0.0",
-            })),
-          },
+  await page.route("**/manager/agents/expert-0?view=system", async (route) => {
+    const expert = await (await route.fetch()).json();
+    await route.fulfill({
+      json: {
+        ...expert,
+        payload: {
+          ...expert.payload,
+          description: "从资料中提炼结论和行动建议。",
+          bindings: ["skill", "mcp", "tool"].map((resourceType) => ({
+            resource_type: resourceType,
+            resource_id: `hidden-${resourceType}`,
+            resource_version: "1.0.0",
+          })),
         },
-      });
-    },
-  );
+      },
+    });
+  });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
@@ -58,7 +55,9 @@ test("catalog detail, summon, native stream and isolated artifact preview", asyn
   await expect(
     expertDetail.getByText("从资料中提炼结论和行动建议。"),
   ).toBeVisible();
-  await expect(expertDetail.getByText(/hidden-(skill|mcp|tool)/)).toHaveCount(0);
+  await expect(expertDetail.getByText(/hidden-(skill|mcp|tool)/)).toHaveCount(
+    0,
+  );
   await expect(expertDetail.getByText("v1.0", { exact: true })).toBeVisible();
   await expect(
     expertDetail.getByLabel("发布版本", { exact: true }),
@@ -83,7 +82,11 @@ test("catalog detail, summon, native stream and isolated artifact preview", asyn
   await expect(page.getByText(/internal timestamp/)).toHaveCount(0);
   await page.locator(".artifact-card").first().click();
   await expect(page.locator('iframe[title="隔离的 HTML 预览"]')).toBeVisible();
-  await expect(page.locator("iframe")).toHaveAttribute("sandbox", "");
+  // 文档脚本仅在独立源中运行，不授予访问主页面的同源权限。
+  await expect(page.locator("iframe")).toHaveAttribute(
+    "sandbox",
+    "allow-scripts",
+  );
   expect(
     await page.evaluate(() => Boolean((window as any).previewScriptRan)),
   ).toBe(false);
@@ -176,8 +179,18 @@ test("only administrators see Management under More", async ({
     route.fulfill({
       json: {
         items: [
-          { user_id: "admin", username: "Alice", role_type: "admin", is_enabled: true },
-          { user_id: "user", username: "Bob", role_type: "user", is_enabled: true },
+          {
+            user_id: "admin",
+            username: "Alice",
+            role_type: "admin",
+            is_enabled: true,
+          },
+          {
+            user_id: "user",
+            username: "Bob",
+            role_type: "user",
+            is_enabled: true,
+          },
         ],
       },
     }),
@@ -186,20 +199,32 @@ test("only administrators see Management under More", async ({
   await page.getByRole("button", { name: "更多", exact: true }).click();
   await page.getByRole("button", { name: "管理", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/users$/);
-  await expect(page.getByRole("cell", { name: "管理员用户", exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "普通用户", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "管理员用户", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "普通用户", exact: true }),
+  ).toBeVisible();
 
   await request.post("http://127.0.0.1:38194/auth/login", {
     data: { user_id: "user", password: "test" },
   });
   await page.goto("/admin/users");
-  await expect(page.getByRole("heading", { name: "此页面仅管理员可访问" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "此页面仅管理员可访问" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "更多", exact: true }).click();
-  await expect(page.getByRole("button", { name: "共享申请", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "管理", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "共享申请", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "管理", exact: true }),
+  ).toHaveCount(0);
 });
 
-test("management registers a remote expert with a credential reference", async ({ page }) => {
+test("management registers a remote expert with a credential reference", async ({
+  page,
+}) => {
   await page.route("**/manager/agents", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     await route.fulfill({ status: 201, json: { id: "remote-finance" } });
@@ -208,10 +233,15 @@ test("management registers a remote expert with a credential reference", async (
   await page.getByRole("link", { name: "登记第三方专家" }).click();
   await page.getByPlaceholder("例如 research_expert").fill("remote_finance");
   await page.getByPlaceholder("例如 研究专家").fill("财务专家");
-  await page.getByPlaceholder("https://expert.example/v1/runs").fill("https://finance.example/v1/runs");
-  await page.getByPlaceholder("EGIS_REMOTE_AGENT_FINANCE_TOKEN").fill("EGIS_REMOTE_AGENT_FINANCE_TOKEN");
-  const submitted = page.waitForRequest((request) =>
-    request.method() === "POST" && request.url().endsWith("/manager/agents"),
+  await page
+    .getByPlaceholder("https://expert.example/v1/runs")
+    .fill("https://finance.example/v1/runs");
+  await page
+    .getByPlaceholder("EGIS_REMOTE_AGENT_FINANCE_TOKEN")
+    .fill("EGIS_REMOTE_AGENT_FINANCE_TOKEN");
+  const submitted = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().endsWith("/manager/agents"),
   );
   await page.getByRole("button", { name: "保存专家", exact: true }).click();
   const body = (await submitted).postDataJSON();
@@ -243,7 +273,9 @@ test("team edit loads its editable orchestrator configuration", async ({
   });
   await page.getByPlaceholder("team_orchestrator").fill("");
   await page.getByRole("button", { name: "保存专家团", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("请填写有效的主理人英文名称");
+  await expect(page.getByRole("alert")).toContainText(
+    "请填写有效的主理人英文名称",
+  );
 });
 test("all management pages and creation forms render without application errors", async ({
   page,
@@ -332,7 +364,9 @@ test("initial skill sharing sends a stable resource and organization group", asy
   });
 });
 
-test("management grants current access by stable resource and recipient", async ({ page }) => {
+test("management grants current access by stable resource and recipient", async ({
+  page,
+}) => {
   const resource = {
     resource_type: "mcp",
     resource_id: "report-connector",
@@ -343,45 +377,70 @@ test("management grants current access by stable resource and recipient", async 
   };
   let grants: Record<string, unknown>[] = [];
   await page.route("**/manager/admin/grant-resources", (route) =>
-    route.fulfill({ json: { items: [{ ...resource, version_label: "1.1", display_name: "报表连接器" }] } }),
+    route.fulfill({
+      json: {
+        items: [
+          { ...resource, version_label: "1.1", display_name: "报表连接器" },
+        ],
+      },
+    }),
   );
   await page.route("**/manager/admin/grants", (route) => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { items: grants } });
-    grants = [{
-      ...route.request().postDataJSON(),
-      id: "direct-grant-2", grant_source_type: "manual", granted_by: "admin",
-    }];
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: { items: grants } });
+    grants = [
+      {
+        ...route.request().postDataJSON(),
+        id: "direct-grant-2",
+        grant_source_type: "manual",
+        granted_by: "admin",
+      },
+    ];
     return route.fulfill({ json: grants[0] });
   });
   await page.goto("/admin/grants");
   await page.getByRole("button", { name: "授予使用权限", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "授予使用权限" });
-  const submit = dialog.getByRole("button", { name: "授予使用权限", exact: true });
+  const submit = dialog.getByRole("button", {
+    name: "授予使用权限",
+    exact: true,
+  });
   await expect(submit).toBeDisabled();
   await dialog.getByLabel("资源", { exact: true }).click();
   await page.getByText("报表连接器 · mcp", { exact: true }).click();
   await dialog.getByLabel("授权对象").click();
   await page.getByText("分析师（用户 · analyst）", { exact: true }).click();
-  const sent = page.waitForRequest((request) =>
-    request.url().endsWith("/manager/admin/grants") && request.method() === "POST",
+  const sent = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/manager/admin/grants") &&
+      request.method() === "POST",
   );
   await submit.click();
   expect((await sent).postDataJSON()).toEqual({
-    resource_type: "mcp", resource_id: "report-connector", resource_view_type: "system",
-    resource_owner_type: "system", resource_owner_id: "platform",
-    principal_type: "user", principal_id: "analyst",
+    resource_type: "mcp",
+    resource_id: "report-connector",
+    resource_view_type: "system",
+    resource_owner_type: "system",
+    resource_owner_id: "platform",
+    principal_type: "user",
+    principal_id: "analyst",
   });
-  await expect(page.getByRole("columnheader", { name: "版本", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("columnheader", { name: "版本", exact: true }),
+  ).toHaveCount(0);
   const row = page.getByRole("row").filter({ hasText: "报表连接器" });
   await expect(row).toContainText("连接器广场 · 管理员直接授权");
   await expect(row).toContainText("分析师");
   await expect(row).toContainText("用户 · analyst");
 });
 
-test("sharing an expert update keeps the current audience without a version picker", async ({ page }) => {
+test("sharing an expert update keeps the current audience without a version picker", async ({
+  page,
+}) => {
   const historyRequests: string[] = [];
   page.on("request", (request) => {
-    if (request.url().includes("/manager/agents/expert-2/versions")) historyRequests.push(request.url());
+    if (request.url().includes("/manager/agents/expert-2/versions"))
+      historyRequests.push(request.url());
   });
   await page.goto("/experts");
   await page.getByRole("button", { name: "查看写作与表达专家" }).click();
@@ -392,34 +451,47 @@ test("sharing an expert update keeps the current audience without a version pick
   const dialog = page.getByRole("dialog", { name: "共享新版本" });
   await expect(dialog).toContainText("现有受众将使用新版本");
   await expect(dialog.getByPlaceholder("选择用户或组织组")).toHaveCount(0);
-  const sent = page.waitForRequest((request) =>
-    request.url().endsWith("/manager/share-requests") && request.method() === "POST",
+  const sent = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/manager/share-requests") &&
+      request.method() === "POST",
   );
   await dialog.getByRole("button", { name: "提交共享申请" }).click();
-  expect((await sent).postDataJSON()).toEqual({ resource_type: "agent", resource_id: "expert-2" });
+  expect((await sent).postDataJSON()).toEqual({
+    resource_type: "agent",
+    resource_id: "expert-2",
+  });
   await expect(page.getByText("共享申请已提交。")).toBeVisible();
   expect(historyRequests).toEqual([]);
 });
 
-test("summoning an expert uses the current displayed edition", async ({ page }) => {
+test("summoning an expert uses the current displayed edition", async ({
+  page,
+}) => {
   await page.goto("/experts");
   await page.getByRole("button", { name: "查看写作与表达专家" }).click();
   const detail = page.getByRole("dialog", { name: "写作与表达专家" });
   await expect(detail.getByText("v1.2", { exact: true })).toBeVisible();
   await detail.getByRole("button", { name: "召唤", exact: true }).click();
   await expect(page.getByText("正在与 写作与表达专家 一起工作")).toBeVisible();
-  await page.getByPlaceholder("今天帮你做些什么？@ 添加上下文，/调用技能与指令。")
+  await page
+    .getByPlaceholder("今天帮你做些什么？@ 添加上下文，/调用技能与指令。")
     .fill("起草报告");
-  const sent = page.waitForRequest((request) =>
-    request.url().endsWith("/manager/tasks") && request.method() === "POST",
+  const sent = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/manager/tasks") && request.method() === "POST",
   );
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   expect((await sent).postDataJSON()).toMatchObject({
-    definition_id: "expert-2", resource_view_type: "private", resource_version: "3",
+    definition_id: "expert-2",
+    resource_view_type: "private",
+    resource_version: "3",
   });
 });
 
-test("admin review presents the submitted edition and existing audience", async ({ page }) => {
+test("admin review presents the submitted edition and existing audience", async ({
+  page,
+}) => {
   const review = {
     review_id: "upgrade-review",
     review_type: "update",
@@ -435,11 +507,17 @@ test("admin review presents the submitted edition and existing audience", async 
   await page.route("**/manager/admin/share-reviews", (route) =>
     route.fulfill({ json: { items: [review] } }),
   );
-  await page.route("**/manager/admin/share-reviews/upgrade-review/decision", async (route) => {
-    expect(route.request().postDataJSON()).toEqual({ is_approved: true, reason: "" });
-    review.review_status_type = "approved";
-    await route.fulfill({ json: review });
-  });
+  await page.route(
+    "**/manager/admin/share-reviews/upgrade-review/decision",
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        is_approved: true,
+        reason: "",
+      });
+      review.review_status_type = "approved";
+      await route.fulfill({ json: review });
+    },
+  );
   await page.goto("/admin/share-reviews");
   await page.getByRole("button", { name: "审核版本" }).click();
   const dialog = page.getByRole("dialog", { name: "共享申请详情" });

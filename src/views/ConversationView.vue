@@ -1,6 +1,11 @@
 <script setup lang="ts">
+import { usePreviewReferences } from "../composables/usePreviewReferences";
+import type {
+  PreviewReference,
+  PreviewAcceptance,
+} from "../domain/previewReferences";
 import { ref, watch, computed, nextTick, onScopeDispose } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import type { Definition, Collaborator } from "../types/api";
 import { definitionName, definitionRef } from "../types/api";
@@ -20,7 +25,10 @@ import PermissionRequestCard from "../components/conversation/PermissionRequestC
 import MessageList from "../components/conversation/MessageList.vue";
 import ArtifactList from "../components/workspace/ArtifactList.vue";
 import WorkspacePanel from "../components/workspace/WorkspacePanel.vue";
+import MessageAnnotationLayer from "../components/conversation/MessageAnnotationLayer.vue";
+import type { TextAnnotation } from "../domain/textAnnotations";
 const route = useRoute(),
+  router = useRouter(),
   conversation = useConversation(),
   { refreshTasks, tasks, projects, assistant, models, defaultModelKey } =
     useIdentity();
@@ -121,6 +129,50 @@ const projectId = computed(
 const project = computed(() =>
   projects.value.find((item) => item.id === projectId.value),
 );
+const references = usePreviewReferences(projectId);
+const annotations = ref<TextAnnotation[]>([]);
+const annotationLayer = ref<InstanceType<typeof MessageAnnotationLayer>>();
+function addTextAnnotation(value: TextAnnotation) {
+  const existing = annotations.value.find(
+    (item) =>
+      item.messageId === value.messageId &&
+      item.start === value.start &&
+      item.end === value.end,
+  );
+  if (!existing) annotations.value = [...annotations.value, value];
+  focusDraftAnnotation(existing?.id || value.id);
+}
+function focusDraftAnnotation(id: string) {
+  nextTick(() =>
+    document
+      .querySelector<HTMLTextAreaElement>(
+        `[data-annotation-card="${CSS.escape(id)}"] textarea`,
+      )
+      ?.focus({ preventScroll: true }),
+  );
+}
+function updateTextAnnotation(id: string, comment: string) {
+  annotations.value = annotations.value.map((item) =>
+    item.id === id ? { ...item, comment } : item,
+  );
+}
+function removeTextAnnotation(id: string) {
+  annotations.value = annotations.value.filter((item) => item.id !== id);
+}
+const composer = ref<InstanceType<typeof TaskComposer>>();
+function addReference(value: PreviewReference, accept: PreviewAcceptance) {
+  const accepted = references.add(value);
+  accept(accepted);
+  if (accepted) composer.value?.focusComposer();
+}
+function openReference(value: PreviewReference) {
+  if (value.projectId !== projectId.value) {
+    conversation.error.value = "引用属于其他项目，无法在当前工作空间定位";
+    return;
+  }
+  workspaceOpen.value = true;
+  setTimeout(() => workspace.value?.openReference(value), 0);
+}
 const attachments = useAttachments(),
   uploading = ref(false),
   fileRevision = ref(0);
@@ -139,6 +191,8 @@ watch(
     invitationDirty.value = false;
     invitationRequestId = "";
     attachments.clear();
+    references.clear();
+    annotations.value = [];
     uploading.value = false;
     await conversation.open(value);
     if (
@@ -149,9 +203,12 @@ watch(
       return;
     const draft = peekDraft(value);
     if (draft) {
-      if (await conversation.send(draft)) takeDraft(value);
-      else if (generation === current && sid.value === value && !text.value)
-        text.value = draft;
+      if (await conversation.send(draft.text, draft.references))
+        takeDraft(value);
+      else if (generation === current && sid.value === value && !text.value) {
+        text.value = draft.text;
+        references.items.value = draft.references;
+      }
     }
   },
   { immediate: true },
@@ -193,7 +250,7 @@ async function send() {
   const value = text.value.trim();
   const task = conversation.task.value;
   if (
-    !value ||
+    (!value && !annotations.value.length) ||
     !task ||
     uploading.value ||
     conversation.submitting.value ||
@@ -205,6 +262,9 @@ async function send() {
     selectedFiles = [...attachments.files.value];
   uploading.value = true;
   try {
+    references.validate();
+    const selectedReferences = [...references.items.value];
+    const selectedAnnotations = annotations.value.map((item) => ({ ...item }));
     const message = await attachments.upload(
       task.project_id,
       value,
@@ -230,11 +290,19 @@ async function send() {
       if (generation !== current || sid.value !== targetSid) return;
       conversation.task.value = { ...conversation.task.value!, ...prepared };
     }
-    const accepted = await conversation.send(message);
+    const accepted = await conversation.send(
+      message,
+      selectedReferences,
+      selectedAnnotations,
+    );
     if (accepted) takeDraft(targetSid);
     if (accepted && generation === current && sid.value === targetSid) {
       if (text.value.trim() === value) text.value = "";
       attachments.removeUploaded(selectedFiles);
+      for (const item of selectedReferences) references.remove(item.id);
+      annotations.value = annotations.value.filter(
+        (item) => !selectedAnnotations.some((sent) => sent.id === item.id),
+      );
       stagedExperts.value = [];
       invitationDirty.value = false;
       invitationRequestId = "";
@@ -249,7 +317,7 @@ async function send() {
 }
 function showArtifacts() {
   workspaceOpen.value = true;
-  setTimeout(() => workspace.value?.openTab("artifacts"), 0);
+  setTimeout(() => workspace.value?.openArtifacts(), 0);
 }
 function openFile(path: string, area = "artifacts") {
   workspaceOpen.value = true;
@@ -374,27 +442,55 @@ const artifactsByReply = computed(() =>
       >
         <t-loading text="正在读取会话" />
       </div>
-      <MessageList
+      <MessageAnnotationLayer
         v-else
+        :key="sid"
+        ref="annotationLayer"
         :messages="conversation.state.value.messages"
-        :display-names="conversation.task.value?.agent_display_names"
-        :default-display-name="conversation.task.value?.definition_display_name"
-        :personal="conversation.task.value?.definition_id === assistant?.id"
-        :loading="conversation.loading.value"
+        :drafts="annotations"
         :has-more="conversation.hasMore.value"
-        :confirm="conversation.confirm"
-        @older="conversation.older"
-        @file="openFile($event, 'work')"
+        :load-older="conversation.older"
+        @add="addTextAnnotation"
+        @focus-draft="focusDraftAnnotation"
       >
-        <template #message-artifacts="{ message }">
-          <ArtifactList
-            v-if="artifactsByReply[message.id]?.length"
-            :files="artifactsByReply[message.id] || []"
-            @open="openFile"
-            @view-all="showArtifacts"
-          />
-        </template>
-      </MessageList>
+        <MessageList
+          :reply-feedback="conversation.replyFeedback.value"
+          :session-id="sid"
+          :branch-disabled="
+            conversation.loading.value ||
+            conversation.state.value.phase !== 'idle'
+          "
+          @branched="
+            async (task) => {
+              await refreshTasks();
+              await router.push(`/tasks/${task.session_id}`);
+            }
+          "
+          :messages="conversation.state.value.messages"
+          :preparing="conversation.state.value.isPreparing"
+          :display-names="conversation.task.value?.agent_display_names"
+          :default-display-name="
+            conversation.task.value?.definition_display_name
+          "
+          :personal="conversation.task.value?.definition_id === assistant?.id"
+          :loading="conversation.loading.value"
+          :has-more="conversation.hasMore.value"
+          :confirm="conversation.confirm"
+          @older="conversation.older"
+          @file="openFile($event, 'work')"
+          @reference="openReference"
+          @annotation="annotationLayer?.focusAnnotation($event)"
+        >
+          <template #message-artifacts="{ message }">
+            <ArtifactList
+              v-if="artifactsByReply[message.id]?.length"
+              :files="artifactsByReply[message.id] || []"
+              @open="openFile"
+              @view-all="showArtifacts"
+            />
+          </template>
+        </MessageList>
+      </MessageAnnotationLayer>
       <div
         v-if="conversation.state.value.subagentConfirmations.length"
         class="subagent-confirmations"
@@ -422,6 +518,15 @@ const artifactsByReply = computed(() =>
       </div>
       <div class="chat-composer">
         <TaskComposer
+          ref="composer"
+          :references="references.items.value"
+          :reference-error="references.error.value"
+          :annotations="annotations"
+          @update-annotation="updateTextAnnotation"
+          @remove-annotation="removeTextAnnotation"
+          @locate-annotation="annotationLayer?.focusAnnotation($event)"
+          @remove-reference="references.remove"
+          @open-reference="openReference"
           :project-id="projectId"
           :file-revision="fileRevision"
           :session-id="sid"
@@ -500,12 +605,14 @@ const artifactsByReply = computed(() =>
       v-if="conversation.task.value || projectId"
       ref="workspace"
       :project-id="projectId"
+      :session-id="sid"
       :revision="artifactRevision"
       :visible="workspaceOpen"
       :messages="conversation.state.value.messages"
       :plan="conversation.state.value.plan ?? conversation.task.value?.plan"
       @close="workspaceOpen = false"
       @uploaded="fileRevision++"
+      @reference="addReference"
     />
   </section>
 </template>

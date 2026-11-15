@@ -48,8 +48,63 @@
   overflow: auto;
   flex: 1;
   min-height: 0;
-  padding: 12px;
+  padding: 0;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+.pdf-single-sheet {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.pdf-single-sheet :deep(.pdf-page) {
+  display: flex;
+  flex: 1;
+}
+.pdf-pages.is-continuous {
+  display: block;
+  padding: 12px;
+  overflow-anchor: none;
+}
+.presentation-sheet {
+  width: fit-content;
+  min-width: 100%;
+  margin: 0 auto 24px;
+  border: 1px solid var(--line);
+}
+.presentation-sheet.is-current {
+  border-color: var(--accent, #2962ff);
+}
+.is-continuous :deep(.preview-selection) {
+  display: flex;
+  flex: none;
+}
+.is-continuous :deep(.selection-scroll) {
+  overflow: visible;
+  flex: none;
+  padding: 0;
+}
+.is-continuous :deep(.selection-toolbar) {
+  order: 1;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.is-continuous :deep(.region-notes) {
+  order: 2;
+}
+.is-continuous :deep(.selection-stage) {
+  margin: 0 auto;
+}
+.pdf-layout {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pdf-layout .pdf-pages {
+  min-width: 0;
 }
 .pdf-pages canvas {
   display: block;
@@ -63,4 +118,24 @@
 }
 .pdf-preview > .error {
   padding: 16px;
+}
+
+.pdf-toolbar select {
+  max-width: 85px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px;
+}
+.pdf-pages :deep(.selection-stage) {
+  min-width: 0;
+  margin: auto;
+}
+.pdf-pages :deep(.selection-scroll) {
+  padding: 12px;
+}
+.pdf-pages :deep(.selection-content) {
+  width: fit-content;
 }

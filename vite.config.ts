@@ -6,6 +6,18 @@ export default defineConfig(({ mode }) => {
     env.API_HOST && env.API_HOST !== "0.0.0.0" ? env.API_HOST : "localhost";
   return {
     plugins: [vue()],
+    // Designer 的 CommonJS 依赖和表格本体共用一份预构建，避免热加载混入两份命名空间。
+    optimizeDeps: {
+      include: [
+        "@mescius/spread-sheets",
+        "@mescius/spread-sheets-designer",
+        "@mescius/spread-sheets-io",
+        "@mescius/spread-sheets-print",
+        "@mescius/spread-sheets-resources-zh",
+        "@mescius/spread-sheets-designer-resources-cn",
+        "@mescius/spread-sheets-languagepackages",
+      ],
+    },
     server: {
       port: 5179,
       proxy: {

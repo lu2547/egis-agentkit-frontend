@@ -15,6 +15,5 @@ playwright-report/
 .worktrees/
 .vscode/
 
-# Local live-environment verification records.
-/docs/真实后端页面验收.md
-/docs/screenshots/live-*.png
+# Local documentation is maintained outside version control.
+/docs/

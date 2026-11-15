@@ -53,7 +53,8 @@ const definitions = names.map((name, i) => ({
   is_editable: i === 2,
   is_deletable: i === 2,
   can_share_update: i === 2,
-  config_version: i === 2 ? 3 : 1,
+  owner_version: i === 2 ? 3 : 1,
+  version: i === 2 ? 3 : 1,
   resource_version: i === 2 ? "3" : "1",
   version_label: i === 2 ? "1.2" : "1.0",
 }));
@@ -74,6 +75,10 @@ const team = {
   resource_view_type: "private",
   is_editable: true,
   definition_type: "team",
+  owner_version: undefined,
+  version: undefined,
+  config_version: 2,
+  resource_version: "2",
   agent_type: null,
   agent_name: null,
   agent_display_name: null,
@@ -155,6 +160,7 @@ let role = "admin",
   fileContents = {},
   deliveries = {},
   messages = {},
+  replyFeedback = [],
   streams = new Map(),
   uploads = {};
 function reset() {
@@ -191,6 +197,7 @@ function reset() {
     },
   ];
   messages = { s1: [] };
+  replyFeedback = [];
   deliveries = {};
 }
 reset();
@@ -282,11 +289,17 @@ createServer(async (req, res) => {
     reset();
     return json(res, {});
   }
+  if(p === '/__test/messages' && req.method === 'POST') {
+    const input=await body(req); messages[input.session_id]=input.messages;
+    return json(res,{});
+  }
   if (p === "/__test/events" && req.method === "POST") {
     const input = await body(req);
     const task = tasks.find((item) => item.session_id === input.session_id);
     if (!task?.activeReply)
       return json(res, { detail: "No active fixture reply" }, 409);
+    if (input.events.some((event) => event.type === "REPLY_END"))
+      task.is_running = false;
     for (const event of input.events)
       emit(input.session_id, {
         id: crypto.randomUUID(),
@@ -320,6 +333,14 @@ createServer(async (req, res) => {
       ],
       default_key: "test",
     });
+  if (/^\/manager\/projects\/[^/]+\/preview-options$/.test(p))
+    return json(res, {maxCount:4,maxTotalBytes:1048576,maxImageBytes:262144,maxImagePixels:1500000,maxImageEdge:1600,maxRegions:8,minRegionPixels:5,maxExcerptChars:8000,maxNoteChars:500,captureTimeoutMs:15000,jpegQuality:0.85,jpegMinQuality:0.25,jpegQualityStep:0.15});
+  if (/^\/manager\/projects\/[^/]+\/workbook-options$/.test(p))
+    return json(res, {maxBytes: 20971520, maxReferenceCells: 2000, maxEntries:1000, maxEntryBytes:20971520, maxExpandedBytes:52428800});
+  if (/^\/manager\/projects\/[^/]+\/presentation-options$/.test(p))
+    return json(res, {maxSlides:200,thumbnailWidth:144,maxThumbnailPixels:65536,thumbnailConcurrency:2});
+  if (/^\/manager\/projects\/[^/]+\/presentation$/.test(p))
+    return json(res, {checksum:url.searchParams.get('checksum') || 'a'.repeat(64),slides:[{id:'256',title:'Preview slide 1'},{id:'257',title:'Preview slide 2'}],options:{maxSlides:200,thumbnailWidth:144,maxThumbnailPixels:65536,thumbnailConcurrency:2}});
   if (p === "/manager/runtime-options")
     return json(res, {
       permission_modes: [
@@ -415,7 +436,7 @@ createServer(async (req, res) => {
       orchestrator_config: {
         agent_name: "research_leader",
         agent_display_name: "研究主理人",
-        config_version: 2,
+        owner_version: 2,
         payload: {
           ...assistant.payload,
           system_prompt: "先分配研究任务，再汇总结论。",
@@ -476,6 +497,31 @@ createServer(async (req, res) => {
   }
   if (p === "/manager/tasks" && req.method === "GET")
     return json(res, { items: tasks });
+  if(/^\/manager\/tasks\/[^/]+\/reply-feedback$/.test(p) && req.method==='GET') {
+    const sid=p.split('/')[3];
+    return json(res,{items:replyFeedback.filter(f=>f.session_id===sid).map(({reply_id,comment})=>({reply_id,comment}))});
+  }
+  if (/^\/manager\/tasks\/[^/]+\/replies\/[^/]+\/feedback$/.test(p) && req.method==='PUT') {
+    const [, , , sid, , replyId] = p.split('/');
+    const task=tasks.find(t=>t.session_id===sid), history=messages[sid] || [];
+    const index=history.findIndex(m=>m.id===replyId), reply=history[index];
+    if(!task || !reply) return json(res,{detail:'回复不存在'},404);
+    const input=await body(req), question=history.slice(0,index).findLast(m=>m.role==='user');
+    const text=m=>(m?.content || []).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    let row=replyFeedback.find(f=>f.session_id===sid && f.reply_id===replyId);
+    if(row) row.comment=input.comment;
+    else {row={id:crypto.randomUUID(),user_id:'demo',username:'Frankie',project_id:task.project_id,project_name:projects.find(p=>p.id===task.project_id)?.project_name,session_id:sid,session_name:task.name,reply_id:replyId,agent_id:task.agent_id,definition_id:task.definition_id,agent_display_name:task.definition_display_name,comment:input.comment,question_text:text(question),reply_text:text(reply),created_at:new Date().toISOString(),updated_at:new Date().toISOString()};replyFeedback.unshift(row);}
+    return json(res,row);
+  }
+  if(/^\/manager\/tasks\/[^/]+\/replies\/[^/]+\/branch$/.test(p) && req.method==='POST') {
+    const [, , , sid, , replyId] = p.split('/');
+    const source=tasks.find(t=>t.session_id===sid), history=messages[sid] || [];
+    const index=history.findIndex(m=>m.id===replyId);
+    if(!source || index<0) return json(res,{detail:'回复不存在'},404);
+    const task={...source,session_id:`s${++taskSequence}`,name:source.name+' · 分支'};
+    tasks.unshift(task);messages[task.session_id]=structuredClone(history.slice(0,index+1));
+    return json(res,task,201);
+  }
   if (p === "/manager/tasks" && req.method === "POST") {
     const input = await body(req);
     const task = {
@@ -609,7 +655,7 @@ createServer(async (req, res) => {
     });
     return res.end(
       path?.endsWith(".html")
-        ? '<html><body style="font-family:sans-serif;padding:25px"><h1>研究简报</h1><p>验证优先，让结论更有依据。</p><script>window.parent.previewScriptRan=true</script></body></html>'
+        ? '<html><body style="font-family:sans-serif;padding:25px"><h1>研究简报</h1><p>验证优先，让结论更有依据。</p><script>try { window.parent.previewScriptRan=true } catch { document.body.dataset.parentAccess="blocked" }</script></body></html>'
         : "# 行动计划\n\n- 确定目标\n- 整理证据\n- 验证结论",
     );
   }
@@ -797,6 +843,7 @@ createServer(async (req, res) => {
   if (p === "/manager/share-requests") return json(res, { items: [] });
   if (p.startsWith("/manager/admin/")) {
     if (role !== "admin") return json(res, { detail: "仅管理员" }, 403);
+    if(p === '/manager/admin/reply-feedback') return json(res,{items:replyFeedback,next_cursor:null});
     return json(res, { items: [] });
   }
   return json(res, { detail: `测试端点未实现: ${req.method} ${p}` }, 404);

@@ -26,6 +26,8 @@ import type {
   ReplyArtifact,
   RuntimeOptions,
   TaskSettings,
+  ReplyFeedback,
+  ReplyFeedbackState,
   SkillImportJob,
 } from "../types/api";
 const id = encodeURIComponent;
@@ -101,6 +103,14 @@ export const manager = {
     http<void>(`/manager/tasks/${id(sid)}`, json("DELETE")),
   task: (sid: string, signal?: AbortSignal) =>
     http<Task>(`/manager/tasks/${id(sid)}`, { signal }),
+  addSessionBranch: (sid: string, replyId: string) =>
+    http<Task>(`/manager/tasks/${id(sid)}/replies/${id(replyId)}/branch`, json("POST")),
+  listReplyFeedback: (sid: string, signal?: AbortSignal) =>
+    http<{items: ReplyFeedbackState[]}>(`/manager/tasks/${id(sid)}/reply-feedback`, {signal}),
+  saveReplyFeedback: (sid: string, replyId: string, comment: string) =>
+    http<ReplyFeedback>(`/manager/tasks/${id(sid)}/replies/${id(replyId)}/feedback`, json("PUT", {comment})),
+  pageReplyFeedback: (cursor?: string) =>
+    http<{items: ReplyFeedback[]; next_cursor: string | null}>("/manager/admin/reply-feedback", {}, {cursor}),
   createTask: (
     definition: DefinitionRef,
     model_key?: string,
@@ -178,20 +188,21 @@ export const manager = {
       `/manager/skills/imports/${id(jobId)}/retry`,
       json("POST"),
     ),
-  install: (kind: InstallableCatalog, resourceId: string, version: string) =>
-    http<unknown>(`/manager/${kind}/${id(resourceId)}/install`, json("POST"), {
-      version,
-    }),
+  install: (kind: InstallableCatalog, resourceId: string) =>
+    http<unknown>(`/manager/${kind}/${id(resourceId)}/install`, json("POST")),
   toggle: (
     kind: InstallableCatalog,
     resourceId: string,
-    version: string,
     is_enabled: boolean,
   ) =>
     http<unknown>(
       `/manager/${kind}/${id(resourceId)}/installation`,
       json("PATCH", { is_enabled }),
-      { version },
+    ),
+  removeInstallation: (kind: InstallableCatalog, resourceId: string) =>
+    http<void>(
+      `/manager/${kind}/${id(resourceId)}/installation`,
+      json("DELETE"),
     ),
   connectorAuthorization: (resourceId: string, version: string) =>
     http<{ authorized: boolean; auth_type: ConnectorAuthType }>(

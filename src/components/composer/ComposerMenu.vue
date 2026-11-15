@@ -231,14 +231,12 @@ async function changeResource(resource: Resource) {
       await manager.toggle(
         kind,
         resource.resource_id,
-        resource.resource_version,
         !resource.is_enabled,
       );
     else
       await manager.install(
         kind,
         resource.resource_id,
-        resource.resource_version,
       );
     if (request === resourceRequest && category.value === kind)
       await loadResources(kind);

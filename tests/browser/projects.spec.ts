@@ -11,7 +11,7 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
-test("projects open an empty shared workspace and keep files and preview across multiple conversations", async ({
+test("projects share files while each conversation keeps its own preview", async ({
   page,
   request,
 }) => {
@@ -32,7 +32,10 @@ test("projects open an empty shared workspace and keep files and preview across 
     mimeType: "text/plain",
     buffer: Buffer.from("项目共享资料"),
   });
-  await panel.locator("button.file-open").filter({ hasText: /客户资料.txt/ }).click();
+  await panel
+    .locator("button.file-open")
+    .filter({ hasText: /客户资料.txt/ })
+    .click();
   await expect(panel.locator(".text-preview")).toHaveText("项目共享资料");
   const before = await (
     await request.get(`${api}/manager/tasks`, { headers })
@@ -49,6 +52,11 @@ test("projects open an empty shared workspace and keep files and preview across 
   await expect(
     page.getByRole("heading", { name: "已完成研究简报" }),
   ).toBeVisible();
+  await expect(panel.locator(".file-preview")).toHaveCount(0);
+  await panel
+    .locator("button.file-open")
+    .filter({ hasText: /客户资料.txt/ })
+    .click();
   await expect(panel.locator(".text-preview")).toHaveText("项目共享资料");
   await page
     .locator(".sidebar")
@@ -62,6 +70,11 @@ test("projects open an empty shared workspace and keep files and preview across 
   await expect(composer(page)).toHaveValue("在同一项目中继续分析");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   await expect(page).toHaveURL(/\/tasks\/s3$/);
+  await expect(panel.locator(".file-preview")).toHaveCount(0);
+  await panel
+    .locator("button.file-open")
+    .filter({ hasText: /客户资料.txt/ })
+    .click();
   await expect(panel.locator(".text-preview")).toHaveText("项目共享资料");
   const after = await (
     await request.get(`${api}/manager/tasks`, { headers })
@@ -196,33 +209,40 @@ test("project rename updates navigation and a running project shows the deletion
   ).toBeVisible();
 });
 
-test("project names only toggle folders and never replace the current conversation", async ({
+test("project icons and names both toggle conversations and switch workspace", async ({
   page,
 }) => {
   await page.goto("/tasks/s1");
   const row = page.locator(".project-row").filter({ hasText: "行业研究" });
-  const openIcon = await row.locator(".project-select svg").innerHTML();
-  await row.locator(".project-select").click();
-  await expect(page).toHaveURL(/\/tasks\/s1$/);
+  const openIcon = await row.locator(".project-toggle svg").innerHTML();
+  await row.locator(".project-toggle").click();
+  await expect(page).toHaveURL(/\/projects\/project-1$/);
   await expect(page.locator(".project-sessions .conversation-row")).toHaveCount(
     0,
   );
-  await expect(row.locator(".project-select")).toHaveAttribute(
+  await expect(row.locator(".project-toggle")).toHaveAttribute(
     "aria-expanded",
     "false",
   );
-  const closedIcon = await row.locator(".project-select svg").innerHTML();
+  const closedIcon = await row.locator(".project-toggle svg").innerHTML();
   expect(closedIcon).not.toBe(openIcon);
-  await row.locator(".project-select").click();
-  await expect(row.locator(".project-select")).toHaveAttribute(
+  await row.locator(".project-toggle").click();
+  await expect(row.locator(".project-toggle")).toHaveAttribute(
     "aria-expanded",
     "true",
   );
-  expect(await row.locator(".project-select svg").innerHTML()).toBe(openIcon);
+  expect(await row.locator(".project-toggle svg").innerHTML()).toBe(openIcon);
   await expect(page.locator(".project-sessions .conversation-row")).toHaveCount(
     1,
   );
-  await expect(page).toHaveURL(/\/tasks\/s1$/);
+  await expect(page).toHaveURL(/\/projects\/project-1$/);
+  await row.locator(".project-select").click();
+  await expect(page).toHaveURL(/\/projects\/project-1$/);
+  await expect(row.locator(".project-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(page.locator(".workspace-panel")).toBeVisible();
 });
 
 test("composer project choice keeps the draft and scopes the new conversation and uploads", async ({
@@ -384,11 +404,6 @@ test("historical conversations show their project as an immutable label beside t
     bar.getByRole("button", { name: "选择项目", exact: true }),
   ).toHaveCount(0);
   await expect(bar).toContainText("内容由 AI 生成");
-  await page.getByRole("button", { name: "收起项目：行业研究" }).click();
-  await expect(page).toHaveURL(/\/tasks\/s1$/);
-  await expect(bar.getByLabel("当前项目", { exact: true })).toHaveText(
-    "行业研究",
-  );
 });
 
 test("deleting the selected draft project returns the choice to default and keeps the draft", async ({

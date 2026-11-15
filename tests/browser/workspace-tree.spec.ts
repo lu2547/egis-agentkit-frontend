@@ -1,5 +1,56 @@
 import { test, expect } from "@playwright/test";
 
+test("files tab restores the workspace root after opening its artifacts folder", async ({
+  page,
+  request,
+}) => {
+  await request.post("http://127.0.0.1:38194/__test/reset");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("egis_access_token", "test-only"),
+  );
+  await page.route("**/api/manager/projects/project-1/files?**", (route) => {
+    const area = new URL(route.request().url()).searchParams.get("area");
+    return route.fulfill({
+      json: {
+        items:
+          area === "uploads"
+            ? [
+                {
+                  name: "项目资料.docx",
+                  path: "项目资料.docx",
+                  is_directory: false,
+                  size: 100,
+                  modified_at: "",
+                },
+              ]
+            : [],
+      },
+    });
+  });
+  await page.goto("/tasks/s1");
+  const panel = page.locator(".workspace-panel");
+  await expect(
+    panel.locator("button.file-open").filter({ hasText: "项目资料.docx" }),
+  ).toBeVisible();
+  await panel.locator("button.file-open").filter({ hasText: "产物" }).click();
+  await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/产物");
+  await expect(panel.getByText("暂无文件", { exact: true })).toBeVisible();
+  await panel
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "文件", exact: true })
+    .click();
+  await expect(panel.locator(".breadcrumb")).toHaveText("工作空间");
+  await expect(
+    panel.locator("button.file-open").filter({ hasText: "项目资料.docx" }),
+  ).toBeVisible();
+  await expect(
+    panel.locator("button.file-open").filter({ hasText: ".work" }),
+  ).toBeVisible();
+  await expect(
+    panel.locator("button.file-open").filter({ hasText: "产物" }),
+  ).toBeVisible();
+});
+
 for (const theme of ["light", "dark"] as const) {
   test(`${theme} workspace shows flat uploads, hidden work and deliveries with correct preview locations`, async ({
     page,
@@ -61,52 +112,58 @@ for (const theme of ["light", "dark"] as const) {
       "资料",
     ]);
     await expect(
-      panel.locator(".file-row.is-hidden-directory").getByRole("button", { name: ".work", exact: true }),
+      panel
+        .locator(".file-row.is-hidden-directory")
+        .getByRole("button", { name: ".work", exact: true }),
     ).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`workspace-tree-${theme}.png`),
     });
-    await panel.locator("button.file-open").filter({ hasText: /需求.md/ }).click();
-    await expect(panel.locator(".file-preview")).toContainText(
+    await panel
+      .locator("button.file-open")
+      .filter({ hasText: /需求.md/ })
+      .click();
+    await expect(panel.locator(".file-preview:visible")).toContainText(
       "uploads:需求.md",
     );
-    await panel
-      .getByRole("button", { name: "‹ 返回工作空间", exact: true })
-      .click();
+    await panel.getByRole("button", { name: "文件", exact: true }).click();
     await panel.getByRole("button", { name: "资料", exact: true }).click();
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/资料");
-    await panel.locator("button.file-open").filter({ hasText: /背景.md/ }).click();
-    await expect(panel.locator(".file-preview")).toContainText(
+    await panel
+      .locator("button.file-open")
+      .filter({ hasText: /背景.md/ })
+      .click();
+    await expect(panel.locator(".file-preview:visible")).toContainText(
       "uploads:资料/背景.md",
     );
-    await panel
-      .getByRole("button", { name: "‹ 返回工作空间", exact: true })
-      .click();
+    await panel.getByRole("button", { name: "文件", exact: true }).click();
     await panel
       .locator(".breadcrumb")
       .getByRole("button", { name: "工作空间", exact: true })
       .click();
     await panel.getByRole("button", { name: ".work", exact: true }).click();
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/.work");
-    await panel.locator("button.file-open").filter({ hasText: /generate.py/ }).click();
-    await expect(panel.locator(".file-preview")).toContainText(
+    await panel
+      .locator("button.file-open")
+      .filter({ hasText: /generate.py/ })
+      .click();
+    await expect(panel.locator(".file-preview:visible")).toContainText(
       "work:generate.py",
     );
-    await panel
-      .getByRole("button", { name: "‹ 返回工作空间", exact: true })
-      .click();
+    await panel.getByRole("button", { name: "文件", exact: true }).click();
     await panel
       .locator(".breadcrumb")
       .getByRole("button", { name: "工作空间", exact: true })
       .click();
     await panel.locator(".file-row").filter({ hasText: "产物" }).click();
-    await panel.locator("button.file-open").filter({ hasText: /report.md/ }).click();
-    await expect(panel.locator(".file-preview")).toContainText(
+    await panel
+      .locator("button.file-open")
+      .filter({ hasText: /report.md/ })
+      .click();
+    await expect(panel.locator(".file-preview:visible")).toContainText(
       "artifacts:report.md",
     );
-    await panel
-      .getByRole("button", { name: "‹ 返回工作空间", exact: true })
-      .click();
+    await panel.getByRole("button", { name: "文件", exact: true }).click();
     await panel.locator(".list-toolbar input[type=file]").setInputFiles({
       name: "新增资料.txt",
       mimeType: "text/plain",

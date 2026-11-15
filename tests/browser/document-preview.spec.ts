@@ -50,10 +50,8 @@ for (const name of [
     );
     await page.goto("/tasks/s1");
     const panel = page.locator(".workspace-panel");
-    await panel
-      .locator("button.file-open").filter({ hasText: name })
-      .click();
-    const canvas = panel.locator("canvas");
+    await panel.locator("button.file-open").filter({ hasText: name }).click();
+    const canvas = panel.locator(".pdf-pages canvas").first();
     await expect(canvas).toBeVisible();
     await expect(panel.locator(".pdf-pages")).toHaveAttribute(
       "aria-busy",
@@ -100,7 +98,8 @@ test("code preview treats source as text and keeps HTML scripts isolated", async
   await page.goto("/tasks/s1");
   await page
     .locator(".workspace-panel")
-    .locator("button.file-open").filter({ hasText: /example\.java/ })
+    .locator("button.file-open")
+    .filter({ hasText: /example\.java/ })
     .click();
   await expect(page.locator(".text-preview")).toContainText(
     "public class Example",

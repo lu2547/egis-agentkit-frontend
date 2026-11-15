@@ -3,6 +3,8 @@ import { workspacePath } from "./manager";
 
 export interface FileChange {
   change_id: number;
+  session_id: string | null;
+  reply_id: string | null;
   path: string;
   area: "uploads" | "work" | "artifacts";
   change_type: "created" | "modified" | "deleted";

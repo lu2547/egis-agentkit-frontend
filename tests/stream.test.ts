@@ -14,6 +14,29 @@ const ev = (type: string, fields = {}): AgentEvent =>
     ...fields,
   }) as AgentEvent;
 describe("native event reduction", () => {
+  it("closes abandoned history when the server is idle, so a later reply can finish", () => {
+    const old = new ConversationEvents();
+    old.apply(ev(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+    const state = new ConversationEvents(old.messages, false);
+    expect(state.messages[0].finished_at).toBeTruthy();
+    expect(state.messages[0].error?.message).toContain("中断");
+    state.apply(
+      ev(EventType.REPLY_START, {
+        reply_id: "new",
+        name: "Egis",
+        role: "assistant",
+      }),
+    );
+    state.apply(
+      ev(EventType.REPLY_END, {
+        reply_id: "new",
+        finished_reason: "error",
+        error: { code: "unknown", message: "沙箱启动失败" },
+      }),
+    );
+    expect(state.phase).toBe("idle");
+    expect(state.messages[1].error?.message).toBe("沙箱启动失败");
+  });
   it("resumes an existing reply and deduplicates replayed deltas by event id", () => {
     const state = new ConversationEvents();
     state.apply(

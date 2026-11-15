@@ -11,6 +11,7 @@ import GrantManagementTable from "../components/admin/GrantManagementTable.vue";
 import RemoteExpertManagement from "../components/admin/RemoteExpertManagement.vue";
 import ShareReviewList from "../components/catalog/ShareReviewList.vue";
 import ResourceManagementTable from "../components/admin/ResourceManagementTable.vue";
+import ReplyFeedbackManagement from "../components/admin/ReplyFeedbackManagement.vue";
 import AsyncState from "../components/common/AsyncState.vue";
 const route = useRoute(),
   router = useRouter(),
@@ -19,7 +20,8 @@ const section = computed(() => String(route.params.section));
 watch(
   [isAdmin, () => route.name],
   ([allowed, name]) => {
-    if (allowed && name === "admin-access-denied") void router.replace("/admin/users");
+    if (allowed && name === "admin-access-denied")
+      void router.replace("/admin/users");
   },
   { immediate: true },
 );
@@ -31,6 +33,7 @@ const tabs = [
   { key: "skills", label: "技能" },
   { key: "connectors", label: "连接器" },
   { key: "remote-agents", label: "第三方专家" },
+  { key: "reply-feedback", label: "回复反馈" },
 ];
 const { data, loading, error, load } = useAsyncData(() =>
   manager.adminList<Review>("share-reviews"),
@@ -65,14 +68,22 @@ watch(
           >{{ tab.label }}</RouterLink
         >
       </nav>
-      <UserManagementTable v-if="section === 'users'" /><GroupManagementTable
+      <ReplyFeedbackManagement
+        v-if="section === 'reply-feedback'"
+      /><UserManagementTable
+        v-else-if="section === 'users'"
+      /><GroupManagementTable
         v-else-if="section === 'groups'"
       /><GrantManagementTable
         v-else-if="section === 'grants'"
       /><RemoteExpertManagement
         v-else-if="section === 'remote-agents'"
-      /><ResourceManagementTable v-else-if="section === 'skills'" kind="skill"
-      /><ResourceManagementTable v-else-if="section === 'connectors'" kind="mcp"
+      /><ResourceManagementTable
+        v-else-if="section === 'skills'"
+        kind="skill"
+      /><ResourceManagementTable
+        v-else-if="section === 'connectors'"
+        kind="mcp"
       /><AsyncState
         v-else-if="section === 'share-reviews'"
         :loading="loading"

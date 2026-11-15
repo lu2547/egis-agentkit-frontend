@@ -16,15 +16,29 @@ async function stubWorkspace(page: Page) {
   await page.route("**/api/manager/projects", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
-    data.items.push({ ...data.items[0], id: "project-2", project_name: "第二个项目" });
+    data.items.push({
+      ...data.items[0],
+      id: "project-2",
+      project_name: "第二个项目",
+    });
     await route.fulfill({ response, json: data });
   });
   await page.route("**/api/manager/tasks", (route) =>
     route.fulfill({
       json: {
         items: [
-          { session_id: "s1", project_id: "project-1", name: "第一个对话", agent_id: "a1" },
-          { session_id: "s2", project_id: "project-2", name: "另一个对话", agent_id: "a1" },
+          {
+            session_id: "s1",
+            project_id: "project-1",
+            name: "第一个对话",
+            agent_id: "a1",
+          },
+          {
+            session_id: "s2",
+            project_id: "project-2",
+            name: "另一个对话",
+            agent_id: "a1",
+          },
         ],
       },
     }),
@@ -82,7 +96,10 @@ test("local DOCX and XLSX previews survive refresh and stay scoped to their proj
   await page.goto("/tasks/s1");
   const panel = page.locator(".workspace-panel");
   await expect(panel).toBeVisible();
-  await panel.locator("button.file-open").filter({ hasText: /preview\.docx/ }).click();
+  await panel
+    .locator("button.file-open")
+    .filter({ hasText: /preview\.docx/ })
+    .click();
   await expect(panel.locator(".office-document")).toContainText(
     "养老险业务文档预览",
   );
@@ -107,11 +124,23 @@ test("local DOCX and XLSX previews survive refresh and stay scoped to their proj
     .locator(".breadcrumb")
     .getByRole("button", { name: "工作空间", exact: true })
     .click();
-  await panel.locator("button.file-open").filter({ hasText: /preview\.xlsx/ }).click();
-  await expect(panel.getByLabel("选择工作表")).toHaveValue("0");
-  await expect(panel.locator(".sheet-preview")).toContainText("客户清单");
-  await expect(panel.locator(".sheet-preview")).toContainText("张三");
-  await expect(panel.locator(".sheet-preview")).toContainText("1000");
+  await panel
+    .locator("button.file-open")
+    .filter({ hasText: /preview\.xlsx/ })
+    .click();
+  const editor = panel.getByRole("region", { name: "Excel 编辑器" });
+  await expect(editor).toBeVisible();
+  await expect(
+    editor.getByRole("button", { name: "保存", exact: true }),
+  ).toBeEnabled({ timeout: 30000 });
+  await expect(
+    editor.getByRole("tab", { name: "公式", exact: true }),
+  ).toBeVisible();
+  await expect(editor.getByRole("alert")).toHaveCount(0);
+  await editor.getByLabel("选择工作表").selectOption("客户清单");
+  await expect(editor.locator(".spreadsheet-selection")).toContainText(
+    "客户清单",
+  );
 });
 
 test("plan panel shows canonical task DTO for the current conversation", async ({

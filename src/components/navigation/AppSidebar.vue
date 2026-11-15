@@ -6,6 +6,7 @@ import { useIdentity } from "../../composables/useIdentity";
 import { useTheme } from "../../composables/useTheme";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
+import { workspaceScopeId } from "../../domain/workspaceView";
 import type { Task, Project } from "../../types/api";
 import SidebarTaskRow from "./SidebarTaskRow.vue";
 import BrandIdentity from "../common/BrandIdentity.vue";
@@ -14,8 +15,15 @@ import IconButton from "../common/IconButton.vue";
 import DialogShell from "../common/DialogShell.vue";
 defineProps<{ collapsed: boolean }>();
 const emit = defineEmits<{ navigate: []; collapse: []; search: [] }>();
-const { user, isAdmin, tasks, projects, refreshTasks, refreshProjects, logout } =
-  useIdentity();
+const {
+  user,
+  isAdmin,
+  tasks,
+  projects,
+  refreshTasks,
+  refreshProjects,
+  logout,
+} = useIdentity();
 const taskActivity = useTaskActivity();
 const activity = taskActivity.activity;
 let activityTimer: ReturnType<typeof setInterval> | undefined;
@@ -50,9 +58,7 @@ const projectIds = computed(
   () => new Set(projects.value.map((project) => project.id)),
 );
 const recentTasks = computed(() =>
-  tasks.value.filter(
-    (task) => !projectIds.value.has(task.project_id),
-  ),
+  tasks.value.filter((task) => !projectIds.value.has(task.project_id)),
 );
 watch(
   projects,
@@ -66,14 +72,23 @@ watch(
   },
   { immediate: true },
 );
-watch(currentProjectId, (value) => {
-  if (value)
-    expandedProjects.value = new Set([...expandedProjects.value, value]);
-});
+watch(
+  [currentProjectId, () => route.params.sessionId],
+  ([projectId, sessionId]) => {
+    // 进入会话时展开所属项目；项目行自己控制折叠，切项目不能反向覆盖点击结果。
+    if (projectId && sessionId)
+      expandedProjects.value = new Set([...expandedProjects.value, projectId]);
+  },
+);
 function toggleProject(projectId: string) {
   const next = new Set(expandedProjects.value);
   next.has(projectId) ? next.delete(projectId) : next.add(projectId);
   expandedProjects.value = next;
+}
+/** 项目行的图标、名称和空白区域共用入口；新增和菜单保持各自操作。 */
+function selectProject(projectId: string) {
+  toggleProject(projectId);
+  navigate(`/projects/${encodeURIComponent(projectId)}`);
 }
 function projectSessions(projectId: string) {
   return tasks.value.filter((task) => task.project_id === projectId);
@@ -161,10 +176,12 @@ async function save() {
         projects.value = projects.value.filter(
           (item) => item.id !== project.id,
         );
-        if (user.value)
-          sessionStorage.removeItem(
-            `egis_workspace_preview:${user.value.user_id}:project:${project.id}`,
-          );
+        if (user.value) {
+          const prefix = `egis_workspace_preview:${user.value.user_id}:project:${project.id}:`;
+          Object.keys(sessionStorage)
+            .filter((key) => key.startsWith(prefix))
+            .forEach((key) => sessionStorage.removeItem(key));
+        }
         if (wasCurrent) await router.push("/");
       }
     } else if (task) {
@@ -181,6 +198,10 @@ async function save() {
         );
       } else {
         await manager.deleteTask(task.session_id);
+        if (user.value)
+          sessionStorage.removeItem(
+            `egis_workspace_preview:${user.value.user_id}:${workspaceScopeId(task.project_id, task.session_id)}`,
+          );
         taskActivity.forget(task.session_id);
         tasks.value = tasks.value.filter(
           (item) => item.session_id !== task.session_id,
@@ -308,10 +329,7 @@ onBeforeUnmount(() => {
         <div v-if="menu === 'more'" class="popover more-menu">
           <button @click="navigate('/share-requests')">
             <AppIcon name="experts" :size="16" />共享申请</button
-          ><button
-            v-if="isAdmin"
-            @click="navigate('/admin/users')"
-          >
+          ><button v-if="isAdmin" @click="navigate('/admin/users')">
             <AppIcon name="shield" :size="16" />管理
           </button>
         </div>
@@ -321,7 +339,10 @@ onBeforeUnmount(() => {
       <section class="projects-section" aria-label="项目">
         <div class="section-heading">
           <h2>项目</h2>
-          <IconButton class="project-create" label="新建项目" @click="beginProject('create')"
+          <IconButton
+            class="project-create"
+            label="新建项目"
+            @click="beginProject('create')"
             ><AppIcon name="plus" :size="16"
           /></IconButton>
         </div>
@@ -333,12 +354,13 @@ onBeforeUnmount(() => {
           <div
             class="project-row"
             :class="{ active: route.params.projectId === project.id }"
+            @click.self="selectProject(project.id)"
           >
             <button
-              class="project-select"
+              class="project-toggle"
               :aria-label="`${expandedProjects.has(project.id) ? '收起' : '展开'}项目：${project.project_name}`"
               :aria-expanded="expandedProjects.has(project.id)"
-              @click="toggleProject(project.id)"
+              @click="selectProject(project.id)"
             >
               <AppIcon
                 :name="
@@ -346,6 +368,12 @@ onBeforeUnmount(() => {
                 "
                 :size="19"
               />
+            </button>
+            <button
+              class="project-select"
+              :aria-label="`打开项目：${project.project_name}`"
+              @click="selectProject(project.id)"
+            >
               <span>{{ project.project_name }}</span>
             </button>
             <button
@@ -366,6 +394,7 @@ onBeforeUnmount(() => {
                   <button @click="beginProject('rename', project)">
                     <AppIcon name="edit" :size="15" />重命名项目</button
                   ><button
+                    v-if="!project.is_default"
                     class="danger-text"
                     :aria-label="`删除项目：${project.project_name}`"
                     @click="beginProject('remove', project)"
@@ -433,9 +462,7 @@ onBeforeUnmount(() => {
         <span class="account-avatar" aria-hidden="true">{{ userInitial }}</span
         ><span v-if="!collapsed" class="account-copy"
           ><strong>{{ user?.username }}</strong
-          ><small>{{
-            isAdmin ? "管理员用户" : "普通用户"
-          }}</small></span
+          ><small>{{ isAdmin ? "管理员用户" : "普通用户" }}</small></span
         >
       </button>
       <IconButton
@@ -451,10 +478,7 @@ onBeforeUnmount(() => {
           }}</button
         ><button @click="navigate('/share-requests')">
           <AppIcon name="experts" :size="16" />共享申请</button
-        ><button
-          v-if="isAdmin"
-          @click="navigate('/admin/users')"
-        >
+        ><button v-if="isAdmin" @click="navigate('/admin/users')">
           <AppIcon name="shield" :size="16" />管理</button
         ><button @click="logout">
           <AppIcon name="logout" :size="16" />退出登录

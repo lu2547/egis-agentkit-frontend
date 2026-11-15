@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from "vue";
+import { computed, ref, watch, onUnmounted, nextTick } from "vue";
 import type { Msg } from "@agentscope-ai/agentscope/message";
 import { manager } from "../../api/manager";
 import { workspace, type FileChange } from "../../api/workspace";
@@ -11,6 +11,7 @@ import {
   workspaceDisplayPath,
   workspaceLinkLocation,
   workspaceRootFiles,
+  workspaceScopeId,
   type WorkspaceArea,
   type WorkspaceLocation,
 } from "../../domain/workspaceView";
@@ -20,12 +21,18 @@ import type { WorkspaceFile } from "../../types/api";
 import AppIcon from "../common/AppIcon.vue";
 import FileTypeIcon from "../common/FileTypeIcon.vue";
 import AsyncState from "../common/AsyncState.vue";
+import type {
+  PreviewAnchor,
+  PreviewReference,
+  PreviewAcceptance,
+} from "../../domain/previewReferences";
 import FilePreview from "./FilePreview.vue";
 import WorkspaceDeleteDialog from "./WorkspaceDeleteDialog.vue";
 
 const props = withDefaults(
   defineProps<{
     projectId?: string;
+    sessionId?: string;
     revision: string;
     visible: boolean;
     messages?: Msg[];
@@ -33,18 +40,40 @@ const props = withDefaults(
   }>(),
   { messages: () => [], plan: () => [] },
 );
-const emit = defineEmits<{ close: []; uploaded: [] }>();
-type Tab = "plan" | "workspace" | "artifacts" | "changes" | "preview";
+const emit = defineEmits<{
+  close: [];
+  uploaded: [];
+  reference: [value: PreviewReference, accept: PreviewAcceptance];
+}>();
+const previews = new Map<string, InstanceType<typeof FilePreview>>();
+function canLeavePreview() {
+  return [...previews.values()].every((preview) => preview.canLeave());
+}
+function openReference(value: PreviewAnchor) {
+  if (value.projectId !== props.projectId) return;
+  if (!openFile(value.path, value.area)) return;
+  if (selected.value) {
+    selected.value.anchor = value;
+    const preview = previews.get(previewKey(selected.value));
+    // 历史引用重新核对已保存文件；有编辑草稿时保留实例，避免覆盖未保存内容。
+    if (preview && !preview.hasPendingChanges()) preview.refresh();
+  }
+}
+type Tab = "plan" | "workspace" | "changes" | "preview";
 type Area = WorkspaceArea;
-type Selection = { path: string; area: Area; scopeId: string };
+type Selection = {
+  path: string;
+  area: Area;
+  scopeId: string;
+  anchor?: PreviewAnchor;
+  loaded?: boolean;
+};
 const scopeId = computed(() =>
-  props.projectId ? `project:${props.projectId}` : "",
+  workspaceScopeId(props.projectId, props.sessionId),
 );
-const tab = ref<Tab>("workspace"),
-  lastList = ref<"workspace" | "artifacts">("workspace");
+const tab = ref<Tab>("workspace");
 const directory = ref<WorkspaceLocation | null>(null);
-const artifactDirectory = ref(""),
-  files = ref<WorkspaceFile[]>([]),
+const files = ref<WorkspaceFile[]>([]),
   loading = ref(false),
   error = ref(""),
   uploadError = ref(""),
@@ -69,24 +98,104 @@ const selectionKey = computed(() =>
     ? `egis_workspace_preview:${user.value.user_id}:${scopeId.value}`
     : "",
 );
-function restoreSelection(): Selection | null {
+const previewTabs = ref<Selection[]>([]),
+  activePreview = ref("");
+const previewKey = (value: Selection) =>
+  `${value.scopeId}:${value.area}:${value.path}`;
+const selected = computed(() =>
+  previewTabs.value.find((value) => previewKey(value) === activePreview.value),
+);
+function restoreSelections() {
   try {
     const value = JSON.parse(
       selectionKey.value
         ? sessionStorage.getItem(selectionKey.value) || "null"
         : "null",
     );
-    return value &&
-      typeof value.path === "string" &&
-      ["uploads", "work", "artifacts"].includes(value.area) &&
-      value.scopeId === scopeId.value
-      ? value
-      : null;
+    if (!Array.isArray(value?.items)) return;
+    const seen = new Set<string>();
+    previewTabs.value = value.items
+      .filter((item: Selection) => {
+        if (
+          !item ||
+          typeof item.path !== "string" ||
+          !item.path ||
+          !["uploads", "work", "artifacts"].includes(item.area) ||
+          item.scopeId !== scopeId.value
+        )
+          return false;
+        const key = previewKey(item);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(({ path, area, scopeId }: Selection) => ({ path, area, scopeId }));
+    activePreview.value = seen.has(value.active)
+      ? value.active
+      : previewTabs.value[0]
+        ? previewKey(previewTabs.value[0])
+        : "";
+    if (selected.value) selected.value.loaded = true;
   } catch {
-    return null;
+    previewTabs.value = [];
+    activePreview.value = "";
   }
 }
-const selected = ref<Selection | null>(null);
+/** 只持久化文件身份；编辑器及尚未保存的内容保留在各自挂载实例中。 */
+function persistPreviews() {
+  if (!selectionKey.value) return;
+  sessionStorage.setItem(
+    selectionKey.value,
+    JSON.stringify({
+      active: activePreview.value,
+      items: previewTabs.value.map(({ path, area, scopeId }) => ({
+        path,
+        area,
+        scopeId,
+      })),
+    }),
+  );
+}
+function registerPreview(node: unknown, key: string) {
+  if (node) previews.set(key, node as InstanceType<typeof FilePreview>);
+  else previews.delete(key);
+}
+function activatePreview(value: Selection) {
+  value.loaded = true;
+  activePreview.value = previewKey(value);
+  tab.value = "preview";
+  persistPreviews();
+}
+function closePreview(value: Selection) {
+  const key = previewKey(value);
+  if (!(previews.get(key)?.canLeave() ?? true)) return;
+  const index = previewTabs.value.findIndex((item) => previewKey(item) === key);
+  previewTabs.value.splice(index, 1);
+  if (activePreview.value === key) {
+    const next =
+      previewTabs.value[Math.min(index, previewTabs.value.length - 1)];
+    activePreview.value = next ? previewKey(next) : "";
+    if (next) next.loaded = true;
+  }
+  persistPreviews();
+}
+async function previewKeydown(event: KeyboardEvent, index: number) {
+  const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const total = previewTabs.value.length;
+  const target =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? total - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + total) % total;
+  activatePreview(previewTabs.value[target]!);
+  await nextTick();
+  document
+    .getElementById(`preview-tab-${previewKey(previewTabs.value[target]!)}`)
+    ?.focus();
+}
 const deleteTarget = ref<WorkspaceFile | null>(null);
 const deleting = ref(false),
   deleteError = ref("");
@@ -102,21 +211,20 @@ async function deleteFile() {
   deleting.value = true;
   deleteError.value = "";
   try {
-    await manager.deleteFile(
-      props.projectId,
-      area,
-      target.path,
-    );
+    await manager.deleteFile(props.projectId, area, target.path);
     if (scopeId.value !== targetScope) return;
-    const preview = selected.value;
-    if (
-      preview?.area === area &&
-      (preview.path === target.path ||
-        preview.path.startsWith(target.path + "/"))
-    ) {
-      selected.value = null;
-      if (selectionKey.value) sessionStorage.removeItem(selectionKey.value);
-    }
+    previewTabs.value = previewTabs.value.filter(
+      (preview) =>
+        preview.area !== area ||
+        (preview.path !== target.path &&
+          !preview.path.startsWith(target.path + "/")),
+    );
+    if (!selected.value)
+      activePreview.value = previewTabs.value[0]
+        ? previewKey(previewTabs.value[0])
+        : "";
+    if (selected.value) selected.value.loaded = true;
+    persistPreviews();
     deleteTarget.value = null;
     emit("uploaded"); // Reuse the project file revision notification.
     await load();
@@ -127,9 +235,11 @@ async function deleteFile() {
   }
 }
 function select(value: Selection) {
-  selected.value = value;
-  if (selectionKey.value)
-    sessionStorage.setItem(selectionKey.value, JSON.stringify(value));
+  const existing = previewTabs.value.find(
+    (item) => previewKey(item) === previewKey(value),
+  );
+  if (!existing) previewTabs.value.push(value);
+  activatePreview(existing || previewTabs.value[previewTabs.value.length - 1]!);
 }
 watch(
   selectionKey,
@@ -142,16 +252,16 @@ watch(
     nextCursor.value = null;
     scanError.value = "";
     directory.value = null;
-    artifactDirectory.value = "";
     error.value = "";
     uploadError.value = "";
     deleteTarget.value = null;
     deleteError.value = "";
     uploading.value = false;
     loading.value = false;
-    selected.value = restoreSelection();
-    if (selected.value) tab.value = "preview";
-    else if (tab.value === "preview") tab.value = "workspace";
+    previewTabs.value = [];
+    activePreview.value = "";
+    restoreSelections();
+    tab.value = selected.value ? "preview" : "workspace";
   },
   { immediate: true, flush: "sync" },
 );
@@ -167,16 +277,12 @@ const plan = computed(() =>
     })),
   ),
 );
-const currentLocation = computed<WorkspaceLocation | null>(() =>
-  tab.value === "artifacts"
-    ? { area: "artifacts", path: artifactDirectory.value }
-    : directory.value,
-);
+const currentLocation = computed(() => directory.value);
 const crumbs = computed(() => {
   const location = currentLocation.value;
   if (!location) return [];
   const result: { label: string; location: WorkspaceLocation }[] = [];
-  if (tab.value === "workspace" && location.area !== "uploads")
+  if (location.area !== "uploads")
     result.push({
       label: workspaceAreaLabel[location.area],
       location: { area: location.area, path: "" },
@@ -219,11 +325,7 @@ async function loadChanges(more = false) {
 }
 async function load() {
   controller?.abort();
-  if (
-    !props.visible ||
-    (tab.value !== "workspace" && tab.value !== "artifacts")
-  )
-    return;
+  if (!props.visible || tab.value !== "workspace") return;
   files.value = [];
   error.value = "";
   if (!props.projectId) {
@@ -259,7 +361,6 @@ watch(
     props.revision,
     tab.value,
     directory.value,
-    artifactDirectory.value,
   ],
   () => {
     void load();
@@ -268,12 +369,11 @@ watch(
   { immediate: true },
 );
 function showTab(next: Tab) {
-  if (next === "workspace" || next === "artifacts") lastList.value = next;
+  if (next === "workspace") directory.value = null;
   tab.value = next;
 }
 function navigate(location: WorkspaceLocation | null) {
-  if (tab.value === "artifacts") artifactDirectory.value = location?.path || "";
-  else directory.value = location;
+  directory.value = location;
 }
 function choose(file: WorkspaceFile) {
   const area = file.area || currentLocation.value?.area || "uploads";
@@ -286,10 +386,14 @@ function openFile(path: string, area = "artifacts") {
   if (!["uploads", "work", "artifacts"].includes(area)) return;
   const location = workspaceLinkLocation(path, area as Area);
   select({ ...location, scopeId: scopeId.value });
-  lastList.value = location.area === "artifacts" ? "artifacts" : "workspace";
   showTab("preview");
+  return true;
 }
-defineExpose({ openFile, openTab: showTab });
+function openArtifacts() {
+  directory.value = { area: "artifacts", path: "" };
+  tab.value = "workspace";
+}
+defineExpose({ openReference, openFile, openTab: showTab, openArtifacts });
 async function upload(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0],
@@ -379,7 +483,7 @@ onUnmounted(() => {
               ><button
                 class="plain"
                 aria-label="关闭工作空间"
-                @click="$emit('close')"
+                @click="canLeavePreview() && $emit('close')"
               >
                 <PanelRightClose :size="19" />
               </button>
@@ -390,7 +494,6 @@ onUnmounted(() => {
               v-for="item in [
                 ['plan', '计划'],
                 ['workspace', '文件'],
-                ['artifacts', '产物'],
                 ['changes', '变更'],
                 ['preview', '预览'],
               ] as const"
@@ -421,11 +524,10 @@ onUnmounted(() => {
             </li>
           </ul>
         </section>
-        <template v-else-if="tab === 'workspace' || tab === 'artifacts'"
+        <template v-else-if="tab === 'workspace'"
           ><div class="list-toolbar">
             <div class="breadcrumb">
-              <button @click="navigate(null)">
-                {{ tab === "workspace" ? "工作空间" : "产物" }}</button
+              <button @click="navigate(null)">工作空间</button
               ><template v-for="(part, index) in crumbs" :key="index"
                 ><span>/</span
                 ><button @click="navigate(part.location)">
@@ -438,7 +540,11 @@ onUnmounted(() => {
               }}<input type="file" :disabled="uploading" @change="upload"
             /></label>
           </div>
-          <p v-if="tab === 'workspace' && uploadError" class="error upload-error" role="alert">
+          <p
+            v-if="tab === 'workspace' && uploadError"
+            class="error upload-error"
+            role="alert"
+          >
             {{ uploadError }}
           </p>
           <div class="file-tree">
@@ -448,11 +554,9 @@ onUnmounted(() => {
               :empty="!files.length"
               :empty-title="scopeId ? '暂无文件' : '尚未选择项目'"
               :empty-text="
-                tab === 'artifacts'
-                  ? '当前项目的交付文件会显示在这里。'
-                  : scopeId
-                    ? '当前项目的资料和过程文件会显示在这里。'
-                    : '选择项目后可上传资料并查看项目文件。'
+                scopeId
+                  ? '当前项目的资料和过程文件会显示在这里。'
+                  : '选择项目后可上传资料并查看项目文件。'
               "
               @retry="load"
               ><div
@@ -532,20 +636,82 @@ onUnmounted(() => {
             </button></AsyncState
           >
         </section>
-        <template v-else
-          ><button class="back" @click="showTab(lastList)">
-            ‹ 返回{{ lastList === "workspace" ? "工作空间" : "产物" }}</button
-          ><FilePreview
-            v-if="projectId && selected && selected.scopeId === scopeId"
-            :project-id="projectId"
-            :area="selected.area"
-            :path="selected.path"
-          />
-          <div v-else class="empty-message">
+        <section
+          v-show="tab === 'preview'"
+          class="preview-view"
+          :inert="tab !== 'preview'"
+        >
+          <div v-if="previewTabs.length" class="preview-tab-bar">
+            <div
+              class="preview-file-tabs"
+              role="tablist"
+              aria-label="文件预览标签"
+            >
+              <div
+                v-for="(item, index) in previewTabs"
+                :key="previewKey(item)"
+                class="preview-file-tab"
+                :class="{ active: activePreview === previewKey(item) }"
+              >
+                <button
+                  role="tab"
+                  :id="`preview-tab-${previewKey(item)}`"
+                  :aria-selected="activePreview === previewKey(item)"
+                  :aria-controls="`preview-panel-${previewKey(item)}`"
+                  :tabindex="activePreview === previewKey(item) ? 0 : -1"
+                  :title="workspaceDisplayPath(item.area, item.path)"
+                  @click="activatePreview(item)"
+                  @keydown="previewKeydown($event, index)"
+                >
+                  <FileTypeIcon :name="item.path" :size="18" />
+                  <span>{{ item.path.split("/").pop() }}</span>
+                </button>
+                <button
+                  class="preview-tab-close"
+                  :aria-label="`关闭预览 ${item.path.split('/').pop()}`"
+                  @click="closePreview(item)"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <button
+              v-if="selected && !/\.(xlsx|pptx?)$/i.test(selected.path)"
+              class="plain preview-tab-download"
+              aria-label="下载文件"
+              @click="previews.get(activePreview)?.download()"
+            >
+              <AppIcon name="download" :size="16" />
+            </button>
+          </div>
+          <template v-if="projectId">
+            <div
+              v-for="item in previewTabs"
+              :key="previewKey(item)"
+              v-show="activePreview === previewKey(item)"
+              class="preview-document"
+              role="tabpanel"
+              :id="`preview-panel-${previewKey(item)}`"
+              :aria-labelledby="`preview-tab-${previewKey(item)}`"
+              :inert="activePreview !== previewKey(item)"
+            >
+              <FilePreview
+                v-if="item.loaded"
+                :ref="(node) => registerPreview(node, previewKey(item))"
+                :project-id="projectId"
+                :area="item.area"
+                :path="item.path"
+                :anchor="item.anchor"
+                @reference="(value, accept) => emit('reference', value, accept)"
+                @saved="emit('uploaded')"
+              />
+            </div>
+          </template>
+          <div v-if="!previewTabs.length" class="empty-message">
             <h3>暂无预览</h3>
             <p>选择一个文件后可在此查看。</p>
-          </div></template
-        >
+          </div>
+        </section>
       </div>
     </aside></Transition
   >

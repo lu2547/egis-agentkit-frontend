@@ -72,8 +72,9 @@ for (const theme of ["light", "dark"] as const) {
     const panel = page.locator(".workspace-panel");
     await panel
       .getByRole("navigation", { name: "工作空间面板" })
-      .getByRole("button", { name: "产物", exact: true })
+      .getByRole("button", { name: "文件", exact: true })
       .click();
+    await panel.locator("button.file-open").filter({ hasText: "产物" }).click();
     for (const type of [
       "word",
       "markdown",
@@ -95,11 +96,13 @@ for (const theme of ["light", "dark"] as const) {
     await page.screenshot({
       path: testInfo.outputPath(`file-icons-${theme}.png`),
     });
-    await panel.locator("button.file-open").filter({ hasText: /readme.md/ }).click();
-    await expect(panel.locator(".file-preview header img")).toHaveAttribute(
-      "src",
-      "/file-icons/markdown.svg",
-    );
+    await panel
+      .locator("button.file-open")
+      .filter({ hasText: /readme.md/ })
+      .click();
+    await expect(
+      panel.getByRole("tab", { name: "readme.md", exact: true }).locator("img"),
+    ).toHaveAttribute("src", "/file-icons/markdown.svg");
     await expect(
       panel.getByRole("heading", { name: "彩色格式图标预览" }),
     ).toBeVisible();

@@ -65,12 +65,14 @@ export interface Definition {
   is_editable: boolean;
   is_deletable: boolean;
   share_status_type?: string;
-  config_version: number;
+  owner_version?: number;
+  version?: number;
+  config_version?: number;
   orchestrator_config?: {
     agent_name: string;
     agent_display_name: string;
     payload: DefinitionPayload;
-    config_version?: number;
+    owner_version?: number;
   };
 }
 export interface Project {
@@ -188,6 +190,26 @@ export interface TaskSettings {
   permission_mode?: string;
   model_key?: string;
 }
+
+export interface ReplyFeedback {
+  id: string;
+  user_id: string;
+  username: string;
+  project_id: string;
+  project_name: string;
+  session_id: string;
+  session_name: string;
+  reply_id: string;
+  agent_id: string;
+  definition_id: string;
+  agent_display_name: string;
+  comment: string;
+  question_text: string;
+  reply_text: string;
+  created_at: string;
+  updated_at: string;
+}
+export type ReplyFeedbackState = Pick<ReplyFeedback, 'reply_id' | 'comment'>;
 export interface ModelOption {
   key: string;
   display_name: string;

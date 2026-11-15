@@ -11,19 +11,14 @@ export function reconcileActivity(
   task: Task,
   active: boolean,
 ): TaskActivity {
-  const running =
-    !!task.is_running ||
-    !!(
-      previous?.optimistic &&
-      !task.is_waiting &&
-      previous.updatedAt === task.updated_at
-    );
+  // 服务端状态覆盖本地预估，失败不一定会改变任务的更新时间。
+  const running = !!task.is_running;
   const waiting = !!task.is_waiting;
   return {
     running,
     waiting,
     updatedAt: task.updated_at,
-    optimistic: running && !task.is_running && previous?.optimistic,
+    optimistic: false,
     unread:
       !active &&
       !!(

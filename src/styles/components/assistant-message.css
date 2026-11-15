@@ -3,3 +3,6 @@
 .assistant-mark { color: var(--accent); width: 24px; font-size: 22px; display: inline-block; }
 .finish-note { font-size: 12px; color: var(--muted); margin-top: 15px; } .assistant-content > .error { margin-top: 14px; }
 .assistant-mark { height: 24px; object-fit: contain; }
+.preparing-status { margin: 12px 0 18px; color: var(--muted); font-size: 14px; line-height: 24px; }
+.annotation-answer-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.annotation-answer-links button{background:none;border:0;padding:0;color:var(--annotation-blue);font:inherit;font-size:13px;text-decoration:underline;text-underline-offset:3px;cursor:pointer;}

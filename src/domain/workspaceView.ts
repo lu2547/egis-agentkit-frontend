@@ -5,6 +5,14 @@ export interface WorkspaceLocation {
   area: WorkspaceArea;
   path: string;
 }
+/** 文件按项目共享，预览和导航状态按项目页或会话分别保存。 */
+export function workspaceScopeId(
+  projectId?: string,
+  sessionId?: string,
+): string {
+  if (!projectId) return "";
+  return `project:${projectId}:${sessionId ? `session:${sessionId}` : "root"}`;
+}
 export const workspaceAreaLabel: Record<WorkspaceArea, string> = {
   uploads: "",
   work: ".work",

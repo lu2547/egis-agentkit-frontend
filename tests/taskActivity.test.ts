@@ -33,14 +33,14 @@ describe("task run and unread indicators", () => {
     expect(completed.running).toBe(false);
     expect(reconcileActivity(completed, task({}), true).unread).toBe(false);
   });
-  it("keeps queued work running until server progress is observed", () => {
+  it("clears optimistic activity when the server reports no running task, even without a timestamp change", () => {
     expect(
       reconcileActivity(
         { ...running, optimistic: true },
         task({ is_running: false }),
         false,
       ).running,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       reconcileActivity(
         { ...running, optimistic: true },

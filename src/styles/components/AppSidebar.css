@@ -127,20 +127,33 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
+  padding: 9px 4px;
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
   color: var(--text);
   font-size: 12px;
+  text-decoration: none;
+}
+.project-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
 .project-select span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.project-select svg {
+.project-toggle svg {
   flex-shrink: 0;
   color: var(--muted);
 }

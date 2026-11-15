@@ -1,7 +1,13 @@
-import { ref, shallowRef, onScopeDispose } from "vue";
-import { UserMsg, type ToolCallBlock } from "@agentscope-ai/agentscope/message";
+import type { PreviewReference } from "../domain/previewReferences";
+import {
+  createAnnotatedMessage,
+  type TextAnnotation,
+} from "../domain/textAnnotations";
+import { ref, shallowRef, onScopeDispose, watch } from "vue";
+import { type ToolCallBlock } from "@agentscope-ai/agentscope/message";
 import {
   EventType,
+  type AgentEvent,
   type UserConfirmResultEvent,
 } from "@agentscope-ai/agentscope/event";
 import {
@@ -15,10 +21,11 @@ import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import { useChatStream } from "./useChatStream";
 import { useIdentity } from "./useIdentity";
-import type { Task, TaskSettings } from "../types/api";
+import type { Task, TaskSettings, ReplyFeedbackState } from "../types/api";
 import { useTaskActivity } from "./useTaskActivity";
 export function useConversation() {
   const activity = useTaskActivity();
+  const replyFeedback = ref<Record<string, ReplyFeedbackState>>({});
   const task = shallowRef<Task | null>(null),
     state = shallowRef(new ConversationEvents()),
     loading = ref(false),
@@ -28,7 +35,7 @@ export function useConversation() {
     settingsPending = ref(false);
   const scope = new SessionScope(),
     stream = useChatStream();
-  const { refreshTasks } = useIdentity();
+  const { refreshTasks, tasks } = useIdentity();
   function onRenamed(event: Event) {
     const renamed = (event as CustomEvent<Task>).detail;
     if (
@@ -48,6 +55,113 @@ export function useConversation() {
   }
   let lease: SessionLease | null = null;
   let metadataGeneration = 0;
+  let eventGeneration = 0;
+  let pendingInputId: string | null = null;
+  let statusRequest: SessionLease | null = null;
+  async function refreshRunState() {
+    const current = lease,
+      selected = task.value;
+    if (
+      !current ||
+      !selected ||
+      submitting.value ||
+      statusRequest === current ||
+      !["streaming", "interrupting"].includes(state.value.phase)
+    )
+      return;
+    const generation = eventGeneration;
+    statusRequest = current;
+    try {
+      const history = await runtime.history(
+        current.key,
+        selected.agent_id,
+        current.signal,
+      );
+      if (
+        !scope.owns(current) ||
+        generation !== eventGeneration ||
+        history.is_running
+      )
+        return;
+      // 请求仍在队列且尚未入库时，不能把它误判成失败。
+      if (
+        pendingInputId &&
+        !history.messages.some((message) => message.id === pendingInputId)
+      )
+        return;
+      if (
+        !pendingInputId &&
+        state.value.messages.some(
+          (message) =>
+            message.role === "assistant" &&
+            !message.finished_at &&
+            !history.messages.some((saved) => saved.id === message.id),
+        )
+      )
+        return;
+      const ids = new Set(history.messages.map((message) => message.id));
+      state.value = new ConversationEvents(
+        [
+          ...state.value.messages.filter((message) => !ids.has(message.id)),
+          ...history.messages,
+        ],
+        false,
+      );
+      pendingInputId = null;
+      if (
+        state.value.phase === "idle" &&
+        !history.messages.some((message) => message.role === "assistant")
+      )
+        error.value = "本次处理已中断，请重新发送。";
+      publish();
+      startStream(current, selected, history.event_cursor);
+    } catch (e) {
+      if (scope.owns(current)) error.value = errorText(e);
+    } finally {
+      if (statusRequest === current) statusRequest = null;
+    }
+  }
+  // 复用任务列表轮询；断流或重连后也核对后端，补偿丢失的结束事件。
+  watch(tasks, (items) => {
+    const selected = items.find((item) => item.session_id === lease?.key);
+    if (selected && !selected.is_running && !selected.is_waiting)
+      void refreshRunState();
+  });
+  watch(stream.connection, (connection, previous) => {
+    if (
+      connection === "failed" ||
+      connection === "retrying" ||
+      previous === "retrying"
+    )
+      void refreshRunState();
+  });
+  function startStream(
+    current: SessionLease,
+    selected: Task,
+    cursor: string | null,
+  ) {
+    void stream.start(
+      current.key,
+      selected.agent_id,
+      current.signal,
+      cursor,
+      (event: AgentEvent) => {
+        if (!scope.owns(current)) return;
+        ++eventGeneration;
+        state.value.apply(event);
+        if (event.type === EventType.REPLY_END && state.value.phase === "idle")
+          pendingInputId = null;
+        publish();
+        if (
+          event.type === EventType.CUSTOM &&
+          event.name === "session_updated"
+        ) {
+          void refreshMetadata(current);
+          void refreshTasks();
+        }
+      },
+    );
+  }
   async function refreshMetadata(current = lease) {
     if (!current || !scope.owns(current) || settingsPending.value) return;
     const request = ++metadataGeneration;
@@ -90,12 +204,15 @@ export function useConversation() {
     );
   }
   function clear() {
+    replyFeedback.value = {};
     scope.dispose();
     stream.stop();
     task.value = null;
     state.value = new ConversationEvents();
     submitting.value = false;
     settingsPending.value = false;
+    pendingInputId = null;
+    ++eventGeneration;
     ++metadataGeneration;
   }
   async function open(sid: string) {
@@ -108,6 +225,16 @@ export function useConversation() {
       const selected = await manager.task(sid, current.signal);
       if (!scope.owns(current)) return;
       task.value = selected;
+      // 单次批量读取，不为历史中的每条回答各发一个请求；反馈状态失败不阻断聊天。
+      void manager
+        .listReplyFeedback(sid, current.signal)
+        .then((result) => {
+          if (scope.owns(current))
+            replyFeedback.value = Object.fromEntries(
+              result.items.map((item) => [item.reply_id, item]),
+            );
+        })
+        .catch(() => {});
       const history = await runtime.history(
         sid,
         selected.agent_id,
@@ -119,25 +246,7 @@ export function useConversation() {
         history.messages,
         history.is_running,
       );
-      void stream.start(
-        sid,
-        selected.agent_id,
-        current.signal,
-        history.event_cursor,
-        (event) => {
-          if (scope.owns(current)) {
-            state.value.apply(event);
-            publish();
-            if (
-              event.type === EventType.CUSTOM &&
-              event.name === "session_updated"
-            ) {
-              void refreshMetadata(current);
-              void refreshTasks();
-            }
-          }
-        },
-      );
+      startStream(current, selected, history.event_cursor);
     } catch (e) {
       if (scope.owns(current)) {
         error.value = errorText(e);
@@ -147,7 +256,11 @@ export function useConversation() {
       if (scope.owns(current)) loading.value = false;
     }
   }
-  async function send(text: string) {
+  async function send(
+    text: string,
+    references: PreviewReference[] = [],
+    annotations: TextAnnotation[] = [],
+  ) {
     if (
       !task.value ||
       !lease ||
@@ -158,7 +271,7 @@ export function useConversation() {
       return false;
     const current = lease,
       selected = task.value;
-    const message = UserMsg({ name: "user", content: text });
+    const message = createAnnotatedMessage(text, references, annotations);
     submitting.value = true;
     error.value = "";
     try {
@@ -168,6 +281,7 @@ export function useConversation() {
       if (stream.connection.value !== "connected")
         throw new Error("等待事件连接恢复后再发送");
       state.value.messages = [...state.value.messages, message];
+      pendingInputId = message.id;
       state.value.phase = "streaming";
       publish();
       await runtime.trigger(
@@ -278,6 +392,7 @@ export function useConversation() {
   }
   onScopeDispose(clear);
   return {
+    replyFeedback,
     task,
     state,
     loading,
@@ -296,5 +411,6 @@ export function useConversation() {
     clear,
     retry: stream.retry,
     refreshMetadata,
+    refreshRunState,
   };
 }

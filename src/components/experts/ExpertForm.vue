@@ -159,9 +159,15 @@ function submit() {
         },
       };
   if (original) {
-    body.config_version = original.config_version;
-    body.owner_type = original.owner_type;
-    body.owner_id = original.owner_id;
+    if (props.team) body.config_version = original.config_version;
+    else {
+      body.owner_version = original.owner_version;
+      delete body.agent_type;
+    }
+    if (props.team) {
+      body.owner_type = original.owner_type;
+      body.owner_id = original.owner_id;
+    }
   }
   emit("save", body);
 }
@@ -197,6 +203,7 @@ function submit() {
       <label>专家执行方式</label>
       <t-select
         v-model="form.executionType"
+        :disabled="!!original"
         :options="[
           { label: '原生专家', value: 'native' },
           { label: '远程专家', value: 'remote' },

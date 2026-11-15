@@ -6,7 +6,12 @@ import {
   type Msg,
   type ToolCallBlock,
 } from "@agentscope-ai/agentscope/message";
-import { EventType, type AgentEvent } from "@agentscope-ai/agentscope/event";
+import {
+  ErrorType,
+  EventType,
+  ReplyFinishedReason,
+  type AgentEvent,
+} from "@agentscope-ai/agentscope/event";
 export type ReplyPhase = "idle" | "streaming" | "waiting" | "interrupting";
 export interface SubagentConfirmation {
   worker_session_id: string;
@@ -24,9 +29,41 @@ export class ConversationEvents {
   phase: ReplyPhase = "idle";
   private seen = new Set<string>();
   private active = new Set<string>();
+  /** 请求已进入处理，但尚未收到原生回复开始事件；只用于页面占位。 */
+  get isPreparing() {
+    return this.phase === "streaming" && this.active.size === 0;
+  }
   constructor(history: Msg[] = [], isRunning = false) {
-    this.messages = history;
-    const pending = history.filter(
+    // 后端确认已停止时，历史中的未收尾回复不能继续占用当前运行状态。
+    // 等待审批的工具调用属于暂停，保留其可继续执行的状态。
+    this.messages = history.map((message) => {
+      const waiting = message.content.some(
+        (block) =>
+          block.type === "tool_call" &&
+          ["asking", "submitted"].includes(block.state),
+      );
+      if (
+        isRunning ||
+        message.role !== "assistant" ||
+        message.finished_at ||
+        waiting
+      )
+        return message;
+      return {
+        ...message,
+        finished_at: new Date().toISOString(),
+        finished_reason: message.finished_reason || ReplyFinishedReason.ERROR,
+        error:
+          message.error ||
+          (message.finished_reason
+            ? null
+            : {
+                type: ErrorType.CONNECTION,
+                message: "本次处理已中断，请重新发送。",
+              }),
+      };
+    });
+    const pending = this.messages.filter(
       (m) => !m.finished_at && m.role === "assistant",
     );
     for (const message of pending) this.active.add(message.id);
@@ -47,12 +84,18 @@ export class ConversationEvents {
     if (event.id) this.seen.add(event.id);
     if (event.type === EventType.CUSTOM) {
       if (event.name === "state_updated") {
-        const context = (event.value as { tasks_context?: { tasks?: unknown } }).tasks_context;
-        if (Array.isArray(context?.tasks)) this.plan = context.tasks
-          .filter((item): item is { id: string; subject: string; state: string } =>
-            !!item && typeof item.id === "string" && typeof item.subject === "string" &&
-            ["pending", "in_progress", "completed"].includes(item.state))
-          .map(({ id, subject, state }) => ({ id, subject, state }));
+        const context = (event.value as { tasks_context?: { tasks?: unknown } })
+          .tasks_context;
+        if (Array.isArray(context?.tasks))
+          this.plan = context.tasks
+            .filter(
+              (item): item is { id: string; subject: string; state: string } =>
+                !!item &&
+                typeof item.id === "string" &&
+                typeof item.subject === "string" &&
+                ["pending", "in_progress", "completed"].includes(item.state),
+            )
+            .map(({ id, subject, state }) => ({ id, subject, state }));
       } else if (event.name === "subagent_require_user_confirm") {
         const entry = event.value as unknown as SubagentConfirmation;
         this.subagentConfirmations = [

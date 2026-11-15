@@ -93,7 +93,7 @@ test("catalog navigation and filters use ownership and installation state", asyn
 });
 
 test("expert creation explains what is missing at the save button", async ({ page }) => {
-  let submitted: unknown;
+  let submitted: any;
   await page.route("**/api/manager/agents", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     submitted = route.request().postDataJSON();
@@ -137,7 +137,8 @@ test("expert editor reads its single definition and keeps its owner", async ({ p
         owner_type: "system",
         owner_id: "platform",
         resource_view_type: "system",
-        config_version: 4,
+        owner_version: 4,
+        version: 4,
         is_editable: true,
         payload: { description: "", category: "办公协同", tags: [], starter_prompts: [], bindings: [] },
       },
@@ -151,13 +152,34 @@ test("expert editor reads its single definition and keeps its owner", async ({ p
   });
   await page.goto("/experts/expert-0/edit?view=system");
   await expect(page.getByPlaceholder("例如 研究专家")).toHaveValue("系统专家");
+  const executionType = page.locator(".field").filter({ has: page.getByText("专家执行方式", { exact: true }) });
+  await expect(executionType.locator("input").first()).toBeDisabled();
   expect(listRequests).toEqual([]);
   await page.getByRole("button", { name: "保存专家", exact: true }).click();
   await expect.poll(() => submitted).toMatchObject({
-    owner_type: "system",
-    owner_id: "platform",
-    config_version: 4,
+    owner_version: 4,
   });
+  expect(submitted).not.toHaveProperty("agent_type");
+  expect(submitted).not.toHaveProperty("owner_type");
+  expect(submitted).not.toHaveProperty("owner_id");
+});
+
+test("team editor submits its current team revision after previous edits", async ({ page }) => {
+  let submitted: any;
+  await page.route("**/api/manager/teams/team-1", async (route) => {
+    if (route.request().method() !== "PUT") return route.fallback();
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ json: { id: "team-1" } });
+  });
+  await page.goto("/teams/team-1/edit?view=private");
+  await expect(page.getByPlaceholder("例如 研究专家")).toHaveValue("研究与策略专家团");
+  await page.getByRole("button", { name: "保存专家团", exact: true }).click();
+  await expect.poll(() => submitted).toMatchObject({
+    config_version: 2,
+    owner_type: "user",
+    owner_id: "demo",
+  });
+  expect(submitted).not.toHaveProperty("owner_version");
 });
 
 test("expert avatar saves a stable ID and appears when reopened", async ({
@@ -174,7 +196,8 @@ test("expert avatar saves a stable ID and appears when reopened", async ({
     is_usable: true,
     is_editable: true,
     is_deletable: true,
-    config_version: 1,
+    owner_version: 1,
+    version: 1,
     ...saved,
   });
   await page.route("**/api/manager/agents/created?view=private", (route) =>

@@ -1,81 +1,80 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+/** PDF 文稿控制器：管理源文件、缩放和页码；PPT 使用连续页面流与目录联动。 */
+import PdfPreviewPage from "./PdfPreviewPage.vue";
+import type {
+  PreviewAnchor,
+  PreviewOptions,
+  PreviewReference,
+  PreviewAcceptance,
+} from "../../domain/previewReferences";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  shallowRef,
+} from "vue";
 import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-vue-next";
 import {
   getDocument,
   GlobalWorkerOptions,
   type PDFDocumentProxy,
-  type RenderTask,
 } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 GlobalWorkerOptions.workerSrc = workerUrl;
-const props = defineProps<{ blob: Blob }>();
-const host = ref<HTMLElement>();
-const canvas = ref<HTMLCanvasElement>();
+const props = withDefaults(
+  defineProps<{
+    blob: Blob;
+    source?: Pick<PreviewAnchor, "projectId" | "area" | "path" | "checksum">;
+    options?: PreviewOptions;
+    anchor?: PreviewAnchor;
+    initialPage?: number;
+    interactionDisabled?: boolean;
+    continuous?: boolean;
+  }>(),
+  { continuous: false },
+);
+const emit = defineEmits<{
+  reference: [value: PreviewReference, accept: PreviewAcceptance];
+  pageChange: [page: number];
+}>();
+const pageHost = ref<HTMLElement>(),
+  pdfDocument = shallowRef<PDFDocumentProxy>();
 const page = ref(1),
   count = ref(0),
   zoom = ref(1),
   error = ref(""),
   loading = ref(true),
-  width = ref(0);
-let document: PDFDocumentProxy | undefined;
-let task: ReturnType<typeof getDocument> | undefined;
-let render: RenderTask | undefined;
-let generation = 0,
-  painting = 0;
-let observer: ResizeObserver | undefined;
-async function draw() {
-  const current = ++painting;
-  if (!document || !canvas.value || width.value < 1) return;
-  const previous = render;
-  previous?.cancel();
-  await previous?.promise.catch(() => {});
-  if (current !== painting || !document || !canvas.value) return;
-  try {
-    const pdfPage = await document.getPage(page.value);
-    if (current !== painting || !canvas.value) return;
-    const original = pdfPage.getViewport({ scale: 1 });
-    const scale = Math.min(
-      ((width.value - 24) / original.width) * zoom.value,
-      3,
-    );
-    const viewport = pdfPage.getViewport({ scale: Math.max(0.1, scale) });
-    const ratio = Math.min(
-      window.devicePixelRatio || 1,
-      2,
-      Math.sqrt(16000000 / (viewport.width * viewport.height)),
-    );
-    const target = canvas.value;
-    target.width = Math.ceil(viewport.width * ratio);
-    target.height = Math.ceil(viewport.height * ratio);
-    target.style.width = `${viewport.width}px`;
-    target.style.height = `${viewport.height}px`;
-    render = pdfPage.render({
-      canvas: target,
-      viewport,
-      transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
-    });
-    await render.promise;
-    if (current === painting) loading.value = false;
-  } catch (e) {
-    if (
-      current === painting &&
-      (e as Error).name !== "RenderingCancelledException"
-    )
-      error.value = "无法显示此 PDF 页面，请检查文件是否损坏或加密。";
-  }
-}
+  width = ref(0),
+  aspect = ref(16 / 9);
+const rendered = ref(new Set<number>());
+const painting = computed(
+  () => loading.value || !rendered.value.has(page.value),
+);
+const pages = computed(() =>
+  props.continuous
+    ? Array.from({ length: count.value }, (_, i) => i + 1)
+    : [page.value],
+);
+const sheets = new Map<number, HTMLElement>();
+let task: ReturnType<typeof getDocument> | undefined,
+  generation = 0;
+let observer: ResizeObserver | undefined,
+  scrollFrame = 0;
+
+/** 1. 读取同一版本 PDF；源文件变更重建页面，普通缩放与滚动保留页面实例。 */
 watch(
   () => props.blob,
   async (blob) => {
     const current = ++generation;
-    painting++;
-    render?.cancel();
     void task?.destroy();
-    document = undefined;
+    pdfDocument.value = undefined;
+    rendered.value = new Set();
     error.value = "";
     loading.value = true;
-    page.value = 1;
+    page.value = props.anchor?.page || props.initialPage || 1;
     count.value = 0;
     try {
       const data = new Uint8Array(await blob.arrayBuffer());
@@ -86,15 +85,19 @@ watch(
         cMapPacked: true,
         standardFontDataUrl: "/pdfjs/standard_fonts/",
         wasmUrl: "/pdfjs/wasm/",
-        maxImageSize: 16000000,
+        maxImageSize: 16_000_000,
       });
       const loaded = await task.promise;
-      if (current !== generation) {
-        return;
-      }
-      document = loaded;
+      const first = await loaded.getPage(1);
+      if (current !== generation) return;
+      const viewport = first.getViewport({ scale: 1 });
+      aspect.value = viewport.width / viewport.height;
       count.value = loaded.numPages;
-      await draw();
+      page.value = Math.min(page.value, count.value);
+      pdfDocument.value = loaded;
+      loading.value = false;
+      await nextTick();
+      scrollToPage();
     } catch {
       if (current === generation) {
         error.value = "无法打开 PDF，文件可能已加密或损坏。";
@@ -104,32 +107,118 @@ watch(
   },
   { immediate: true },
 );
-watch([page, zoom, width], () => {
-  void draw();
+function register(node: unknown, index: number) {
+  if (node instanceof HTMLElement) sheets.set(index, node);
+  else sheets.delete(index);
+}
+function setReady(index: number, ready: boolean) {
+  if (ready) rendered.value.add(index);
+  else rendered.value.delete(index);
+}
+
+/** 2. 目录、翻页和历史引用定位滚动到真实页面；滚动只更新页码，不反向触发跳转。 */
+function scrollToPage() {
+  if (!props.continuous || !pageHost.value) return;
+  const target = sheets.get(page.value);
+  if (!target) return;
+  const root = pageHost.value;
+  root.scrollTo({
+    top:
+      root.scrollTop +
+      target.getBoundingClientRect().top -
+      root.getBoundingClientRect().top,
+  });
+}
+async function selectPage(value: number) {
+  page.value = Math.max(1, Math.min(count.value || 1, Number(value)));
+  await nextTick();
+  scrollToPage();
+}
+function syncScroll() {
+  if (!props.continuous || scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    const root = pageHost.value;
+    if (!root) return;
+    const top = root.getBoundingClientRect().top,
+      bottom = top + root.clientHeight;
+    // 取显示面积最大的页面；最后一页无法顶齐视窗上缘时，也能正确切换当前页。
+    let visibleHeight = 0,
+      current = page.value;
+    for (const [index, node] of sheets) {
+      const bounds = node.getBoundingClientRect();
+      const height =
+        Math.min(bounds.bottom, bottom) - Math.max(bounds.top, top);
+      if (height > visibleHeight) {
+        visibleHeight = height;
+        current = index;
+      }
+    }
+    page.value = current;
+  });
+}
+watch(
+  () => props.anchor,
+  (anchor) => {
+    if (anchor) void selectPage(anchor.page);
+  },
+);
+watch(page, (value) => emit("pageChange", value));
+watch([zoom, width], async () => {
+  await nextTick();
+  scrollToPage();
 });
+
+/** 3. 仅观察正文可用宽度；目录展开不挤压或错置框选坐标。 */
 onMounted(() => {
   observer = new ResizeObserver((entries) => {
-    const size = Math.floor(entries[0]?.contentRect.width || 0);
+    const size = Math.max(
+      0,
+      Math.floor(entries[0]?.contentRect.width || 0) - 24,
+    );
     if (size !== width.value) width.value = size;
   });
-  if (host.value) observer.observe(host.value);
+  if (pageHost.value) observer.observe(pageHost.value);
 });
+watch(
+  pageHost,
+  (node, old) => {
+    if (old) observer?.unobserve(old);
+    if (node) observer?.observe(node);
+  },
+  { flush: "post" },
+);
 onBeforeUnmount(() => {
   generation++;
-  painting++;
   observer?.disconnect();
-  render?.cancel();
+  cancelAnimationFrame(scrollFrame);
   void task?.destroy();
 });
 </script>
 <template>
-  <div ref="host" class="pdf-preview" aria-label="PDF 页面预览">
+  <div class="pdf-preview" aria-label="PDF 页面预览">
     <nav class="pdf-toolbar" aria-label="PDF 翻页和缩放">
-      <button aria-label="上一页" :disabled="page <= 1" @click="page--">
+      <button
+        aria-label="上一页"
+        :disabled="page <= 1"
+        @click="selectPage(page - 1)"
+      >
         <ChevronLeft :size="16" />
       </button>
       <span>{{ page }} / {{ count || "—" }}</span>
-      <button aria-label="下一页" :disabled="page >= count" @click="page++">
+      <select
+        v-if="count > 1"
+        :value="page"
+        aria-label="跳转文档页码"
+        @change="selectPage(Number(($event.target as HTMLSelectElement).value))"
+      >
+        <option v-for="n in count" :key="n" :value="n">第 {{ n }} 页</option>
+      </select>
+      <button
+        aria-label="下一页"
+        :disabled="page >= count"
+        @click="selectPage(page + 1)"
+      >
         <ChevronRight :size="16" />
       </button>
       <span class="pdf-divider" />
@@ -150,9 +239,54 @@ onBeforeUnmount(() => {
       </button>
     </nav>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <div v-else class="pdf-pages" :aria-busy="loading">
-      <p v-if="loading" class="pdf-loading">正在绘制页面…</p>
-      <canvas ref="canvas" aria-label="文档页面" />
+    <div v-else class="pdf-layout">
+      <slot
+        name="directory"
+        :document="pdfDocument"
+        :count="count"
+        :page="page"
+        :select-page="selectPage"
+      />
+      <div
+        ref="pageHost"
+        class="pdf-pages"
+        :class="{ 'is-continuous': continuous }"
+        :aria-busy="painting"
+        @scroll.passive="syncScroll"
+      >
+        <p v-if="loading" class="pdf-loading">正在读取页面…</p>
+        <template v-if="pdfDocument">
+          <div
+            v-for="n in pages"
+            :key="`${generation}-${n}`"
+            :ref="(node) => register(node, n)"
+            :class="
+              continuous
+                ? ['presentation-sheet', { 'is-current': page === n }]
+                : 'pdf-single-sheet'
+            "
+            @pointerdown.capture="page = n"
+            @focusin="page = n"
+          >
+            <PdfPreviewPage
+              :document="pdfDocument"
+              :page="n"
+              :width="width"
+              :zoom="zoom"
+              :aspect="aspect"
+              :continuous="continuous"
+              :active="page === n"
+              :scroll-root="pageHost"
+              :source="source"
+              :options="options"
+              :anchor="anchor"
+              :disabled="interactionDisabled"
+              @ready="(ready) => setReady(n, ready)"
+              @reference="(value, accept) => emit('reference', value, accept)"
+            />
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>

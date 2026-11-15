@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { usePreviewReferences } from "../composables/usePreviewReferences";
+import type {
+  PreviewReference,
+  PreviewAcceptance,
+} from "../domain/previewReferences";
 import { ref, computed, onMounted, onScopeDispose, watch } from "vue";
 import BrandIdentity from "../components/common/BrandIdentity.vue";
 import { useRuntimeOptions } from "../composables/useRuntimeOptions";
@@ -45,9 +50,22 @@ const text = ref(
   pending = ref(false),
   error = ref(""),
   modelKey = ref("");
-const requestedDefinition = typeof route.query.definition === "string" ? route.query.definition : "";
+const requestedDefinition =
+  typeof route.query.definition === "string" ? route.query.definition : "";
 const resolvingDefinition = ref(!!requestedDefinition);
 const definitionUnavailable = ref(false);
+const references = usePreviewReferences(projectId);
+const workspace = ref<InstanceType<typeof WorkspacePanel>>();
+const composer = ref<InstanceType<typeof TaskComposer>>();
+function openReference(value: PreviewReference) {
+  workspaceOpen.value = true;
+  setTimeout(() => workspace.value?.openReference(value), 0);
+}
+function addReference(value: PreviewReference, accept: PreviewAcceptance) {
+  const accepted = references.add(value);
+  accept(accepted);
+  if (accepted) composer.value?.focusComposer();
+}
 const attachments = useAttachments();
 let uploadController = new AbortController();
 onScopeDispose(() => uploadController.abort());
@@ -114,18 +132,24 @@ onMounted(async () => {
     definitions.value = [...agents.items, ...teams.items];
     if (requestedDefinition) {
       const catalogEntry = definitions.value.find(
-        (d) => d.id === requestedDefinition &&
+        (d) =>
+          d.id === requestedDefinition &&
           (!route.query.view || d.resource_view_type === route.query.view),
       );
       const version = route.query.version;
       if (typeof version === "string") {
         const kind = route.query.kind || catalogEntry?.definition_type;
         const view = route.query.view || catalogEntry?.resource_view_type;
-        if ((kind !== "agent" && kind !== "team") ||
-            (view !== "private" && view !== "shared" && view !== "system"))
+        if (
+          (kind !== "agent" && kind !== "team") ||
+          (view !== "private" && view !== "shared" && view !== "system")
+        )
           throw new Error("无法读取选定的专家版本。");
         selected.value = await manager.definition(
-          kind === "team" ? "teams" : "agents", requestedDefinition, view, version,
+          kind === "team" ? "teams" : "agents",
+          requestedDefinition,
+          view,
+          version,
         );
       } else if (catalogEntry) {
         selected.value = catalogEntry;
@@ -149,7 +173,13 @@ function chooseDefinition(definition: Definition | null) {
   }
 }
 async function submit() {
-  if (pending.value || resolvingDefinition.value || definitionUnavailable.value || !text.value.trim()) return;
+  if (
+    pending.value ||
+    resolvingDefinition.value ||
+    definitionUnavailable.value ||
+    !text.value.trim()
+  )
+    return;
   const definition = selected.value || assistant.value;
   if (!definition) {
     error.value = "个人助理尚未就绪，请刷新工作空间。";
@@ -182,6 +212,7 @@ async function submit() {
           );
     signal.throwIfAborted();
     preparedTask = { key, task };
+    references.validate();
     const message = await attachments.upload(
       task.project_id,
       text.value.trim(),
@@ -189,7 +220,7 @@ async function submit() {
       signal,
     );
     signal.throwIfAborted();
-    queueDraft(task.session_id, message);
+    queueDraft(task.session_id, message, [...references.items.value]);
     await router.push(`/tasks/${encodeURIComponent(task.session_id)}`);
     if (router.currentRoute.value.params.sessionId !== task.session_id)
       throw new Error("对话已创建，但页面未能打开，请重试。");
@@ -235,6 +266,11 @@ async function submit() {
           {{ error || runtime.error.value }}
         </div>
         <TaskComposer
+          ref="composer"
+          :references="references.items.value"
+          :reference-error="references.error.value"
+          @remove-reference="references.remove"
+          @open-reference="openReference"
           :project-id="projectId"
           :file-revision="fileRevision"
           v-model="text"
@@ -258,7 +294,11 @@ async function submit() {
                 : '个人助理'
           "
           :pending="pending"
-          :disabled="runtime.loading.value || !!runtime.error.value || resolvingDefinition"
+          :disabled="
+            runtime.loading.value ||
+            !!runtime.error.value ||
+            resolvingDefinition
+          "
           :attachments="attachments.files.value"
           @attach="attachments.add"
           @remove-attachment="attachments.remove"
@@ -277,6 +317,8 @@ async function submit() {
       </div>
     </div>
     <WorkspacePanel
+      ref="workspace"
+      @reference="addReference"
       :project-id="projectId || undefined"
       :revision="String(fileRevision)"
       :visible="workspaceOpen"

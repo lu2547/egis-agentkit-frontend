@@ -9,6 +9,7 @@
   --muted: #858585;
   --border: #e6e6e6;
   --accent: #333;
+  --annotation-blue: #2563eb;
   --accent-hover: #4b4b4b;
   --accent-active: #191919;
   --accent-soft: #f0f0f0;
@@ -43,6 +44,7 @@
   --muted: #a0a0a0;
   --border: #373737;
   --accent: #dedede;
+  --annotation-blue: #3b82f6;
   --accent-hover: #f0f0f0;
   --accent-active: #fff;
   --accent-soft: #303030;

@@ -9,9 +9,14 @@ const mocks = vi.hoisted(() => ({
   stream: vi.fn(),
   trigger: vi.fn(),
   stop: vi.fn(),
+  feedback: vi.fn(),
 }));
 vi.mock("../src/api/manager", () => ({
-  manager: { task: mocks.task, updateTaskSettings: mocks.settings },
+  manager: {
+    task: mocks.task,
+    updateTaskSettings: mocks.settings,
+    listReplyFeedback: mocks.feedback,
+  },
 }));
 vi.mock("../src/api/runtime", () => ({
   runtime: {
@@ -35,6 +40,7 @@ const event = (type: string, fields = {}) =>
   }) as AgentEvent;
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.feedback.mockResolvedValue({ items: [] });
   mocks.task.mockImplementation(async (sid: string) => ({
     session_id: sid,
     agent_id: "agent",
@@ -58,6 +64,23 @@ beforeEach(() => {
   scope.run(() => (chat = useConversation()));
 });
 afterEach(() => scope.stop());
+it("does not let a stale feedback response mark replies in another session", async () => {
+  let finish!: (value: unknown) => void;
+  mocks.feedback.mockImplementationOnce(
+    () => new Promise((resolve) => (finish = resolve)),
+  );
+  await chat.open("s1");
+  await chat.open("s2");
+  finish({ items: [{ reply_id: "old-reply", comment: "旧会话反馈" }] });
+  await Promise.resolve();
+  expect(chat.replyFeedback.value).toEqual({});
+});
+it("keeps chat connected when optional feedback status cannot be loaded", async () => {
+  mocks.feedback.mockRejectedValueOnce(new Error("feedback unavailable"));
+  await chat.open("s1");
+  expect(chat.connection.value).toBe("connected");
+  expect(chat.error.value).toBe("");
+});
 it("subscribes before triggering and retains a reply that completes before the POST response", async () => {
   await chat.open("s1");
   mocks.trigger.mockImplementation(async () => {
@@ -98,6 +121,53 @@ it("prevents a stale confirmation response from changing the new session", async
 it("preserves initial history checkpoint on reconnect so unseen native events can be replayed", async () => {
   await chat.open("s1");
   expect(mocks.stream.mock.calls[0][3]).toBe("checkpoint");
+});
+
+it("reconciles a lost terminal event from server history and releases the composer", async () => {
+  await chat.open("s1");
+  await chat.send("测试丢失结束事件");
+  receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+  const history = structuredClone(chat.state.value.messages);
+  mocks.history.mockResolvedValueOnce({
+    messages: history,
+    is_running: false,
+    has_more: false,
+    event_cursor: "after-error",
+  });
+  await chat.refreshRunState();
+  expect(chat.state.value.phase).toBe("idle");
+  expect(chat.state.value.messages.at(-1)?.error?.message).toContain("中断");
+  expect(mocks.stream.mock.calls.at(-1)?.[3]).toBe("after-error");
+  expect(await chat.send("重新发送")).toBe(true);
+});
+
+it("ignores a stale status snapshot when a terminal event arrives during the request", async () => {
+  await chat.open("s1");
+  await chat.send("等待正常完成");
+  receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+  const messages = structuredClone(chat.state.value.messages);
+  let finish!: (value: unknown) => void;
+  mocks.history.mockImplementationOnce(
+    () => new Promise((resolve) => (finish = resolve)),
+  );
+  const checking = chat.refreshRunState();
+  receive(event(EventType.REPLY_END, { finished_reason: "completed" }));
+  finish({
+    messages,
+    is_running: false,
+    has_more: false,
+    event_cursor: "stale",
+  });
+  await checking;
+  expect(chat.state.value.messages.at(-1)?.finished_reason).toBe("completed");
+  expect(chat.state.value.messages.at(-1)?.error).toBeFalsy();
+});
+
+it("does not finish a queued request before its input reaches server history", async () => {
+  await chat.open("s1");
+  await chat.send("尚在排队");
+  await chat.refreshRunState();
+  expect(chat.state.value.phase).toBe("streaming");
 });
 
 it("explicitly declines a send while another run is active so callers retain their draft", async () => {
@@ -204,4 +274,43 @@ it("does not apply a completed settings save to a newly opened conversation", as
   await pending;
   expect(chat.task.value?.session_id).toBe("s2");
   expect(chat.settingsPending.value).toBe(false);
+});
+
+it("shows preparation after a queued send and replaces it when the native reply starts", async () => {
+  await chat.open("s1");
+  expect(chat.state.value.isPreparing).toBe(false);
+  await chat.send("等待沙箱准备");
+  expect(chat.state.value.isPreparing).toBe(true);
+  expect(
+    chat.state.value.messages.filter((m) => m.role === "assistant"),
+  ).toHaveLength(0);
+  receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+  expect(chat.state.value.isPreparing).toBe(false);
+  expect(
+    chat.state.value.messages.filter((m) => m.role === "assistant"),
+  ).toHaveLength(1);
+});
+
+it("clears preparation on a failed send or a session switch", async () => {
+  await chat.open("s1");
+  mocks.trigger.mockRejectedValueOnce(new Error("发送失败"));
+  expect(await chat.send("失败请求")).toBe(false);
+  expect(chat.state.value.isPreparing).toBe(false);
+  await chat.send("尚在准备");
+  expect(chat.state.value.isPreparing).toBe(true);
+  await chat.open("s2");
+  expect(chat.state.value.isPreparing).toBe(false);
+});
+
+it("shows preparation when reopening a running session before its first reply event", async () => {
+  mocks.history.mockResolvedValueOnce({
+    messages: [],
+    has_more: false,
+    is_running: true,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  expect(chat.state.value.isPreparing).toBe(true);
+  receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+  expect(chat.state.value.isPreparing).toBe(false);
 });

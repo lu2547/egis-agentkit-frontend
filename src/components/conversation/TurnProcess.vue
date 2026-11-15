@@ -6,7 +6,7 @@ import MarkdownContent from "./MarkdownContent.vue";
 import ProcessActivityGroup from "./ProcessActivityGroup.vue";
 import MotionCollapse from "../common/MotionCollapse.vue";
 import AppIcon from "../common/AppIcon.vue";
-import { Terminal, Sparkles } from "lucide-vue-next";
+import { Terminal } from "lucide-vue-next";
 const props = defineProps<{
   message: Msg;
   entries: ProcessEntry[];
@@ -91,7 +91,6 @@ const elapsed = computed(() => {
         :size="15"
         aria-hidden="true"
       />
-      <Sparkles v-else :size="15" aria-hidden="true" />
       <span class="running-shimmer" :title="latestLabel">{{
         latestLabel
       }}</span>

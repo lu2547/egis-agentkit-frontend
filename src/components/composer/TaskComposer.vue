@@ -3,6 +3,10 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { createComposerPager } from "../../domain/composerOptions";
+import PreviewReferenceList from "./PreviewReferenceList.vue";
+import TextAnnotationList from "./TextAnnotationList.vue";
+import type { TextAnnotation } from "../../domain/textAnnotations";
+import type { PreviewReference } from "../../domain/previewReferences";
 import AttachmentList from "./AttachmentList.vue";
 import ContextPicker from "./ContextPicker.vue";
 import ModelSelector from "./ModelSelector.vue";
@@ -38,6 +42,9 @@ const props = defineProps<{
   compact?: boolean;
   isPersonal?: boolean;
   attachments?: File[];
+  references?: PreviewReference[];
+  referenceError?: string;
+  annotations?: TextAnnotation[];
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -48,6 +55,11 @@ const emit = defineEmits<{
   stop: [];
   attach: [files: File[]];
   removeAttachment: [index: number];
+  openReference: [value: PreviewReference];
+  removeReference: [id: string];
+  updateAnnotation: [id: string, comment: string];
+  removeAnnotation: [id: string];
+  locateAnnotation: [value: TextAnnotation];
 }>();
 const fileInput = ref<HTMLInputElement | null>(null);
 function choose(event: Event) {
@@ -199,13 +211,14 @@ function keydown(e: KeyboardEvent) {
 }
 function send() {
   if (
-    props.modelValue.trim() &&
+    (props.modelValue.trim() || props.annotations?.length) &&
     !props.disabled &&
     !props.pending &&
     !props.running
   )
     emit("submit");
 }
+defineExpose({ focusComposer });
 </script>
 <template>
   <section ref="composerElement" class="composer" :class="{ compact }">
@@ -227,6 +240,22 @@ function send() {
       @select="chooseContext"
       @highlight="contextIndex = $event"
     />
+    <PreviewReferenceList
+      :references="references || []"
+      removable
+      :disabled="pending || running"
+      @open="$emit('openReference', $event)"
+      @remove="$emit('removeReference', $event)"
+    />
+    <TextAnnotationList
+      :annotations="annotations || []"
+      editable
+      :disabled="pending || running"
+      @update="(id, comment) => $emit('updateAnnotation', id, comment)"
+      @remove="$emit('removeAnnotation', $event)"
+      @locate="$emit('locateAnnotation', $event)"
+    />
+    <p v-if="referenceError" role="alert" class="error">{{ referenceError }}</p>
     <AttachmentList
       :files="attachments || []"
       :disabled="pending || running"
@@ -316,7 +345,9 @@ function send() {
       ><button
         v-else
         class="send-button"
-        :disabled="!modelValue.trim() || pending || disabled"
+        :disabled="
+          (!modelValue.trim() && !annotations?.length) || pending || disabled
+        "
         aria-label="发送消息"
         @click="send"
       >
