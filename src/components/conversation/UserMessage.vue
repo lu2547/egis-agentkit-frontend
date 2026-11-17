@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Msg } from "@agentscope-ai/agentscope/message";
 import { computed } from "vue";
+import { steeringState } from "../../domain/steering";
 import PreviewReferenceList from "../composer/PreviewReferenceList.vue";
 import TextAnnotationList from "../composer/TextAnnotationList.vue";
 import {
@@ -22,6 +23,12 @@ defineEmits<{
 <template>
   <article class="user-message">
     <div>
+      <span v-if="steeringState(message)" class="steering-status"
+        >引导 ·
+        {{
+          steeringState(message) === "received" ? "已接收" : "等待接收"
+        }}</span
+      >
       <TextAnnotationList
         :annotations="annotations"
         @locate="$emit('annotation', $event)"

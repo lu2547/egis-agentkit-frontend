@@ -22,6 +22,7 @@ import { errorText } from "../api/http";
 import { useChatStream } from "./useChatStream";
 import { useIdentity } from "./useIdentity";
 import type { Task, TaskSettings, ReplyFeedbackState } from "../types/api";
+import type { Msg } from "@agentscope-ai/agentscope/message";
 import { useTaskActivity } from "./useTaskActivity";
 export function useConversation() {
   const activity = useTaskActivity();
@@ -33,6 +34,7 @@ export function useConversation() {
     hasMore = ref(false),
     submitting = ref(false),
     settingsPending = ref(false);
+  const steeringPending = ref(false);
   const scope = new SessionScope(),
     stream = useChatStream();
   const { refreshTasks, tasks } = useIdentity();
@@ -212,6 +214,7 @@ export function useConversation() {
     state.value = new ConversationEvents();
     submitting.value = false;
     settingsPending.value = false;
+    steeringPending.value = false;
     pendingInputId = null;
     ++eventGeneration;
     ++metadataGeneration;
@@ -311,6 +314,52 @@ export function useConversation() {
       if (scope.owns(current)) submitting.value = false;
     }
   }
+  async function steer(
+    messages: Msg[],
+    targetSessionId = task.value?.session_id,
+  ) {
+    if (
+      !task.value ||
+      !lease ||
+      task.value.session_id !== targetSessionId ||
+      steeringPending.value ||
+      state.value.phase === "interrupting"
+    )
+      return false;
+    const current = lease,
+      selected = task.value,
+      wasIdle = state.value.phase === "idle";
+    steeringPending.value = true;
+    error.value = "";
+    if (wasIdle) {
+      state.value.phase = "streaming";
+      publish();
+    }
+    try {
+      await stream.waitReady();
+      if (!scope.owns(current)) return false;
+      await runtime.steer(
+        selected.session_id,
+        selected.agent_id,
+        messages,
+        current.signal,
+      );
+      if (scope.owns(current)) {
+        state.value.addSteeringMessages(messages);
+        publish();
+      }
+      return true;
+    } catch (e) {
+      if (scope.owns(current)) {
+        error.value = errorText(e);
+        if (wasIdle && state.value.isPreparing) state.value.phase = "idle";
+        publish();
+      }
+      return false;
+    } finally {
+      if (scope.owns(current)) steeringPending.value = false;
+    }
+  }
   async function confirm(
     replyId: string,
     tool: ToolCallBlock,
@@ -403,6 +452,8 @@ export function useConversation() {
     hasMore,
     submitting,
     settingsPending,
+    steeringPending,
+    steer,
     updateSettings,
     open,
     send,

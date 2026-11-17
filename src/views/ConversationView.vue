@@ -20,6 +20,8 @@ import type { ReplyArtifact } from "../types/api";
 import { groupReplyArtifacts } from "../domain/replyArtifacts";
 import { peekDraft, takeDraft } from "../composables/usePendingDraft";
 import TaskComposer from "../components/composer/TaskComposer.vue";
+import SteeringQueue from "../components/composer/SteeringQueue.vue";
+import { useSteeringQueue } from "../composables/useSteeringQueue";
 import ComposerProjectBar from "../components/composer/ComposerProjectBar.vue";
 import PermissionRequestCard from "../components/conversation/PermissionRequestCard.vue";
 import MessageList from "../components/conversation/MessageList.vue";
@@ -131,6 +133,52 @@ const project = computed(() =>
 );
 const references = usePreviewReferences(projectId);
 const annotations = ref<TextAnnotation[]>([]);
+const steeringQueue = useSteeringQueue(
+  sid,
+  computed(() => runtime.steering.value?.max_batch_size || 0),
+  conversation.steer,
+);
+async function queueSteering() {
+  const task = conversation.task.value;
+  if (!task || uploading.value || conversation.submitting.value) return;
+  const current = generation,
+    targetSid = sid.value,
+    value = text.value.trim();
+  const selectedFiles = [...attachments.files.value];
+  const selectedReferences = [...references.items.value];
+  const selectedAnnotations = annotations.value.map((item) => ({ ...item }));
+  uploading.value = true;
+  try {
+    references.validate();
+    const message = await attachments.upload(
+      task.project_id,
+      value,
+      selectedFiles,
+      attachmentController.signal,
+    );
+    if (generation !== current || sid.value !== targetSid) return;
+    if (steeringQueue.add(message, selectedReferences, selectedAnnotations)) {
+      if (text.value.trim() === value) text.value = "";
+      attachments.removeUploaded(selectedFiles);
+      for (const reference of selectedReferences)
+        references.remove(reference.id);
+      annotations.value = annotations.value.filter(
+        (item) => !selectedAnnotations.some((sent) => sent.id === item.id),
+      );
+      return steeringQueue.items.value.at(-1)?.message.id;
+    }
+  } catch (error) {
+    if (generation === current && sid.value === targetSid)
+      conversation.error.value = errorText(error);
+  } finally {
+    if (generation === current && sid.value === targetSid)
+      uploading.value = false;
+  }
+}
+async function steerCurrentInput() {
+  const id = await queueSteering();
+  if (id) await steeringQueue.send([id]);
+}
 const annotationLayer = ref<InstanceType<typeof MessageAnnotationLayer>>();
 function addTextAnnotation(value: TextAnnotation) {
   const existing = annotations.value.find(
@@ -576,10 +624,34 @@ const artifactsByReply = computed(() =>
             conversation.connection.value !== 'connected'
           "
           :running="conversation.state.value.phase !== 'idle'"
+          :steering-enabled="
+            !!runtime.steering.value &&
+            !runtime.loading.value &&
+            ['streaming', 'waiting'].includes(conversation.state.value.phase)
+          "
+          :max-text-length="runtime.steering.value?.max_text_length"
           :interrupting="conversation.state.value.phase === 'interrupting'"
           @submit="send"
+          @queue="queueSteering"
+          @steer="steerCurrentInput"
           @stop="conversation.stop"
         >
+          <template #queue>
+            <SteeringQueue
+              :items="steeringQueue.items.value"
+              :sending="steeringQueue.sending.value"
+              :max-text-length="runtime.steering.value?.max_text_length"
+              :disabled="
+                conversation.loading.value ||
+                conversation.state.value.phase === 'interrupting' ||
+                conversation.connection.value !== 'connected'
+              "
+              @send="steeringQueue.send"
+              @edit="steeringQueue.edit"
+              @remove="steeringQueue.remove"
+              @move="steeringQueue.move"
+            />
+          </template>
           <template #collaborators>
             <CollaboratorChips
               :members="collaborationChips"

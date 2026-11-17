@@ -369,6 +369,7 @@ createServer(async (req, res) => {
         },
       ],
       default_permission_mode: "bypass",
+      steering: {max_batch_size: 20, max_message_bytes: 1048576, max_text_length: 32000},
     });
   if (p === "/manager/composer/options") {
     const category = url.searchParams.get("category"),
@@ -683,6 +684,14 @@ createServer(async (req, res) => {
   if (p === "/chat/") {
     const input = await body(req);
     const sid = input.session_id;
+    if (input.delivery === "steer") {
+      const inputs = Array.isArray(input.input) ? input.input : [input.input];
+      const saved = inputs.map(message => ({...message, metadata:{...message.metadata,agentkit_delivery:{kind:"steer",state:"queued"}}}));
+      messages[sid] ||= [];
+      for(const message of saved) if(!messages[sid].some(existing=>existing.id===message.id)) messages[sid].push(message);
+      emit(sid,{type:"CUSTOM",id:crypto.randomUUID(),created_at:new Date().toISOString(),name:"user_steering",value:{messages:saved}});
+      return json(res,{status:"queued",session_id:sid,message_ids:saved.map(message=>message.id)});
+    }
     if (input.input?.type === "USER_CONFIRM_RESULT") {
       for (const e of replyEvents(sid, input.input.reply_id, true))
         emit(sid, e);

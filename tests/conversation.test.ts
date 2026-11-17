@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   stream: vi.fn(),
   trigger: vi.fn(),
   stop: vi.fn(),
+  steer: vi.fn(),
   feedback: vi.fn(),
 }));
 vi.mock("../src/api/manager", () => ({
@@ -24,6 +25,7 @@ vi.mock("../src/api/runtime", () => ({
     stream: mocks.stream,
     trigger: mocks.trigger,
     stop: mocks.stop,
+    steer: mocks.steer,
   },
 }));
 let scope: ReturnType<typeof effectScope>;
@@ -64,6 +66,39 @@ beforeEach(() => {
   scope.run(() => (chat = useConversation()));
 });
 afterEach(() => scope.stop());
+it("sends an ordered steering batch without replacing the running reply", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  await chat.open("s1");
+  receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
+  const inputs = [
+    UserMsg({ name: "user", content: "一" }),
+    UserMsg({ name: "user", content: "二" }),
+  ];
+  mocks.steer.mockResolvedValueOnce({
+    status: "queued",
+    message_ids: inputs.map((m) => m.id),
+  });
+  expect(await chat.steer(inputs)).toBe(true);
+  expect(chat.state.value.phase).toBe("streaming");
+  expect(
+    chat.state.value.messages.filter((m) => m.role === "assistant"),
+  ).toHaveLength(1);
+  receive(
+    event(EventType.HINT_BLOCK, {
+      block_id: inputs[1]!.id,
+      source: "user_steering",
+      hint: "二",
+    }),
+  );
+  expect(
+    chat.state.value.messages.find((m) => m.id === inputs[1]!.id)?.metadata
+      .agentkit_delivery,
+  ).toEqual({ kind: "steer", state: "received" });
+  expect(
+    chat.state.value.messages.find((m) => m.id === inputs[0]!.id)?.metadata
+      .agentkit_delivery,
+  ).toEqual({ kind: "steer", state: "queued" });
+});
 it("allows permission changes while waiting without resuming or changing the model", async () => {
   await chat.open("s1");
   chat.state.value.phase = "waiting";

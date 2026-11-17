@@ -1,4 +1,32 @@
-.user-message { display: flex; justify-content: flex-end; margin-bottom: 44px; }
-.user-message > div { max-width: calc(100% - 32px); padding: 12px; border-radius: 16px 16px 0 16px; background: color-mix(in srgb, var(--bg), var(--text) 5.3%); color: var(--text); font-size: 16px; line-height: 1.8; }
-.user-message p { white-space: pre-wrap; overflow-wrap: anywhere; } .user-message p + p { margin-top: 8px; }
-@media (max-width: 540px) { .user-message > div { max-width: calc(100% - 16px); } }
+.user-message {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 44px;
+}
+.user-message > div {
+  max-width: calc(100% - 32px);
+  padding: 12px;
+  border-radius: 16px 16px 0 16px;
+  background: color-mix(in srgb, var(--bg), var(--text) 5.3%);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.8;
+}
+.user-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.user-message p + p {
+  margin-top: 8px;
+}
+.steering-status {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+@media (max-width: 540px) {
+  .user-message > div {
+    max-width: calc(100% - 16px);
+  }
+}

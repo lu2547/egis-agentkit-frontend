@@ -13,6 +13,16 @@ export interface History {
   has_more: boolean;
 }
 export const runtime = {
+  steer: (sid: string, agentId: string, input: Msg[], signal?: AbortSignal) =>
+    http<{ status: "queued"; message_ids: string[] }>("/chat/", {
+      ...json("POST", {
+        session_id: sid,
+        agent_id: agentId,
+        delivery: "steer",
+        input,
+      }),
+      signal,
+    }),
   history: (
     sid: string,
     agentId: string,

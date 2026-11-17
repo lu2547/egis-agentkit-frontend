@@ -184,6 +184,11 @@ export interface PermissionModeOption {
 export interface RuntimeOptions {
   permission_modes: PermissionModeOption[];
   default_permission_mode: string;
+  steering?: {
+    max_batch_size: number;
+    max_message_bytes: number;
+    max_text_length: number;
+  };
 }
 export interface TaskSettings {
   permission_mode?: string;
@@ -208,7 +213,7 @@ export interface ReplyFeedback {
   created_at: string;
   updated_at: string;
 }
-export type ReplyFeedbackState = Pick<ReplyFeedback, 'reply_id' | 'comment'>;
+export type ReplyFeedbackState = Pick<ReplyFeedback, "reply_id" | "comment">;
 export interface ModelOption {
   key: string;
   display_name: string;

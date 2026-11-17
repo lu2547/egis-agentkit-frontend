@@ -12,6 +12,7 @@ import {
   ReplyFinishedReason,
   type AgentEvent,
 } from "@agentscope-ai/agentscope/event";
+import { STEERING_SOURCE, steeringState, withSteeringState } from "./steering";
 export type ReplyPhase = "idle" | "streaming" | "waiting" | "interrupting";
 export interface SubagentConfirmation {
   worker_session_id: string;
@@ -29,6 +30,7 @@ export class ConversationEvents {
   phase: ReplyPhase = "idle";
   private seen = new Set<string>();
   private active = new Set<string>();
+  private receivedSteering = new Set<string>();
   /** 请求已进入处理，但尚未收到原生回复开始事件；只用于页面占位。 */
   get isPreparing() {
     return this.phase === "streaming" && this.active.size === 0;
@@ -78,12 +80,59 @@ export class ConversationEvents {
       : isRunning
         ? "streaming"
         : "idle";
+    for (const message of this.messages)
+      for (const block of message.content)
+        if (block.type === "hint" && block.source === STEERING_SOURCE)
+          this.receivedSteering.add(block.id);
+    this.messages = this.messages.map((message) =>
+      this.receivedSteering.has(message.id) && steeringState(message)
+        ? withSteeringState(message, "received")
+        : message,
+    );
+  }
+  addSteeringMessages(messages: Msg[]) {
+    for (const message of messages) {
+      const previous = this.messages.find((item) => item.id === message.id);
+      const received =
+        this.receivedSteering.has(message.id) ||
+        (previous && steeringState(previous) === "received") ||
+        steeringState(message) === "received";
+      const incoming = withSteeringState(
+        message,
+        received ? "received" : "queued",
+      );
+      this.messages = previous
+        ? this.messages.map((item) =>
+            item.id === message.id ? incoming : item,
+          )
+        : [...this.messages, incoming];
+    }
   }
   apply(event: AgentEvent) {
     if (event.id && this.seen.has(event.id)) return false;
     if (event.id) this.seen.add(event.id);
+    if (
+      event.type === EventType.HINT_BLOCK &&
+      event.source === STEERING_SOURCE
+    ) {
+      this.receivedSteering.add(event.block_id);
+      this.messages = this.messages.map((message) =>
+        message.id === event.block_id && steeringState(message)
+          ? withSteeringState(message, "received")
+          : message,
+      );
+    }
     if (event.type === EventType.CUSTOM) {
-      if (event.name === "state_updated") {
+      if (event.name === STEERING_SOURCE) {
+        const inputs = (event.value as unknown as { messages?: Msg[] })
+          .messages;
+        if (Array.isArray(inputs))
+          this.addSteeringMessages(
+            inputs.filter(
+              (message) => message.role === "user" && !!steeringState(message),
+            ),
+          );
+      } else if (event.name === "state_updated") {
         const context = (event.value as { tasks_context?: { tasks?: unknown } })
           .tasks_context;
         if (Array.isArray(context?.tasks))

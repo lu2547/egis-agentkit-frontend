@@ -9,6 +9,7 @@ import type {
   ModelOption,
 } from "../types/api";
 import { useTaskActivity } from "./useTaskActivity";
+import { clearSteeringQueues } from "./useSteeringQueue";
 const activity = useTaskActivity();
 let taskGeneration = 0;
 let projectGeneration = 0;
@@ -67,6 +68,7 @@ export function useIdentity() {
     }
   }
   function logout() {
+    clearSteeringQueues();
     ++taskGeneration;
     ++projectGeneration;
     activity.reset();

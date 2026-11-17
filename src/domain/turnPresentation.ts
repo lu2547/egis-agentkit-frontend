@@ -137,6 +137,7 @@ function toolStatus(
   };
 }
 function hintText(block: Extract<ContentBlock, { type: "hint" }>) {
+  if (block.source === "user_steering") return "";
   const value =
     typeof block.hint === "string"
       ? block.hint

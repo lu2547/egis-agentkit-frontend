@@ -1,0 +1,89 @@
+.steering-queue {
+  margin: -4px 0 8px;
+  max-height: min(36vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.steering-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.steering-queue button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px;
+}
+.steering-queue button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.steering-queue button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.steering-queue button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.steering-grip {
+  flex-shrink: 0;
+  cursor: grab;
+  color: var(--muted) !important;
+}
+.steering-draft-content {
+  flex: 1;
+  min-width: 0;
+}
+.steering-draft-content p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.steering-draft-content small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.steering-draft-content textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  resize: vertical;
+}
+.steering-draft-content .steering-retry {
+  color: var(--danger);
+}
+.steering-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.steering-send-all {
+  margin: 8px 0 0 auto;
+  font-size: 12px;
+  color: var(--muted) !important;
+}
+@media (max-width: 540px) {
+  .steering-queue-row {
+    gap: 4px;
+  }
+  .steering-draft-actions {
+    gap: 0;
+  }
+  .steering-draft-actions button {
+    padding: 5px;
+  }
+}

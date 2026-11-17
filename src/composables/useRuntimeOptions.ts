@@ -1,11 +1,12 @@
 import { ref } from "vue";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
-import type { PermissionModeOption } from "../types/api";
+import type { PermissionModeOption, RuntimeOptions } from "../types/api";
 
 export function useRuntimeOptions() {
   const options = ref<PermissionModeOption[]>([]);
   const defaultPermissionMode = ref("");
+  const steering = ref<RuntimeOptions["steering"]>();
   const loading = ref(false);
   const error = ref("");
   let generation = 0;
@@ -18,6 +19,7 @@ export function useRuntimeOptions() {
       if (request !== generation) return;
       options.value = result.permission_modes;
       defaultPermissionMode.value = result.default_permission_mode;
+      steering.value = result.steering;
     } catch (e) {
       if (request !== generation) return;
       options.value = [];
@@ -27,5 +29,5 @@ export function useRuntimeOptions() {
       if (request === generation) loading.value = false;
     }
   }
-  return { options, defaultPermissionMode, loading, error, load };
+  return { options, defaultPermissionMode, steering, loading, error, load };
 }

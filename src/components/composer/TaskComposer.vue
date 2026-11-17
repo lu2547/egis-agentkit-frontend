@@ -38,6 +38,8 @@ const props = withDefaults(
     settingsDisabled?: boolean;
     permissionDisabled?: boolean;
     running?: boolean;
+    steeringEnabled?: boolean;
+    maxTextLength?: number;
     interrupting?: boolean;
     pending?: boolean;
     disabled?: boolean;
@@ -56,6 +58,8 @@ const emit = defineEmits<{
   "update:permissionMode": [value: string];
   select: [definition: Definition | null];
   submit: [];
+  queue: [];
+  steer: [];
   stop: [];
   attach: [files: File[]];
   removeAttachment: [index: number];
@@ -66,6 +70,13 @@ const emit = defineEmits<{
   locateAnnotation: [value: TextAnnotation];
 }>();
 const fileInput = ref<HTMLInputElement | null>(null);
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const sendShortcutLabel = isMac ? "⌘ + Enter" : "Alt + Enter";
+function textareaKeydown(_value: unknown, context: { e: KeyboardEvent }) {
+  keydown(context.e);
+}
 function choose(event: Event) {
   const input = event.target as HTMLInputElement;
   emit("attach", Array.from(input.files || []));
@@ -187,6 +198,16 @@ function chooseContext(index: number) {
 }
 function keydown(e: KeyboardEvent) {
   if (e.isComposing || composing.value) return;
+  const sendShortcut =
+    e.key === "Enter" &&
+    !e.shiftKey &&
+    !e.ctrlKey &&
+    (isMac ? e.metaKey && !e.altKey : e.altKey && !e.metaKey);
+  if (sendShortcut) {
+    e.preventDefault();
+    send(true);
+    return;
+  }
   if (e.key === "Escape" && contextToken.value) {
     e.preventDefault();
     dismissContext();
@@ -208,26 +229,25 @@ function keydown(e: KeyboardEvent) {
     e.preventDefault();
     return;
   }
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !composing.value) {
-    e.preventDefault();
-    send();
-  }
 }
-function send() {
+function send(immediate = false) {
   if (
     (props.modelValue.trim() ||
       props.annotations?.length ||
       props.references?.length) &&
     !props.disabled &&
-    !props.pending &&
-    !props.running
+    !props.pending
   )
-    emit("submit");
+    if (props.running && props.steeringEnabled) {
+      if (immediate) emit("steer");
+      else emit("queue");
+    } else if (!props.running) emit("submit");
 }
 defineExpose({ focusComposer });
 </script>
 <template>
   <section ref="composerElement" class="composer" :class="{ compact }">
+    <slot name="queue" />
     <ContextPicker
       v-if="contextToken"
       :options="contextOptions"
@@ -276,10 +296,14 @@ defineExpose({ focusComposer });
       :value="modelValue"
       :autosize="{ minRows: 2, maxRows: 9 }"
       :disabled="disabled"
-      placeholder="今天帮你做些什么？@ 添加上下文，/调用技能与指令。"
-      :maxlength="32000"
+      :placeholder="
+        running && steeringEnabled
+          ? `继续补充要求，${sendShortcutLabel} 发送引导`
+          : '今天帮你做些什么？@ 添加上下文，/调用技能与指令。'
+      "
+      :maxlength="maxTextLength || 32000"
       @update:value="(value: string) => $emit('update:modelValue', value)"
-      @keydown="keydown"
+      @keydown="textareaKeydown"
       @compositionstart="composing = true"
       @compositionend="composing = false"
     />
@@ -341,6 +365,20 @@ defineExpose({ focusComposer });
         @update:model="$emit('update:modelKey', $event)"
       />
       <button
+        v-if="running && steeringEnabled"
+        class="plain queue-add-button"
+        :disabled="
+          (!modelValue.trim() && !annotations?.length && !references?.length) ||
+          pending ||
+          disabled
+        "
+        aria-label="加入引导队列"
+        title="加入待发引导"
+        @click="send()"
+      >
+        <AppIcon name="send" :size="19" />
+      </button>
+      <button
         v-if="running"
         class="send-button stop-button"
         :disabled="interrupting"
@@ -357,7 +395,8 @@ defineExpose({ focusComposer });
           disabled
         "
         aria-label="发送消息"
-        @click="send"
+        :title="`${sendShortcutLabel} 发送`"
+        @click="send()"
       >
         <t-loading v-if="pending" size="small" /><AppIcon
           v-else
