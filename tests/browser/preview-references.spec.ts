@@ -22,6 +22,7 @@ async function openPreview(
   name: string,
   body: Buffer | string,
   mime: string,
+  target = "/tasks/s1",
 ) {
   await page.route("**/api/manager/projects/project-1/files**", (r: any) =>
     r.fulfill({
@@ -45,7 +46,7 @@ async function openPreview(
     "**/api/manager/projects/project-1/preview-options",
     (r: any) => r.fulfill({ json: options }),
   );
-  await page.goto("/tasks/s1");
+  await page.goto(target);
   await page.locator("button.file-open").filter({ hasText: name }).click();
 }
 async function draw(page: any) {
@@ -69,6 +70,32 @@ test.beforeEach(async ({ page, request }) => {
     sessionStorage.setItem("egis_access_token", "test-only"),
   );
 });
+
+for (const target of ["/tasks/s1", "/projects/project-1"]) {
+  test(`preview notes can be sent without body text from ${target}`, async ({
+    page,
+  }) => {
+    await openPreview(page, "chart.svg", svg, "image/svg+xml", target);
+    await draw(page);
+    await page.getByRole("button", { name: "加入对话", exact: true }).click();
+    await expect(page.locator(".composer textarea")).toHaveValue("");
+    let sent: any;
+    await page.route("**/api/chat/", async (route) => {
+      sent = route.request().postDataJSON();
+      await route.fulfill({ json: { status: "accepted" } });
+    });
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect
+      .poll(() => sent?.input?.content?.[0]?.text)
+      .toContain("调整这里");
+    expect(sent.input.metadata.preview_references[0].regions[0].note).toBe(
+      "调整这里",
+    );
+    await expect(page.locator(".composer .preview-reference-card")).toHaveCount(
+      0,
+    );
+  });
+}
 
 test("PDF region reference excludes the heading and diagrams outside the frame", async ({
   page,
@@ -347,7 +374,10 @@ test("wide HTML shares the document width with the selection coordinate system",
   await expect(
     page.frameLocator("iframe").getByText("宽版面测试"),
   ).toBeVisible();
-  const contentWidth = await page.frameLocator('iframe').locator('html').evaluate(e=>e.scrollWidth);
+  const contentWidth = await page
+    .frameLocator("iframe")
+    .locator("html")
+    .evaluate((e) => e.scrollWidth);
   await expect
     .poll(() =>
       page

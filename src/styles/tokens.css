@@ -7,6 +7,8 @@
   --hover: #ededed;
   --text: #191919;
   --muted: #858585;
+  --activity-muted: #858585;
+  --activity-highlight: #191919;
   --border: #e6e6e6;
   --accent: #333;
   --annotation-blue: #2563eb;
@@ -42,6 +44,8 @@
   --hover: #303030;
   --text: #ededed;
   --muted: #a0a0a0;
+  --activity-muted: #858585;
+  --activity-highlight: #fff;
   --border: #373737;
   --accent: #dedede;
   --annotation-blue: #3b82f6;

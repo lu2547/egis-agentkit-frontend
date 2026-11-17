@@ -27,6 +27,28 @@ test("home sends the chosen native permission mode when creating a task", async 
   expect((await request).postDataJSON().permission_mode).toBe("accept_edits");
 });
 
+test("home locks permission selection while task creation is pending", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/manager/tasks", async (route) => {
+    if (route.request().method() === "POST") await waiting;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.locator(".composer textarea").fill("创建中的权限选择");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  try {
+    await expect(page.getByTestId("permission-mode-trigger")).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(page).toHaveURL(/\/tasks\//);
+});
+
 test("session settings persist through native PATCH and allow full access", async ({
   page,
 }) => {
@@ -60,6 +82,24 @@ test("session model selection saves the actual model key", async ({ page }) => {
   expect((await request).postDataJSON().model_key).toBe("test-alt");
   await page.reload();
   await expect(model).toHaveAttribute("data-value", "test-alt");
+});
+
+test("permission mode remains selectable while waiting for tool approval", async ({
+  page,
+}) => {
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("测试确认");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  await expect(page.getByText("需要你的确认")).toBeVisible();
+  const mode = page.getByTestId("permission-mode-trigger");
+  await expect(mode).toBeEnabled();
+  await mode.click();
+  await page.locator('[role="menuitemradio"][data-mode="bypass"]').click();
+  await expect(mode).toHaveAttribute("data-value", "bypass");
+  await expect(page.getByLabel("模型", { exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "允许此次操作" }),
+  ).toBeVisible();
 });
 
 test("failed session update retains the persisted mode", async ({ page }) => {

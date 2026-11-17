@@ -154,7 +154,7 @@ export function useConversation() {
         publish();
         if (
           event.type === EventType.CUSTOM &&
-          event.name === "session_updated"
+          ["session_updated", "state_updated"].includes(event.name)
         ) {
           void refreshMetadata(current);
           void refreshTasks();
@@ -180,7 +180,8 @@ export function useConversation() {
       !task.value ||
       settingsPending.value ||
       submitting.value ||
-      state.value.phase !== "idle"
+      !["idle", "waiting"].includes(state.value.phase) ||
+      (state.value.phase === "waiting" && settings.model_key !== undefined)
     )
       return;
     const current = lease;

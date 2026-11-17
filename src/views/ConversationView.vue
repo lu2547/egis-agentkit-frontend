@@ -250,7 +250,7 @@ async function send() {
   const value = text.value.trim();
   const task = conversation.task.value;
   if (
-    (!value && !annotations.value.length) ||
+    (!value && !annotations.value.length && !references.items.value.length) ||
     !task ||
     uploading.value ||
     conversation.submitting.value ||
@@ -537,9 +537,19 @@ const artifactsByReply = computed(() =>
           :models="models"
           :model-key="conversation.task.value?.model_key || defaultModelKey"
           :permission-mode="
-            conversation.task.value?.permission_mode || 'default'
+            conversation.task.value?.permission_mode ||
+            runtime.defaultPermissionMode.value
           "
           :permission-options="runtime.options.value"
+          :permission-disabled="
+            conversation.loading.value ||
+            uploading ||
+            conversation.submitting.value ||
+            !['idle', 'waiting'].includes(conversation.state.value.phase) ||
+            runtime.loading.value ||
+            settingsPending ||
+            !!runtime.error.value
+          "
           :settings-disabled="
             conversation.loading.value ||
             uploading ||

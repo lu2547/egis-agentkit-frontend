@@ -51,7 +51,7 @@ const replyError = computed(() =>
       <span>{{ displayName || "养老险GPT" }}</span>
     </div>
     <div v-if="preparing" class="assistant-content">
-      <p class="preparing-status" role="status">准备中</p>
+      <p class="preparing-status running-shimmer" role="status">准备中</p>
     </div>
     <div v-else-if="message && presentation" class="assistant-content">
       <TurnProcess

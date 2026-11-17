@@ -5,8 +5,45 @@
   --motion-layout: 280ms;
   --motion-exit: 160ms;
   --motion-scroll: 160ms;
+  --motion-activity: 1.4s;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* 准备和工具活动使用同一条从左向右移动的文字高光。 */
+.running-shimmer {
+  min-width: 0;
+  max-width: 100%;
+  width: fit-content;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--activity-muted);
+  background: linear-gradient(
+    100deg,
+    var(--activity-muted) 35%,
+    var(--activity-highlight) 50%,
+    var(--activity-muted) 65%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: activity-shimmer var(--motion-activity) linear infinite;
+}
+@keyframes activity-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .running-shimmer {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 .page-enter-active {
   transition:

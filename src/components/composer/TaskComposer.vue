@@ -21,31 +21,35 @@ import type {
   ComposerCategory,
 } from "../../types/api";
 import { definitionName } from "../../types/api";
-const props = defineProps<{
-  modelValue: string;
-  sessionId?: string;
-  projectId?: string;
-  fileRevision?: number;
-  definitions?: Definition[];
-  selected?: Definition | null;
-  selectedLabel?: string;
-  selectedAvatar?: unknown;
-  models?: ModelOption[];
-  modelKey?: string;
-  permissionMode?: string;
-  permissionOptions?: PermissionModeOption[];
-  settingsDisabled?: boolean;
-  running?: boolean;
-  interrupting?: boolean;
-  pending?: boolean;
-  disabled?: boolean;
-  compact?: boolean;
-  isPersonal?: boolean;
-  attachments?: File[];
-  references?: PreviewReference[];
-  referenceError?: string;
-  annotations?: TextAnnotation[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: string;
+    sessionId?: string;
+    projectId?: string;
+    fileRevision?: number;
+    definitions?: Definition[];
+    selected?: Definition | null;
+    selectedLabel?: string;
+    selectedAvatar?: unknown;
+    models?: ModelOption[];
+    modelKey?: string;
+    permissionMode?: string;
+    permissionOptions?: PermissionModeOption[];
+    settingsDisabled?: boolean;
+    permissionDisabled?: boolean;
+    running?: boolean;
+    interrupting?: boolean;
+    pending?: boolean;
+    disabled?: boolean;
+    compact?: boolean;
+    isPersonal?: boolean;
+    attachments?: File[];
+    references?: PreviewReference[];
+    referenceError?: string;
+    annotations?: TextAnnotation[];
+  }>(),
+  { permissionDisabled: undefined },
+);
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   "update:modelKey": [value: string];
@@ -211,7 +215,9 @@ function keydown(e: KeyboardEvent) {
 }
 function send() {
   if (
-    (props.modelValue.trim() || props.annotations?.length) &&
+    (props.modelValue.trim() ||
+      props.annotations?.length ||
+      props.references?.length) &&
     !props.disabled &&
     !props.pending &&
     !props.running
@@ -294,7 +300,7 @@ defineExpose({ focusComposer });
         <PermissionModePicker
           :model-value="permissionMode || 'default'"
           :options="permissionOptions || []"
-          :disabled="settingsDisabled"
+          :disabled="permissionDisabled ?? settingsDisabled"
           @update:model-value="$emit('update:permissionMode', $event)"
         />
         <div
@@ -346,7 +352,9 @@ defineExpose({ focusComposer });
         v-else
         class="send-button"
         :disabled="
-          (!modelValue.trim() && !annotations?.length) || pending || disabled
+          (!modelValue.trim() && !annotations?.length && !references?.length) ||
+          pending ||
+          disabled
         "
         aria-label="发送消息"
         @click="send"

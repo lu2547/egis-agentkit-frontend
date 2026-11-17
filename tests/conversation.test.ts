@@ -64,6 +64,20 @@ beforeEach(() => {
   scope.run(() => (chat = useConversation()));
 });
 afterEach(() => scope.stop());
+it("allows permission changes while waiting without resuming or changing the model", async () => {
+  await chat.open("s1");
+  chat.state.value.phase = "waiting";
+  mocks.settings.mockResolvedValueOnce({
+    ...chat.task.value,
+    permission_mode: "bypass",
+  });
+  await chat.updateSettings({ permission_mode: "bypass" });
+  expect(chat.task.value?.permission_mode).toBe("bypass");
+  expect(chat.state.value.phase).toBe("waiting");
+  expect(mocks.trigger).not.toHaveBeenCalled();
+  await chat.updateSettings({ model_key: "another-model" });
+  expect(mocks.settings).toHaveBeenCalledTimes(1);
+});
 it("does not let a stale feedback response mark replies in another session", async () => {
   let finish!: (value: unknown) => void;
   mocks.feedback.mockImplementationOnce(

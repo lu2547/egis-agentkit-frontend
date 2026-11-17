@@ -177,7 +177,7 @@ async function submit() {
     pending.value ||
     resolvingDefinition.value ||
     definitionUnavailable.value ||
-    !text.value.trim()
+    (!text.value.trim() && !references.items.value.length)
   )
     return;
   const definition = selected.value || assistant.value;
