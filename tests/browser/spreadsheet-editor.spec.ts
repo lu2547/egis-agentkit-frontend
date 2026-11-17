@@ -280,6 +280,8 @@ test("switching file tabs preserves unsaved native Excel edits", async ({
   await page.keyboard.type("999");
   await page.keyboard.press("Enter");
   await editor.getByRole("button", { name: "退出宽屏" }).click();
+  await page.getByRole("button", { name: "刷新文件", exact: true }).click();
+  await expect(editor.getByRole("status")).toHaveText("未保存");
   await page.route("**/api/manager/projects/project-1/files**", (r) =>
     r.fulfill({
       json: {

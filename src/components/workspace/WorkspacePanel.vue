@@ -105,6 +105,22 @@ const previewKey = (value: Selection) =>
 const selected = computed(() =>
   previewTabs.value.find((value) => previewKey(value) === activePreview.value),
 );
+/** 文件更新时同步已打开的预览；各预览自己保护未保存编辑和未变化内容。 */
+function refreshPreviews() {
+  previews.forEach((preview) => preview.refresh());
+}
+watch(() => props.revision, refreshPreviews);
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) refreshPreviews();
+  },
+);
+function refresh() {
+  refreshPreviews();
+  if (tab.value === "changes") void loadChanges();
+  else void load();
+}
 function restoreSelections() {
   try {
     const value = JSON.parse(
@@ -474,11 +490,7 @@ onUnmounted(() => {
           <div class="header-main">
             <div class="view-title"><span>工作空间</span></div>
             <div class="header-actions">
-              <button
-                class="plain"
-                aria-label="刷新文件"
-                @click="tab === 'changes' ? loadChanges() : load()"
-              >
+              <button class="plain" aria-label="刷新文件" @click="refresh">
                 <RotateCw :size="16" /></button
               ><button
                 class="plain"

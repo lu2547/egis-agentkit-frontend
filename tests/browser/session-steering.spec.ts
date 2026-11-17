@@ -89,7 +89,7 @@ for (const [platform, shortcut] of [
   ["MacIntel", "Meta+Enter"],
   ["Win32", "Alt+Enter"],
 ]) {
-  test(`sends steering with ${shortcut} on ${platform} and keeps Enter as a newline`, async ({
+  test(`queues steering with ${shortcut} on ${platform} until explicitly sent`, async ({
     page,
     request,
   }) => {
@@ -111,12 +111,24 @@ for (const [platform, shortcut] of [
     await input.press("Enter");
     await expect(input).toHaveValue("补充要求\n");
     await expect(page.locator(".steering-queue-row")).toHaveCount(0);
+    const submitted: unknown[] = [];
+    page.on("request", (request) => {
+      if (
+        request.url().endsWith("/chat/") &&
+        request.postDataJSON()?.delivery === "steer"
+      )
+        submitted.push(request.postDataJSON());
+    });
+    await input.press(shortcut!);
+    await expect(page.locator(".steering-queue-row")).toHaveCount(1);
+    await expect(input).toHaveValue("");
+    expect(submitted).toHaveLength(0);
     const sent = page.waitForRequest(
       (request) =>
         request.url().endsWith("/chat/") &&
         request.postDataJSON()?.delivery === "steer",
     );
-    await input.press(shortcut!);
+    await page.getByRole("button", { name: "发送第 1 条引导" }).click();
     expect((await sent).postDataJSON().input[0].content[0].text).toBe(
       "补充要求",
     );
@@ -166,7 +178,7 @@ test("steering includes an attachment selected while work is running", async ({
   await expect(page.locator(".composer .attachments")).toHaveCount(0);
 });
 
-test("consecutive shortcut presses are both delivered during a slow request", async ({
+test("shortcut queues another draft while an explicit delivery is still pending", async ({
   page,
 }) => {
   let release!: () => void;
@@ -183,14 +195,22 @@ test("consecutive shortcut presses are both delivered during a slow request", as
     await route.continue();
   });
   const input = page.locator(".composer > .t-textarea textarea");
-  await input.fill("第一条即时引导");
+  await input.fill("第一条待发引导");
   await input.press("Meta+Enter");
+  await expect(page.locator(".steering-queue-row")).toHaveCount(1);
+  expect(sent).toHaveLength(0);
+  await page.getByRole("button", { name: "发送第 1 条引导" }).click();
   await expect.poll(() => sent.length).toBe(1);
-  await input.fill("第二条即时引导");
+  await input.fill("第二条待发引导");
   await input.press("Meta+Enter");
   await expect(input).toHaveValue("");
+  await expect(page.locator(".steering-queue-row")).toHaveCount(2);
+  expect(sent).toHaveLength(1);
   release();
+  await expect(page.locator(".steering-queue-row")).toHaveCount(1);
+  expect(sent).toHaveLength(1);
+  await page.getByRole("button", { name: "发送第 1 条引导" }).click();
   await expect.poll(() => sent.length).toBe(2);
   await expect(page.locator(".steering-queue-row")).toHaveCount(0);
-  expect(sent).toEqual(["第一条即时引导", "第二条即时引导"]);
+  expect(sent).toEqual(["第一条待发引导", "第二条待发引导"]);
 });

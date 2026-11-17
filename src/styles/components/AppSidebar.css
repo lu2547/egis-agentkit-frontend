@@ -211,6 +211,23 @@
   font-size: 11px;
   color: var(--muted);
 }
+.project-sessions-toggle {
+  display: block;
+  margin: 2px 0 4px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.project-sessions-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 .empty-projects {
   border: 0;
   padding: 10px 12px;

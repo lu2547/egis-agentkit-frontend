@@ -103,8 +103,7 @@ const loading = ref(false),
   officeHtml = ref(""),
   officeError = ref("");
 let controller: AbortController | null = null;
-function reset() {
-  controller?.abort();
+function clearContent() {
   if (url.value) URL.revokeObjectURL(url.value);
   url.value = "";
   checksum.value = "";
@@ -117,32 +116,79 @@ function reset() {
   workbookBlob.value = null;
   officeError.value = "";
 }
+function reset() {
+  controller?.abort();
+  clearContent();
+}
+const fileIdentity = computed(() =>
+  JSON.stringify([props.projectId, props.area, props.path]),
+);
 watch(
-  () => [props.projectId, props.area, props.path, refreshRevision.value],
-  async () => {
-    reset();
+  [fileIdentity, refreshRevision],
+  async ([identity], previous) => {
+    const sameFile = identity === previous?.[0];
+    // 自动刷新不能覆盖正在编辑的工作簿或演示文稿。
+    if (sameFile && hasPendingChanges()) return;
+    const keepContent =
+      sameFile &&
+      !loading.value &&
+      !error.value &&
+      !optionsError.value &&
+      !!checksum.value;
+    controller?.abort();
+    if (!sameFile) clearContent();
     if (!props.path) return;
     controller = new AbortController();
     const signal = controller.signal;
-    loading.value = true;
+    loading.value = !keepContent;
     error.value = "";
     try {
       const path = workspacePath(props.projectId);
       const query = { area: props.area, path: props.path };
       if (/\.pptx$/i.test(props.path)) {
         const [info, limits] = await Promise.all([
-          http<PresentationInfo>(`${path}/presentation`, { signal }, query),
+          http<PresentationInfo>(
+            `${path}/presentation`,
+            { signal, cache: "no-store" },
+            query,
+          ),
           http<PreviewOptions>(`${path}/preview-options`, { signal }),
         ]);
         if (signal.aborted) return;
+        if (
+          (sameFile && hasPendingChanges()) ||
+          (keepContent && info.checksum === checksum.value)
+        )
+          return;
+        clearContent();
         checksum.value = info.checksum;
         presentationInfo.value = info;
         options.value = limits;
         return;
       }
-      const response = await requestRaw(`${path}/file`, { signal }, query);
+      const response = await requestRaw(
+        `${path}/file`,
+        { signal, cache: "no-store" },
+        query,
+      );
       const blob = await response.blob();
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        await blob.arrayBuffer(),
+      );
       if (signal.aborted) return;
+      const nextChecksum = Array.from(new Uint8Array(digest), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+      // 内容相同则保留实例、滚动位置及框选；下载期间开始编辑也必须保留草稿。
+      if (
+        (sameFile && hasPendingChanges()) ||
+        (keepContent && nextChecksum === checksum.value)
+      )
+        return;
+      clearContent();
+      loading.value = true;
+      checksum.value = nextChecksum;
       mime.value = blob.type.split(";")[0] || "";
       // SVG 即使由通用文件接口返回 text/plain，也始终在图片上下文渲染。
       const previewBlob = /\.svg$/i.test(props.path)
@@ -157,15 +203,8 @@ watch(
           if (!signal.aborted)
             optionsError.value = "无法读取框选配置，请重新打开文件";
         });
-      const digest = await crypto.subtle.digest(
-        "SHA-256",
-        await blob.arrayBuffer(),
-      );
-      if (signal.aborted) return;
-      checksum.value = Array.from(new Uint8Array(digest), (b) =>
-        b.toString(16).padStart(2, "0"),
-      ).join("");
       await limits;
+      if (signal.aborted) return;
       if (mime.value === "application/pdf" || /\.pdf$/i.test(props.path))
         pdfBlob.value = blob;
       if (/\.(pptx?|doc|xls|odt|ods|odp)$/i.test(props.path)) {
@@ -264,6 +303,7 @@ onUnmounted(reset);
         v-else-if="
           isPresentation && source && options && (pdfBlob || presentationInfo)
         "
+        :key="presentationInfo?.checksum"
         ref="presentation"
         :blob="pdfBlob"
         :initial-info="presentationInfo"

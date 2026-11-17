@@ -59,7 +59,6 @@ const emit = defineEmits<{
   select: [definition: Definition | null];
   submit: [];
   queue: [];
-  steer: [];
   stop: [];
   attach: [files: File[]];
   removeAttachment: [index: number];
@@ -205,7 +204,7 @@ function keydown(e: KeyboardEvent) {
     (isMac ? e.metaKey && !e.altKey : e.altKey && !e.metaKey);
   if (sendShortcut) {
     e.preventDefault();
-    send(true);
+    send();
     return;
   }
   if (e.key === "Escape" && contextToken.value) {
@@ -230,7 +229,7 @@ function keydown(e: KeyboardEvent) {
     return;
   }
 }
-function send(immediate = false) {
+function send() {
   if (
     (props.modelValue.trim() ||
       props.annotations?.length ||
@@ -238,10 +237,8 @@ function send(immediate = false) {
     !props.disabled &&
     !props.pending
   )
-    if (props.running && props.steeringEnabled) {
-      if (immediate) emit("steer");
-      else emit("queue");
-    } else if (!props.running) emit("submit");
+    if (props.running && props.steeringEnabled) emit("queue");
+    else if (!props.running) emit("submit");
 }
 defineExpose({ focusComposer });
 </script>
@@ -298,7 +295,7 @@ defineExpose({ focusComposer });
       :disabled="disabled"
       :placeholder="
         running && steeringEnabled
-          ? `继续补充要求，${sendShortcutLabel} 发送引导`
+          ? `继续补充要求，${sendShortcutLabel} 加入引导队列`
           : '今天帮你做些什么？@ 添加上下文，/调用技能与指令。'
       "
       :maxlength="maxTextLength || 32000"

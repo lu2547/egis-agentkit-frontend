@@ -46,6 +46,8 @@ const root = ref<HTMLElement>(),
   selectedTask = ref<Task | null>(null);
 const selectedProject = ref<Project | null>(null);
 const expandedProjects = ref(new Set<string>());
+const expandedSessionLists = ref(new Set<string>());
+const PROJECT_SESSION_PREVIEW_LIMIT = 10;
 const currentProjectId = computed(() =>
   String(
     route.params.projectId ||
@@ -92,6 +94,21 @@ function selectProject(projectId: string) {
 }
 function projectSessions(projectId: string) {
   return tasks.value.filter((task) => task.project_id === projectId);
+}
+/** 保留最近对话及当前对话；每个项目独立展开更多历史。 */
+function visibleProjectSessions(projectId: string) {
+  const sessions = projectSessions(projectId);
+  if (expandedSessionLists.value.has(projectId)) return sessions;
+  return sessions.filter(
+    (task, index) =>
+      index < PROJECT_SESSION_PREVIEW_LIMIT ||
+      task.session_id === route.params.sessionId,
+  );
+}
+function toggleSessionList(projectId: string) {
+  const next = new Set(expandedSessionLists.value);
+  next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+  expandedSessionLists.value = next;
 }
 function beginProject(kind: "create" | "rename" | "remove", project?: Project) {
   selectedTask.value = null;
@@ -405,9 +422,13 @@ onBeforeUnmount(() => {
               ></t-popup
             >
           </div>
-          <div v-if="expandedProjects.has(project.id)" class="project-sessions">
+          <div
+            v-if="expandedProjects.has(project.id)"
+            :id="`project-sessions-${project.id}`"
+            class="project-sessions"
+          >
             <SidebarTaskRow
-              v-for="task in projectSessions(project.id)"
+              v-for="task in visibleProjectSessions(project.id)"
               :key="task.session_id"
               :task="task"
               :active="route.params.sessionId === task.session_id"
@@ -416,6 +437,20 @@ onBeforeUnmount(() => {
               @rename="begin('rename', $event)"
               @remove="begin('remove', $event)"
             />
+            <button
+              v-if="
+                projectSessions(project.id).length >
+                PROJECT_SESSION_PREVIEW_LIMIT
+              "
+              class="project-sessions-toggle"
+              :aria-expanded="expandedSessionLists.has(project.id)"
+              :aria-controls="`project-sessions-${project.id}`"
+              @click="toggleSessionList(project.id)"
+            >
+              {{
+                expandedSessionLists.has(project.id) ? "收起显示" : "展开显示"
+              }}
+            </button>
             <p v-if="!projectSessions(project.id).length" class="project-empty">
               暂无对话
             </p>

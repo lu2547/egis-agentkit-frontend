@@ -423,3 +423,66 @@ test("deleting the selected draft project returns the choice to default and keep
   await expect(selector).toHaveText("默认项目");
   await expect(composer(page)).toHaveValue("保留这份草稿");
 });
+
+test("long project lists expand independently and always include the active conversation", async ({
+  page,
+  request,
+}) => {
+  for (let index = 1; index <= 12; index++) {
+    await request.post(`${api}/manager/tasks`, {
+      headers,
+      data: {
+        project_id: "project-1",
+        definition_id: "personal",
+        resource_view_type: "private",
+        name: `对话 ${index}`,
+      },
+    });
+  }
+  await request.post(`${api}/manager/projects`, {
+    headers,
+    data: { project_name: "另一个项目" },
+  });
+  await request.post(`${api}/manager/tasks`, {
+    headers,
+    data: {
+      project_id: "project-2",
+      definition_id: "personal",
+      resource_view_type: "private",
+      name: "短列表对话",
+    },
+  });
+  await page.goto("/tasks/s1");
+  const project = page.locator(".project-group").filter({
+    has: page.getByRole("button", {
+      name: "打开项目：行业研究",
+      exact: true,
+    }),
+  });
+  const other = page.locator(".project-group").filter({
+    has: page.getByRole("button", {
+      name: "打开项目：另一个项目",
+      exact: true,
+    }),
+  });
+  await expect(project.locator('a[href="/tasks/s1"]')).toBeVisible();
+  await expect(project.locator('a[href="/tasks/s13"]')).toBeVisible();
+  await expect(project.locator('a[href="/tasks/s2"]')).toHaveCount(0);
+  await expect(
+    other.getByRole("button", { name: "展开显示", exact: true }),
+  ).toHaveCount(0);
+  const expand = project.getByRole("button", { name: "展开显示", exact: true });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expand.click();
+  await expect(project.locator(".conversation-row")).toHaveCount(13);
+  await project.locator('a[href="/tasks/s2"]').click();
+  const collapse = project.getByRole("button", {
+    name: "收起显示",
+    exact: true,
+  });
+  await expect(collapse).toHaveAttribute("aria-expanded", "true");
+  await collapse.click();
+  await expect(project.locator('a[href="/tasks/s2"]')).toBeVisible();
+  await expect(project.locator('a[href="/tasks/s3"]')).toHaveCount(0);
+  await expect(other.locator(".conversation-row")).toHaveCount(1);
+});

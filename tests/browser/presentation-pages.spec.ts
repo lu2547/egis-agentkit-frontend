@@ -380,3 +380,42 @@ test("consecutive saved edits do not wait for the previous full render or restor
   );
   await expect(page.locator(".presentation-sheet")).toHaveCount(4);
 });
+
+test("an externally overwritten PPT reloads its page directory and rendered pages", async ({
+  page,
+}) => {
+  await openDeck(page);
+  await expect(
+    page.getByRole("button", { name: "第 1 页：Preview slide 1", exact: true }),
+  ).toBeVisible();
+  await page.route(
+    "**/api/manager/projects/project-1/presentation?**",
+    (route) =>
+      route.fulfill({
+        json: {
+          checksum: "b".repeat(64),
+          slides: [
+            { id: "300", title: "Updated first slide" },
+            { id: "301", title: "Updated second slide" },
+            { id: "302", title: "Added third slide" },
+          ],
+          options: limits,
+        },
+      }),
+  );
+  await page.route("**/api/manager/projects/project-1/preview?**", (route) =>
+    route.fulfill({
+      body: readFileSync("tests/fixtures/presentation-3.pdf"),
+      contentType: "application/pdf",
+    }),
+  );
+  await page.getByRole("button", { name: "刷新文件", exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "第 1 页：Updated first slide",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".presentation-sheet")).toHaveCount(3);
+  await expect(page.getByLabel("PDF 翻页和缩放")).toContainText("1 / 3");
+});

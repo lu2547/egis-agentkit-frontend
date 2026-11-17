@@ -175,10 +175,6 @@ async function queueSteering() {
       uploading.value = false;
   }
 }
-async function steerCurrentInput() {
-  const id = await queueSteering();
-  if (id) await steeringQueue.send([id]);
-}
 const annotationLayer = ref<InstanceType<typeof MessageAnnotationLayer>>();
 function addTextAnnotation(value: TextAnnotation) {
   const existing = annotations.value.find(
@@ -412,8 +408,20 @@ watch(searchQuery, refreshSearch);
 watch(() => conversation.state.value.messages, refreshSearch, { deep: true });
 const artifactRevision = computed(
   () =>
-    `${fileRevision.value}-${conversation.state.value.phase}-${conversation.state.value.messages.filter((m) => m.finished_at).length}`,
+    `${fileRevision.value}-${conversation.state.value.phase}-${conversation.state.value.messages.filter((message) => message.finished_at).length}`,
 );
+const workspaceRevision = computed(() => {
+  const { messages } = conversation.state.value;
+  const completedTools = messages.reduce(
+    (count, message) =>
+      count +
+      message.content.filter(
+        (block) => block.type === "tool_result" && block.finished_at,
+      ).length,
+    0,
+  );
+  return `${artifactRevision.value}-${completedTools}`;
+});
 const replyArtifacts = ref<ReplyArtifact[]>([]);
 let artifactController: AbortController | null = null;
 onScopeDispose(() => artifactController?.abort());
@@ -633,7 +641,6 @@ const artifactsByReply = computed(() =>
           :interrupting="conversation.state.value.phase === 'interrupting'"
           @submit="send"
           @queue="queueSteering"
-          @steer="steerCurrentInput"
           @stop="conversation.stop"
         >
           <template #queue>
@@ -688,7 +695,7 @@ const artifactsByReply = computed(() =>
       ref="workspace"
       :project-id="projectId"
       :session-id="sid"
-      :revision="artifactRevision"
+      :revision="workspaceRevision"
       :visible="workspaceOpen"
       :messages="conversation.state.value.messages"
       :plan="conversation.state.value.plan ?? conversation.task.value?.plan"
