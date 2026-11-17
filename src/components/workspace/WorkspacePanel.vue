@@ -212,6 +212,37 @@ async function previewKeydown(event: KeyboardEvent, index: number) {
     .getElementById(`preview-tab-${previewKey(previewTabs.value[target]!)}`)
     ?.focus();
 }
+/** 普通滚轮和触控板都在标签栏内横向滚动，保留浏览器的缩放手势。 */
+function scrollPreviewTabs(event: WheelEvent) {
+  if (event.ctrlKey) return;
+  const strip = event.currentTarget as HTMLElement;
+  if (strip.scrollWidth <= strip.clientWidth) return;
+  const delta =
+    Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.deltaY;
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? strip.clientHeight
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? strip.clientWidth
+        : 1;
+  if (!delta) return;
+  event.preventDefault();
+  strip.scrollLeft += delta * unit;
+}
+watch(
+  () => [activePreview.value, tab.value, props.visible, width.value],
+  async () => {
+    if (!props.visible || tab.value !== "preview" || !activePreview.value)
+      return;
+    await nextTick();
+    document
+      .getElementById(`preview-tab-${activePreview.value}`)
+      ?.closest(".preview-file-tab")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  },
+);
 const deleteTarget = ref<WorkspaceFile | null>(null);
 const deleting = ref(false),
   deleteError = ref("");
@@ -658,6 +689,7 @@ onUnmounted(() => {
               class="preview-file-tabs"
               role="tablist"
               aria-label="文件预览标签"
+              @wheel="scrollPreviewTabs"
             >
               <div
                 v-for="(item, index) in previewTabs"
@@ -675,7 +707,7 @@ onUnmounted(() => {
                   @click="activatePreview(item)"
                   @keydown="previewKeydown($event, index)"
                 >
-                  <FileTypeIcon :name="item.path" :size="18" />
+                  <FileTypeIcon :name="item.path" :size="16" />
                   <span>{{ item.path.split("/").pop() }}</span>
                 </button>
                 <button
