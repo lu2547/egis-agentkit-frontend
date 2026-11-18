@@ -153,7 +153,7 @@ test("hover flyout keeps the root menu anchored while crossing into selectable e
   const menu = page.locator(".resource-picker");
   const before = await menu.boundingBox();
   await page.getByRole("menuitem", { name: "专家", exact: true }).hover();
-  const expert = page.getByRole("menuitemradio", { name: /研究分析专家/ });
+  const expert = page.getByRole("menuitem", { name: /研究分析专家/ });
   await expect(expert).toBeVisible();
   const after = await menu.boundingBox();
   expect(after!.x).toBeCloseTo(before!.x, 0);
@@ -168,7 +168,7 @@ test("hover flyout keeps the root menu anchored while crossing into selectable e
   await expect(plus).toHaveAttribute("aria-expanded", "true");
   await expert.click();
   await expect(plus).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator(".composer .selected")).toContainText(
+  await expect(page.getByRole("region", { name: "协作专家" })).toContainText(
     "研究分析专家",
   );
 });
@@ -212,19 +212,18 @@ test("resource action uses installation API and refreshes its real state", async
   expect(patches).toBe(1);
 });
 
-test("selected expert does not offer personal resource changes", async ({
+test("inviting an expert keeps personal resource changes available", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "添加资源" }).click();
   await page.getByRole("menuitem", { name: "专家", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: /研究分析专家/ }).click();
+  await page.getByRole("menuitem", { name: /研究分析专家/ }).click();
   await page.getByRole("button", { name: "添加资源" }).click();
   await page.getByRole("menuitem", { name: "技能", exact: true }).click();
-  await expect(page.getByText("使用此专家预设的技能和连接器")).toBeVisible();
   await expect(
     page.getByRole("menuitemcheckbox", { name: /研究方法/ }),
-  ).toHaveCount(0);
+  ).toBeVisible();
 });
 
 test("composer keeps a single focus boundary and opens a viewport-safe hover submenu", async ({
@@ -293,6 +292,35 @@ test("late resource response cannot replace the active category", async ({
   await expect(page.getByText("没有匹配的连接器")).toBeVisible();
 });
 
+test("an unauthorized connector in the composer opens the marketplace instead of installing", async ({
+  page,
+}) => {
+  await page.route("**/manager/connectors", (route) =>
+    route.fulfill({
+      json: {
+        items: [{
+          resource_id: "company-files",
+          display_name: "公司文件",
+          is_usable: true,
+          is_authorized: false,
+          is_installed: false,
+          is_enabled: false,
+          auth_type: "oauth",
+          payload: {},
+        }],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "添加资源" }).click();
+  await page.getByRole("menuitem", { name: "连接器", exact: true }).hover();
+  const connector = page.getByRole("menuitemcheckbox", { name: /公司文件/ });
+  await expect(connector).toContainText("去广场授权");
+  await connector.click();
+  await expect(page).toHaveURL(/\/connectors$/);
+  await expect(page.getByRole("button", { name: "授权", exact: true })).toBeVisible();
+});
+
 for (const viewport of [
   { width: 1200, height: 620 },
   { width: 390, height: 700 },
@@ -302,7 +330,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/?definition=expert-0");
-    await expect(page.locator(".composer .selected")).toContainText(
+    await expect(page.getByRole("region", { name: "协作专家" })).toContainText(
       "研究分析专家",
     );
     await page.getByRole("button", { name: "添加资源" }).click();

@@ -1,0 +1,23 @@
+.management-table-wrap {
+  overflow-x: auto;
+}
+.management-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.management-table th,
+.management-table td {
+  padding: 10px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--td-component-border);
+}
+.management-table small,
+.management-entry {
+  display: block;
+  color: var(--td-text-color-secondary);
+  margin-top: 4px;
+}
+.management-table td:last-child > * {
+  margin-inline-end: 8px;
+}

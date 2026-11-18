@@ -4,6 +4,7 @@ import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { useAsyncData } from "../../composables/useAsyncData";
 import AsyncState from "../common/AsyncState.vue";
+import AdminSectionHeader from "./AdminSectionHeader.vue";
 import type { User } from "../../types/api";
 interface Group {
   group_id: string;
@@ -55,14 +56,15 @@ async function save() {
 }
 </script>
 <template>
-  <div class="toolbar">
-    <t-button theme="primary" @click="edit()">创建用户组</t-button
-    ><span class="muted help">在用户编辑中调整组成员。</span>
-  </div>
+  <AdminSectionHeader title="用户组">
+    <t-button theme="primary" @click="edit()">创建用户组</t-button>
+  </AdminSectionHeader>
   <AsyncState
     :loading="loading"
     :error="error"
     :empty="!data?.groups.length"
+    empty-title="暂无用户组"
+    empty-text="创建用户组后，可在用户页面为成员分组。"
     @retry="load"
     ><t-table
       :data="data?.groups || []"
@@ -121,4 +123,3 @@ async function save() {
     </form></t-dialog
   >
 </template>
-<style scoped src="../../styles/components/GroupManagementTable.css"></style>

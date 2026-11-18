@@ -4,6 +4,7 @@ import { manager } from "../../api/manager";
 import type { ReplyFeedback } from "../../types/api";
 import { useAsyncData } from "../../composables/useAsyncData";
 import AsyncState from "../common/AsyncState.vue";
+import AdminSectionHeader from "./AdminSectionHeader.vue";
 const cursor = ref<string>(),
   history = ref<(string | undefined)[]>([]),
   selected = ref<ReplyFeedback>();
@@ -30,12 +31,11 @@ async function previous() {
 </script>
 <template>
   <section class="feedback-management">
-    <header>
-      <h2>回复反馈</h2>
+    <AdminSectionHeader title="回复反馈">
       <t-button variant="outline" :loading="loading" @click="load"
         >刷新</t-button
       >
-    </header>
+    </AdminSectionHeader>
     <AsyncState
       :loading="loading"
       :error="error"
@@ -119,16 +119,6 @@ async function previous() {
   </section>
 </template>
 <style scoped>
-.feedback-management > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-.feedback-management h2 {
-  font-size: 18px;
-  margin: 0;
-}
 .feedback-management nav {
   display: flex;
   justify-content: flex-end;

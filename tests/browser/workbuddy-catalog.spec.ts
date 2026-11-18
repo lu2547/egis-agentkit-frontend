@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { AssistantMsg } from "@agentscope-ai/agentscope/message";
 
 test.beforeEach(async ({ page, request }) => {
   await request.post("http://127.0.0.1:38194/__test/reset");
@@ -64,7 +65,7 @@ test("catalog navigation and filters use ownership and installation state", asyn
   await expect(nav.getByRole("button")).toHaveText([
     "个人助理",
     "专家",
-    "专家团",
+    /专家团\s*建设中/,
     "技能",
     "连接器",
     "工具",
@@ -77,9 +78,6 @@ test("catalog navigation and filters use ownership and installation state", asyn
   await expect(page.getByTestId("catalog-card")).toContainText(
     "写作与表达专家",
   );
-  await nav.getByRole("button", { name: "专家团" }).click();
-  await expect(page.getByRole("button", { name: "我的专家团" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "添加专家团" })).toBeVisible();
   await nav.getByRole("button", { name: "技能" }).click();
   await page.getByRole("button", { name: "我安装的" }).click();
   await expect(page.getByTestId("catalog-card")).toHaveCount(1);
@@ -88,7 +86,7 @@ test("catalog navigation and filters use ownership and installation state", asyn
   await expect(page.getByRole("menuitem", { name: "上传技能" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "创建技能" })).toBeVisible();
   await nav.getByRole("button", { name: "连接器" }).click();
-  await expect(page.getByRole("button", { name: "我安装的" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "我安装的" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "添加连接器" })).toHaveCount(0);
 });
 
@@ -164,22 +162,83 @@ test("expert editor reads its single definition and keeps its owner", async ({ p
   expect(submitted).not.toHaveProperty("owner_id");
 });
 
-test("team editor submits its current team revision after previous edits", async ({ page }) => {
-  let submitted: any;
-  await page.route("**/api/manager/teams/team-1", async (route) => {
-    if (route.request().method() !== "PUT") return route.fallback();
-    submitted = route.request().postDataJSON();
-    await route.fulfill({ json: { id: "team-1" } });
+test("fixed team catalog and editor links return to the expert catalog", async ({ page }) => {
+  const teamRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/manager\/teams(?:\/|$)/.test(path)) teamRequests.push(path);
   });
-  await page.goto("/teams/team-1/edit?view=private");
-  await expect(page.getByPlaceholder("例如 研究专家")).toHaveValue("研究与策略专家团");
-  await page.getByRole("button", { name: "保存专家团", exact: true }).click();
-  await expect.poll(() => submitted).toMatchObject({
-    owner_version: 2,
-    owner_type: "user",
-    owner_id: "demo",
+  for (const path of ["/experts?tab=team", "/teams", "/teams/new", "/teams/team-1/edit?view=private"]) {
+    await page.goto(path);
+    await expect(page).toHaveURL("/experts?tab=agent", { timeout: 2500 });
+    await expect(page.getByRole("button", { name: "查看研究分析专家" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /添加专家团|保存专家团/ })).toHaveCount(0);
+  }
+  expect(teamRequests).toEqual([]);
+});
+
+test("fixed team entries remain visible and disabled in both menus", async ({ page }) => {
+  await page.goto("/experts");
+  const name = /专家团\s*建设中/;
+  const catalog = page.getByRole("navigation", { name: "能力目录" });
+  await expect(catalog.getByRole("button", { name })).toBeDisabled();
+  const sidebar = page.getByRole("navigation", { name: "工作空间" });
+  await sidebar.getByRole("button", { name: "专家·技能·连接器", exact: true }).hover();
+  await expect(sidebar.getByRole("button", { name })).toBeDisabled();
+});
+
+test("home task creation excludes fixed teams and blocks stale summon links", async ({ page }) => {
+  const teamRequests: string[] = [];
+  const newTasks: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/manager\/teams(?:\/|$)/.test(path)) teamRequests.push(path);
+    if (path === "/api/manager/tasks" && request.method() === "POST")
+      newTasks.push(request.postDataJSON().definition_id);
   });
-  expect(submitted).not.toHaveProperty("config_version");
+  await page.goto("/");
+  await page.getByRole("button", { name: "添加资源", exact: true }).click();
+  await page.getByRole("menuitem", { name: "专家", exact: true }).click();
+  const menu = page.getByRole("menu", { name: "专家", exact: true });
+  await expect(menu.getByRole("menuitem", { name: /研究分析专家/ })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: /研究与策略专家团/ })).toHaveCount(0);
+
+  for (const [path, error] of [
+    ["/?definition=team-1&view=private&version=2&kind=team", "专家团建设中"],
+    ["/?definition=team-1&view=private", "无法读取选定的专家"],
+  ]) {
+    await page.goto(path);
+    await expect(page.getByRole("alert")).toContainText(error, { timeout: 2500 });
+    await page.locator(".composer textarea").fill("继续调研");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(page).toHaveURL(path);
+  }
+  expect(teamRequests).toEqual([]);
+  expect(newTasks).toEqual([]);
+});
+
+test("historical fixed team conversations still render their replies", async ({ page, request }) => {
+  const reply = AssistantMsg({ name: "orchestrator", content: "专家团之前的调研结论" });
+  reply.finished_at = new Date().toISOString();
+  await request.post("http://127.0.0.1:38194/__test/messages", {
+    data: { session_id: "s1", messages: [reply] },
+  });
+  await page.route("**/api/manager/tasks/s1", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: {
+        ...(await response.json()),
+        name: "历史专家团对话",
+        definition_id: "team-1",
+        definition_display_name: "研究与策略专家团",
+        collaboration_allowed: false,
+      },
+    });
+  });
+  await page.goto("/tasks/s1");
+  await expect(page.getByRole("heading", { name: "历史专家团对话" })).toBeVisible();
+  await expect(page.getByText("专家团之前的调研结论", { exact: true })).toBeVisible();
 });
 
 test("expert avatar saves a stable ID and appears when reopened", async ({

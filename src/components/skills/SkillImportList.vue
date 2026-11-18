@@ -10,8 +10,10 @@ defineEmits<{ refresh: []; retry: [jobId: string] }>();
 const statuses = {
   queued: "等待处理",
   running: "处理中",
+  pending_approval: "待审核",
   succeeded: "已完成",
   failed: "导入失败",
+  rejected: "审核未通过",
 };
 const stages: Record<string, string> = {
   queued: "等待处理",
@@ -70,6 +72,10 @@ function progress(job: SkillImportJob) {
           <span v-if="job.resource_version">· {{ job.resource_version }}</span>
           · 已可在技能目录查看
         </p>
+        <p v-else-if="job.status === 'pending_approval'">
+          技能包已校验，等待管理员审核。
+        </p>
+        <p v-else-if="job.status === 'rejected'">{{ job.review_reason }}</p>
         <div v-else class="import-failure">
           <p role="alert">{{ job.error || "导入未完成，请重试。" }}</p>
           <t-button

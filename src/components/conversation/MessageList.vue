@@ -30,7 +30,7 @@ const props = defineProps<{
 defineEmits<{
   older: [];
   file: [path: string];
-  reference: [value: import("../../domain/previewReferences").PreviewReference];
+  reference: [value: import("../../domain/previewReferences").ChatReference];
   annotation: [value: TextAnnotation];
   branched: [task: import("../../types/api").Task];
 }>();

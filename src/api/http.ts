@@ -4,6 +4,7 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    public busySession?: { sessionId: string; agentId: string },
   ) {
     super(message);
   }
@@ -37,9 +38,17 @@ export async function requestRaw(
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
     let code: string | undefined;
+    let busySession: ApiError["busySession"];
     try {
       const error = await response.json();
       if (typeof error.code === "string") code = error.code;
+      if (
+        code === "collaboration_session_busy" &&
+        typeof error.session_id === "string" &&
+        typeof error.agent_id === "string"
+      ) {
+        busySession = { sessionId: error.session_id, agentId: error.agent_id };
+      }
       detail =
         typeof error.detail === "string"
           ? error.detail
@@ -51,7 +60,7 @@ export async function requestRaw(
       setToken(null);
       window.dispatchEvent(new Event("egis:unauthorized"));
     }
-    throw new ApiError(response.status, detail, code);
+    throw new ApiError(response.status, detail, code, busySession);
   }
   return response;
 }

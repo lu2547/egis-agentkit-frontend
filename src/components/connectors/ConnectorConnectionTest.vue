@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-const props = defineProps<{ resourceId: string; version: string }>();
+const props = defineProps<{ resourceId: string }>();
 const pending = ref(false),
   error = ref(""),
   tools = ref<{ name: string; description?: string }[] | null>(null);
@@ -11,7 +11,7 @@ async function test() {
   error.value = "";
   tools.value = null;
   try {
-    const result = await manager.connectorTest(props.resourceId, props.version);
+    const result = await manager.connectorTest(props.resourceId);
     if (result.is_connected === false)
       throw new Error(result.error || "连接失败");
     tools.value = result.tools || [];

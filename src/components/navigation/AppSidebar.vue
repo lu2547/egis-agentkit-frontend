@@ -122,14 +122,14 @@ const action = ref<"create" | "rename" | "remove" | null>(null),
   pending = ref(false),
   error = ref("");
 const isCatalog = computed(() =>
-  ["/experts", "/teams", "/skills", "/connectors", "/tools"].some((path) =>
+  ["/experts", "/skills", "/connectors", "/tools"].some((path) =>
     route.path.startsWith(path),
   ),
 );
 const sections = [
   { to: "/experts?tab=personal", icon: "personal", label: "个人助理" },
   { to: "/experts?tab=agent", icon: "experts", label: "专家" },
-  { to: "/experts?tab=team", icon: "team", label: "专家团" },
+  { icon: "team", label: "专家团" },
   { to: "/skills", icon: "skill", label: "技能" },
   { to: "/connectors", icon: "connector", label: "连接器" },
   { to: "/tools", icon: "grid", label: "工具" },
@@ -323,10 +323,12 @@ onBeforeUnmount(() => {
         <div v-if="catalogMenu && !collapsed" class="popover capability-menu">
           <button
             v-for="section in sections"
-            :key="section.to"
-            @click="navigate(section.to)"
+            :key="section.icon"
+            :disabled="!section.to"
+            @click="section.to && navigate(section.to)"
           >
             <AppIcon :name="section.icon" :size="18" />{{ section.label }}
+            <small v-if="!section.to" class="capability-status">建设中</small>
           </button>
         </div>
       </div>

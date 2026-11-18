@@ -17,7 +17,6 @@ const form = reactive({
     : "---\nname: 我的技能\ndescription: 说明技能的用途与适用场景\nversion: 1.0.0\n---\n\n# 工作步骤\n\n1. 明确目标与输入。\n2. 执行工作并核对结果。\n",
   category: String(props.resource?.payload.category || "办公协同"),
   avatar: String(props.resource?.payload.avatar || "skill:deep-thinking"),
-  is_skill_market_visible: props.resource?.is_skill_market_visible ?? true,
 });
 const files = computed(
   () =>
@@ -62,11 +61,8 @@ function save() {
     <SkillAttachmentList
       v-if="resource"
       :files="files"
-      :version="resource.resource_version"
+      :version="resource.resource_version || ''"
     />
-    <t-checkbox v-model="form.is_skill_market_visible"
-      >在技能广场展示（仍需共享审核与使用授权）</t-checkbox
-    >
     <ResourceFormActions
       submit-label="发布版本"
       :pending="pending"

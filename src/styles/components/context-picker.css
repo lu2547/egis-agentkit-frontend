@@ -51,11 +51,14 @@
   gap: 2px;
   font-size: 13px;
 }
+.option-text > span,
 .option-text small {
-  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.option-text small {
+  color: var(--muted);
   font-size: 11px;
 }
 .kind {

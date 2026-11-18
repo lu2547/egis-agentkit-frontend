@@ -1,4 +1,4 @@
-import { http, json } from "./http";
+import { http, json, requestRaw } from "./http";
 import type {
   ComposerOptionsPage,
   ComposerOptionsQuery,
@@ -15,9 +15,10 @@ import type {
   CatalogKind,
   AdminResource,
   ConnectorAuthType,
-  ConnectorDependencyAuthorization,
   ModelOption,
   Review,
+  BatchAccessResponse,
+  SkillGrantReference,
   ShareTarget,
   ShareableKind,
   ShareRecipient,
@@ -29,6 +30,7 @@ import type {
   ReplyFeedback,
   ReplyFeedbackState,
   SkillImportJob,
+  VirtualUser,
 } from "../types/api";
 const id = encodeURIComponent;
 export const workspacePath = (projectId: string) =>
@@ -41,6 +43,23 @@ export const manager = {
       { ...params },
     ),
   me: () => http<User>("/manager/me"),
+  virtualUsers: () =>
+    http<{ items: VirtualUser[] }>("/manager/admin/virtual-users"),
+  createVirtualUser: (username: string) =>
+    http<VirtualUser & { token: string }>(
+      "/manager/admin/virtual-users",
+      json("POST", { username }),
+    ),
+  setVirtualUserEnabled: (userId: string, is_enabled: boolean) =>
+    http<VirtualUser>(
+      `/manager/admin/virtual-users/${id(userId)}`,
+      json("PATCH", { is_enabled }),
+    ),
+  rotateVirtualUser: (userId: string) =>
+    http<VirtualUser & { token: string }>(
+      `/manager/admin/virtual-users/${id(userId)}/rotate`,
+      json("POST"),
+    ),
   login: (user_id: string, password: string) =>
     http<{ access_token: string }>(
       "/auth/login",
@@ -130,22 +149,28 @@ export const manager = {
     sid: string,
     request_id: string,
     experts: DefinitionRef[],
+    signal?: AbortSignal,
   ) =>
     http<Task>(
       `/manager/tasks/${id(sid)}/collaborators`,
-      json("POST", { request_id, experts }),
+      { ...json("POST", { request_id, experts }), signal },
     ),
+  removeCollaborator: (sid: string, workerSid: string, signal: AbortSignal) =>
+    http<Task>(`/manager/tasks/${id(sid)}/collaborators/${id(workerSid)}`, {
+      method: "DELETE",
+      signal,
+    }),
   runtimeOptions: () => http<RuntimeOptions>("/manager/runtime-options"),
   updateTaskSettings: (sid: string, settings: TaskSettings) =>
     http<Task>(`/manager/tasks/${id(sid)}/settings`, json("PATCH", settings)),
   models: () =>
     http<{ items: ModelOption[]; default_key?: string }>("/manager/models"),
   resources: (kind: ResourceCatalog) =>
-    http<{ items: Resource[]; dependency_authorizations?: ConnectorDependencyAuthorization[] }>(`/manager/${kind}`),
+    http<{ items: Resource[] }>(`/manager/${kind}`),
   resource: (
     kind: string,
     resourceId: string,
-    version: string,
+    version?: string,
     signal?: AbortSignal,
   ) =>
     http<Resource>(
@@ -159,7 +184,7 @@ export const manager = {
     http<{ items: AdminResource[] }>(`/manager/admin/resources/${kind}`),
   registerSystemResource: (kind: "skill" | "mcp", body: unknown) =>
     http<Resource>(`/manager/admin/resources/${kind}`, json("POST", body)),
-  setResourceAvailability: (kind: CatalogKind, resourceId: string, version: string, is_enabled: boolean) =>
+  setResourceAvailability: (kind: CatalogKind, resourceId: string, version: string | undefined, is_enabled: boolean) =>
     http<AdminResource>(
       `/manager/admin/resources/${kind}/${id(resourceId)}`,
       json("PATCH", { is_enabled }), { version },
@@ -173,11 +198,12 @@ export const manager = {
     http<{ items: SkillImportJob[] }>("/manager/skills/imports"),
   skillImport: (jobId: string) =>
     http<SkillImportJob>(`/manager/skills/imports/${id(jobId)}`),
-  importSkill: (file: File, category: string, avatar: string) => {
+  importSkill: (file: File, category: string, avatar: string, system = false) => {
     const body = new FormData();
     body.append("file", file);
     body.append("category", category);
     body.append("avatar", avatar);
+    body.append("owner_type", system ? "system" : "user");
     return http<SkillImportJob>("/manager/skills/imports", {
       method: "POST",
       body,
@@ -188,6 +214,15 @@ export const manager = {
       `/manager/skills/imports/${id(jobId)}/retry`,
       json("POST"),
     ),
+  skillImportReviews: () =>
+    http<{ items: SkillImportJob[] }>("/manager/admin/skill-imports"),
+  decideSkillImports: (job_ids: string[], approved: boolean, reason: string) =>
+    http<{ items: { id: string; ok: boolean; detail?: string }[] }>(
+      "/manager/admin/skill-imports/batch/decision",
+      json("POST", { job_ids, approved, reason }),
+    ),
+  downloadSkillImport: (jobId: string) =>
+    requestRaw(`/manager/admin/skill-imports/${id(jobId)}/download`),
   install: (kind: InstallableCatalog, resourceId: string) =>
     http<unknown>(`/manager/${kind}/${id(resourceId)}/install`, json("POST")),
   toggle: (
@@ -204,32 +239,32 @@ export const manager = {
       `/manager/${kind}/${id(resourceId)}/installation`,
       json("DELETE"),
     ),
-  connectorAuthorization: (resourceId: string, version: string) =>
+  connectorAuthorization: (resourceId: string) =>
     http<{ authorized: boolean; auth_type: ConnectorAuthType }>(
-      `/manager/connectors/${id(resourceId)}/authorization`, {}, { version },
+      `/manager/connectors/${id(resourceId)}/authorization`,
     ),
-  saveConnectorKey: (resourceId: string, version: string, key: string) =>
+  saveConnectorKey: (resourceId: string, key: string) =>
     http<{ authorized: boolean }>(
-      `/manager/connectors/${id(resourceId)}/authorization/key`, json("PUT", { key }), { version },
+      `/manager/connectors/${id(resourceId)}/authorization/key`, json("PUT", { key }),
     ),
-  startConnectorOAuth: (resourceId: string, version: string) =>
+  startConnectorOAuth: (resourceId: string) =>
     http<{ authorization_url: string; state: string }>(
-      `/manager/connectors/${id(resourceId)}/authorization/start`, json("POST"), { version },
+      `/manager/connectors/${id(resourceId)}/authorize`, json("POST"),
     ),
-  finishConnectorOAuth: (resourceId: string, version: string, state: string, code: string | null) =>
+  finishConnectorOAuth: (resourceId: string, state: string, code: string | null) =>
     http<{ authorized: boolean }>(
-      `/manager/connectors/${id(resourceId)}/authorization/callback`, json("POST", { state, code }), { version },
+      `/manager/connectors/${id(resourceId)}/authorization/callback`, json("POST", { state, code }),
     ),
-  revokeConnectorAuthorization: (resourceId: string, version: string) =>
+  revokeConnectorAuthorization: (resourceId: string) =>
     http<{ authorized: boolean }>(
-      `/manager/connectors/${id(resourceId)}/authorization`, json("DELETE"), { version },
+      `/manager/connectors/${id(resourceId)}/authorization`, json("DELETE"),
     ),
-  connectorTest: (resourceId: string, version: string) =>
+  connectorTest: (resourceId: string) =>
     http<{
       is_connected?: boolean;
       tools?: { name: string; description?: string }[];
       error?: string;
-    }>(`/manager/connectors/${id(resourceId)}/test`, json("POST"), { version }),
+    }>(`/manager/connectors/${id(resourceId)}/test`, json("POST")),
   preferences: () =>
     http<{ agent_md: string; soul_md: string; user_md: string }>(
       "/manager/preferences",
@@ -239,6 +274,16 @@ export const manager = {
   reviews: () => http<{ items: Review[] }>("/manager/share-requests"),
   shareRecipients: () => http<{ items: ShareRecipient[] }>("/manager/share-recipients"),
   grantResources: () => http<{ items: GrantResource[] }>("/manager/admin/grant-resources"),
+  shareSkills: (resource_ids: string[], target: ShareTarget) =>
+    http<BatchAccessResponse>(
+      "/manager/share-requests/batch",
+      json("POST", { resource_ids, target }),
+    ),
+  grantSkills: (resources: SkillGrantReference[], target: ShareTarget) =>
+    http<BatchAccessResponse>(
+      "/manager/admin/grants/batch",
+      json("POST", { resources, target }),
+    ),
   share: (
     resource_type: ShareableKind,
     resource_id: string,
@@ -302,5 +347,10 @@ export const manager = {
     http<unknown>(
       `/manager/admin/share-reviews/${id(reviewId)}/decision`,
       json("POST", { is_approved, reason }),
+    ),
+  decideShares: (review_ids: string[], is_approved: boolean, reason: string) =>
+    http<BatchAccessResponse>(
+      "/manager/admin/share-reviews/batch/decision",
+      json("POST", { review_ids, is_approved, reason }),
     ),
 };

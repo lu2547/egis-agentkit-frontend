@@ -1,14 +1,43 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { principalName, type Review } from "../../types/api";
+import { computed, ref, watch } from "vue";
+import {
+  MAX_SKILL_BATCH_SIZE,
+  principalName,
+  type BatchAccessResult,
+  type Review,
+} from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
+import BatchAccessNotice from "../common/BatchAccessNotice.vue";
 const props = defineProps<{ reviews: Review[]; admin?: boolean }>();
 const emit = defineEmits<{ changed: [] }>();
 const selected = ref<Review | null>(null),
   reason = ref(""),
   pending = ref(false),
   error = ref("");
+const batchIds = ref<string[]>([]);
+const batchOpen = ref(false);
+const batchReason = ref("");
+const batchPending = ref(false);
+const batchError = ref("");
+const batchResults = ref<BatchAccessResult[]>([]);
+const batchLabels = ref<Record<string, string>>({});
+const eligibleIds = computed(
+  () =>
+    new Set(
+      props.reviews
+        .filter(
+          (review) =>
+            props.admin &&
+            review.resource_type === "skill" &&
+            review.review_status_type === "pending",
+        )
+        .map((review) => review.review_id),
+    ),
+);
+watch(eligibleIds, (ids) => {
+  batchIds.value = batchIds.value.filter((id) => ids.has(id));
+});
 const names: Record<string, string> = {
   pending: "审核中",
   approved: "已通过",
@@ -36,14 +65,78 @@ async function decide(allowed: boolean) {
     pending.value = false;
   }
 }
+
+function openBatch() {
+  batchError.value = "";
+  batchReason.value = "";
+  batchOpen.value = true;
+}
+
+async function decideBatch(allowed: boolean) {
+  if (batchPending.value || !batchIds.value.length) return;
+  batchPending.value = true;
+  batchError.value = "";
+  batchLabels.value = Object.fromEntries(
+    props.reviews.map((review) => [
+      review.review_id,
+      `${review.resource_id} · ${review.version_label || review.resource_version}`,
+    ]),
+  );
+  try {
+    const response = await manager.decideShares(
+      batchIds.value,
+      allowed,
+      batchReason.value,
+    );
+    batchResults.value = response.items;
+    batchIds.value = response.items
+      .filter((item) => !item.success)
+      .map((item) => item.id);
+    batchOpen.value = false;
+    emit("changed");
+  } catch (err) {
+    batchError.value = errorText(err);
+  } finally {
+    batchPending.value = false;
+  }
+}
 </script>
 <template>
   <div class="reviews">
+    <div v-if="eligibleIds.size" class="toolbar">
+      <t-button
+        variant="outline"
+        :disabled="!batchIds.length"
+        @click="openBatch"
+      >
+        批量审核
+      </t-button>
+      <span v-if="batchIds.length" class="muted"
+        >已选择 {{ batchIds.length }} 项</span
+      >
+    </div>
+    <BatchAccessNotice
+      v-if="batchResults.length"
+      :results="batchResults"
+      :labels="batchLabels"
+    />
     <article
       v-for="review in reviews"
       :key="review.review_id"
       class="review-row"
     >
+      <input
+        v-if="eligibleIds.has(review.review_id)"
+        v-model="batchIds"
+        type="checkbox"
+        :value="review.review_id"
+        :aria-label="`选择 ${review.resource_id}`"
+        :disabled="
+          batchPending ||
+          (batchIds.length >= MAX_SKILL_BATCH_SIZE &&
+            !batchIds.includes(review.review_id))
+        "
+      />
       <div>
         <span class="badge">{{
           types[review.resource_type] || review.resource_type
@@ -112,6 +205,51 @@ async function decide(allowed: boolean) {
         ></template
       ></t-dialog
     >
+    <t-dialog
+      role="dialog"
+      aria-modal="true"
+      aria-label="批量审核"
+      :visible="batchOpen"
+      header="批量审核"
+      :footer="false"
+      :close-on-overlay-click="!batchPending"
+      :close-on-esc-keydown="!batchPending"
+      @close="!batchPending && (batchOpen = false)"
+    >
+      <div class="form-stack">
+        <p class="muted">批量处理已选的 {{ batchIds.length }} 项共享申请。</p>
+        <div v-field-label class="field">
+          <label>审核意见</label>
+          <t-textarea
+            v-model="batchReason"
+            :maxlength="2000"
+            :disabled="batchPending"
+          />
+        </div>
+        <div v-if="batchError" class="error" role="alert">{{ batchError }}</div>
+        <div class="form-actions">
+          <t-button
+            variant="outline"
+            :disabled="batchPending"
+            @click="batchOpen = false"
+            >取消</t-button
+          >
+          <t-button
+            variant="outline"
+            :disabled="batchPending || !batchIds.length || !batchReason.trim()"
+            @click="decideBatch(false)"
+            >批量拒绝</t-button
+          >
+          <t-button
+            theme="primary"
+            :loading="batchPending"
+            :disabled="!batchIds.length"
+            @click="decideBatch(true)"
+            >批量通过</t-button
+          >
+        </div>
+      </div>
+    </t-dialog>
   </div>
 </template>
 <style scoped src="../../styles/components/ShareReviewList.css"></style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import { useAsyncData } from "../composables/useAsyncData";
@@ -10,6 +10,8 @@ import SkillImportList from "../components/skills/SkillImportList.vue";
 import ResourceFormHeader from "../components/common/ResourceFormHeader.vue";
 import ResourceFormActions from "../components/common/ResourceFormActions.vue";
 const router = useRouter();
+const route = useRoute();
+const system = computed(() => route.query.system === "1");
 const file = ref<File | null>(null),
   category = ref("办公协同"),
   avatar = ref("skill:deep-thinking"),
@@ -30,7 +32,7 @@ function choose(event: Event) {
   file.value = (event.target as HTMLInputElement).files?.[0] || null;
 }
 function back() {
-  return router.push("/skills");
+  return router.push(system.value ? "/admin/skills" : "/skills");
 }
 async function upload() {
   if (!file.value || pending.value) return;
@@ -41,6 +43,7 @@ async function upload() {
       file.value,
       category.value,
       avatar.value,
+      system.value,
     );
     imports.track(job);
     file.value = null;
@@ -57,9 +60,9 @@ async function upload() {
     <div class="edit-content">
       <ResourceFormHeader
         level="h1"
-        title="上传技能"
+        :title="system ? '上传系统技能' : '上传技能'"
         description="上传包含 SKILL.md 的 ZIP 技能包，并选择分类和头像。"
-        return-label="返回技能目录"
+        :return-label="system ? '返回技能管理' : '返回技能目录'"
         @back="back"
       />
       <form class="form-stack skill-upload-form" @submit.prevent="upload">

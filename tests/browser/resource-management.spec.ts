@@ -117,69 +117,70 @@ test("resource management excludes tools", async ({ page }) => {
   ).toHaveCount(0);
 });
 
-test("connector callback exchanges the code for the selected immutable version", async ({
+test("users authorize a company connector, then add and cancel it separately", async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    sessionStorage.setItem(
-      "egis-mcp-oauth:one",
-      JSON.stringify({ resourceId: "files", version: "2.0.0" }),
-    );
-  });
-  await page.route(
-    "**/manager/connectors/files/authorization/callback?version=2.0.0",
-    (route) => {
-      expect(route.request().method()).toBe("POST");
-      expect(route.request().postDataJSON()).toEqual({
-        state: "one",
-        code: "provider-code",
-      });
-      return route.fulfill({ json: { authorized: true } });
-    },
-  );
-  await page.goto("/connectors?state=one&code=provider-code");
-  await expect(page).toHaveURL(/\/connectors$/);
-  await expect(page.getByRole("status")).toContainText("连接器已授权。");
-});
-
-test("an expert-only connector accepts personal credentials outside the marketplace", async ({
-  page,
-}) => {
+  let authorized = false;
+  let installed = false;
   await page.route("**/manager/connectors", (route) =>
     route.fulfill({
       json: {
-        items: [],
-        dependency_authorizations: [
-          {
-            resource_id: "scoped",
-            resource_version: "1.0.0",
-            display_name: "财务专家连接",
-            auth_type: "api_key",
-          },
-        ],
+        items: [{
+          resource_id: "files",
+          display_name: "文档连接器",
+          description: "公司文档服务",
+          is_usable: true,
+          is_authorized: authorized,
+          is_installed: installed,
+          is_enabled: installed,
+          auth_type: "oauth",
+          payload: {},
+        }],
       },
     }),
   );
-  await page.route(
-    "**/manager/connectors/scoped/authorization?version=1.0.0",
-    (route) => route.fulfill({ json: { authorized: false } }),
-  );
-  await page.route(
-    "**/manager/connectors/scoped/authorization/key?version=1.0.0",
-    (route) => {
-      expect(route.request().postDataJSON()).toEqual({
-        key: "demo-personal-key",
-      });
-      return route.fulfill({ json: { authorized: true } });
-    },
-  );
+  await page.route("**/manager/connectors/files/authorize", (route) => {
+    expect(route.request().method()).toBe("POST");
+    return route.fulfill({
+      json: {
+        authorization_url: "http://127.0.0.1:5187/connectors/oauth/callback?state=one&code=provider-code",
+        state: "one",
+      },
+    });
+  });
+  await page.route("**/manager/connectors/files/authorization/callback", (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ state: "one", code: "provider-code" });
+    authorized = true;
+    return route.fulfill({ json: { authorized } });
+  });
+  await page.route("**/manager/connectors/files/install", (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(authorized).toBe(true);
+    installed = true;
+    return route.fulfill({ json: {} });
+  });
+  await page.route("**/manager/connectors/files/installation", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    installed = false;
+    return route.fulfill({ status: 204 });
+  });
   await page.goto("/connectors");
-  const section = page.getByRole("region", { name: "专家连接授权" });
-  await section.getByText("财务专家连接 · 1.0.0", { exact: true }).click();
-  await section.getByLabel("个人 API Key").fill("demo-personal-key");
-  await section.getByRole("button", { name: "保存密钥", exact: true }).click();
-  await expect(section.getByText("已授权", { exact: true })).toBeVisible();
-  await expect(
-    section.getByRole("button", { name: "安装", exact: true }),
-  ).toHaveCount(0);
+  const card = page.getByTestId("catalog-card");
+  await expect(card.getByRole("button", { name: "添加", exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "授权", exact: true }).click();
+  await expect(page).toHaveURL(/\/connectors$/);
+  await expect(page.getByRole("status")).toContainText("连接器已授权，可以添加。");
+  await card.getByRole("button", { name: "添加", exact: true }).click();
+  await card.getByRole("button", { name: "取消添加", exact: true }).click();
+  await expect(card.getByText("已授权", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "添加", exact: true })).toBeVisible();
+
+  await card.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(card.getByRole("button", { name: "取消添加", exact: true })).toBeVisible();
+  authorized = false;
+  await page.reload();
+  await expect(card.getByRole("button", { name: "授权", exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "取消添加", exact: true }).click();
+  await expect(card.getByRole("button", { name: "取消添加", exact: true })).toHaveCount(0);
 });

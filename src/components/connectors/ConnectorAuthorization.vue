@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { manager } from "../../api/manager";
+import { beginConnectorOAuth } from "../../domain/connectorAuthorization";
 import { errorText } from "../../api/http";
 import type { ConnectorAuthType } from "../../types/api";
 
 const props = defineProps<{
   resourceId: string;
-  version: string;
   method: ConnectorAuthType;
 }>();
+const emit = defineEmits<{ changed: [] }>();
 const authorized = ref(false);
 const pending = ref(false);
 const key = ref("");
@@ -27,7 +28,7 @@ async function run(action: () => Promise<void>) {
 onMounted(() =>
   run(async () => {
     authorized.value = (
-      await manager.connectorAuthorization(props.resourceId, props.version)
+      await manager.connectorAuthorization(props.resourceId)
     ).authorized;
   }),
 );
@@ -35,37 +36,21 @@ function authorize() {
   return run(async () => {
     if (props.method === "api_key") {
       authorized.value = (
-        await manager.saveConnectorKey(
-          props.resourceId,
-          props.version,
-          key.value,
-        )
+        await manager.saveConnectorKey(props.resourceId, key.value)
       ).authorized;
       key.value = "";
+      emit("changed");
       return;
     }
-    const { authorization_url, state } = await manager.startConnectorOAuth(
-      props.resourceId,
-      props.version,
-    );
-    sessionStorage.setItem(
-      `egis-mcp-oauth:${state}`,
-      JSON.stringify({
-        resourceId: props.resourceId,
-        version: props.version,
-      }),
-    );
-    window.location.assign(authorization_url);
+    await beginConnectorOAuth(props.resourceId);
   });
 }
 function revoke() {
   return run(async () => {
     authorized.value = (
-      await manager.revokeConnectorAuthorization(
-        props.resourceId,
-        props.version,
-      )
+      await manager.revokeConnectorAuthorization(props.resourceId)
     ).authorized;
+    emit("changed");
   });
 }
 </script>

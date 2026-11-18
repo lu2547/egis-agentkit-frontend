@@ -22,10 +22,12 @@ import AppIcon from "../common/AppIcon.vue";
 import FileTypeIcon from "../common/FileTypeIcon.vue";
 import AsyncState from "../common/AsyncState.vue";
 import type {
+  ChatReference,
   PreviewAnchor,
   PreviewReference,
   PreviewAcceptance,
 } from "../../domain/previewReferences";
+import { isProjectFileReference } from "../../domain/previewReferences";
 import FilePreview from "./FilePreview.vue";
 import WorkspaceDeleteDialog from "./WorkspaceDeleteDialog.vue";
 
@@ -49,8 +51,19 @@ const previews = new Map<string, InstanceType<typeof FilePreview>>();
 function canLeavePreview() {
   return [...previews.values()].every((preview) => preview.canLeave());
 }
-function openReference(value: PreviewAnchor) {
+function openReference(value: ChatReference) {
   if (value.projectId !== props.projectId) return;
+  if (isProjectFileReference(value)) {
+    const prefix = "artifacts/";
+    const isArtifact = value.path.startsWith(prefix);
+    select({
+      path: isArtifact ? value.path.slice(prefix.length) : value.path,
+      area: isArtifact ? "artifacts" : "uploads",
+      scopeId: scopeId.value,
+    });
+    showTab("preview");
+    return;
+  }
   if (!openFile(value.path, value.area)) return;
   if (selected.value) {
     selected.value.anchor = value;

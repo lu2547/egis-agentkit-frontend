@@ -9,14 +9,24 @@ import {
   type TextAnnotation,
 } from "../../domain/textAnnotations";
 import {
+  getMessageProjectFiles,
   getMessageReferences,
-  type PreviewReference,
+  type ChatReference,
 } from "../../domain/previewReferences";
 const props = defineProps<{ message: Msg }>();
-const references = computed(() => getMessageReferences(props.message));
+const references = computed(() => [
+  ...getMessageProjectFiles(props.message),
+  ...getMessageReferences(props.message),
+]);
 const annotations = computed(() => getTextAnnotations(props.message));
+const prompt = computed(() => {
+  const { annotation_prompt, preview_prompt } = props.message.metadata;
+  if (typeof annotation_prompt === "string") return annotation_prompt;
+  if (references.value.length && typeof preview_prompt === "string")
+    return preview_prompt;
+});
 defineEmits<{
-  reference: [value: PreviewReference];
+  reference: [value: ChatReference];
   annotation: [value: TextAnnotation];
 }>();
 </script>
@@ -38,15 +48,8 @@ defineEmits<{
         @open="$emit('reference', $event)"
       />
       <template v-for="block in message.content" :key="block.id"
-        ><p v-if="block.type === 'text'">
-          {{
-            typeof message.metadata.annotation_prompt === "string"
-              ? message.metadata.annotation_prompt
-              : references.length &&
-                  typeof message.metadata.preview_prompt === "string"
-                ? message.metadata.preview_prompt
-                : block.text
-          }}
+        ><p v-if="block.type === 'text' && (prompt ?? block.text)">
+          {{ prompt ?? block.text }}
         </p>
         <span
           v-else-if="

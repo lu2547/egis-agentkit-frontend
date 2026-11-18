@@ -1,4 +1,4 @@
-import type { PreviewReference } from "../domain/previewReferences";
+import type { ChatReference } from "../domain/previewReferences";
 import {
   createAnnotatedMessage,
   type TextAnnotation,
@@ -262,7 +262,7 @@ export function useConversation() {
   }
   async function send(
     text: string,
-    references: PreviewReference[] = [],
+    references: ChatReference[] = [],
     annotations: TextAnnotation[] = [],
   ) {
     if (

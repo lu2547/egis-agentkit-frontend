@@ -98,13 +98,13 @@ const resources = [
     resource_version: "1.0.0",
     owner_type: "system",
     owner_id: "system",
+    owner_display_name: "系统",
     display_name: "研究方法",
     description: "让复杂问题的调研更有条理。",
     is_usable: true,
     is_editable: false,
     is_installed: false,
     is_enabled: false,
-    is_skill_market_visible: true,
     resource_view_type: "system",
     payload: { markdown: "# 研究方法\n\n先确定问题，再收集资料并核对来源。" },
   },
@@ -120,7 +120,6 @@ const resources = [
     is_editable: true,
     is_installed: true,
     is_enabled: true,
-    is_skill_market_visible: true,
     resource_view_type: "private",
     can_share: true,
     payload: {
@@ -131,6 +130,21 @@ const resources = [
       markdown:
         '---\nname: 报告写作\ndescription: 遵循团队的写作规范，输出清晰文档。\nversion: 1.0.0\n---\n\n# 报告写作\n\n<script>window.badMarkdown=true</script><img src=x onerror="window.badMarkdown=true">\n\n[危险](javascript:alert(1))\n\n## 结构\n\n- 摘要\n- 分析\n- 建议',
     },
+  },
+  {
+    resource_id: "shared-notes",
+    resource_version: "1.0.0",
+    owner_type: "user",
+    owner_id: "publisher",
+    owner_display_name: "李晓",
+    display_name: "会议纪要",
+    description: "记录会议讨论和行动项。",
+    is_usable: true,
+    is_editable: false,
+    is_installed: false,
+    is_enabled: false,
+    resource_view_type: "shared",
+    payload: { markdown: "# 会议纪要\n\n记录会议讨论和行动项。" },
   },
 ];
 const files = [
@@ -534,7 +548,10 @@ createServer(async (req, res) => {
       resource_version: input.resource_version,
       permission_mode: input.permission_mode || "bypass",
       model_key: input.model_key || "test",
-      definition_display_name: "研究分析专家",
+      definition_display_name: input.definition_id === assistant.id
+        ? assistant.agent_display_name : "研究分析专家",
+      collaboration_allowed: input.definition_id === assistant.id,
+      collaborators: [],
       updated_at: date,
     };
     if (
@@ -544,6 +561,31 @@ createServer(async (req, res) => {
       return json(res, { detail: "未找到项目" }, 404);
     tasks.unshift(task);
     messages[task.session_id] = [];
+    return json(res, task);
+  }
+  if (/^\/manager\/tasks\/[^/]+\/collaborators$/.test(p) && req.method === "POST") {
+    const task = tasks.find((item) => item.session_id === p.split("/")[3]);
+    if (!task?.collaboration_allowed)
+      return json(res, { detail: "仅个人助理对话可以邀请专家" }, 403);
+    const { request_id, experts } = await body(req);
+    const collaborators = [];
+    for (const reference of experts) {
+      const expert = definitions.find((definition) =>
+        definition.id === reference.definition_id &&
+        definition.resource_view_type === reference.resource_view_type &&
+        definition.resource_version === reference.resource_version &&
+        definition.is_usable,
+      );
+      if (!expert) return json(res, { detail: "专家不可用" }, 403);
+      collaborators.push({
+        ...reference,
+        display_name: expert.agent_display_name,
+        avatar: expert.payload.avatar,
+        status: "pending",
+      });
+    }
+    task.collaborators = collaborators;
+    task.pending_collaboration_request_id = collaborators.length ? request_id : null;
     return json(res, task);
   }
   if (/^\/manager\/tasks\/[^/]+\/settings$/.test(p) && req.method === "PATCH") {
@@ -811,7 +853,7 @@ createServer(async (req, res) => {
       const resourceId = p.split("/")[3] || input.resource_id;
       const original = skillResources.find(resource => resource.resource_id === resourceId);
       const field = name => input.markdown.match(new RegExp(`^\\s*${name}: *(.+)$`, "m"))?.[1] || "";
-      const saved = { ...(original || skillResources[1]), resource_id: resourceId, resource_version: field("version"), display_name: field("name"), description: field("description"), is_skill_market_visible: input.is_skill_market_visible, payload: { ...original?.payload, markdown: input.markdown, avatar: input.avatar, category: input.category, base_version: input.base_version } };
+      const saved = { ...(original || skillResources[1]), resource_id: resourceId, resource_version: field("version"), display_name: field("name"), description: field("description"), payload: { ...original?.payload, markdown: input.markdown, avatar: input.avatar, category: input.category, base_version: input.base_version } };
       skillResources.push(saved);
       return json(res, saved);
     }

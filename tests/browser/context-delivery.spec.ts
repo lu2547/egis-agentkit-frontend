@@ -18,7 +18,14 @@ test("session @ focuses the searchable panel, offers experts and project files, 
   await expect(page.getByRole("option", { name: /行动计划.md/ })).toBeVisible();
   await search.press("Enter");
   await expect(input).toBeFocused();
-  await expect(input).toHaveValue("【项目文件：artifacts/行动计划.md】 ");
+  await expect(input).toHaveValue("");
+  const file = page.getByRole("button", { name: "定位引用 行动计划.md" });
+  await expect(file).toBeVisible();
+  await file.click();
+  await expect(page.getByRole("tab", { name: "行动计划.md" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "发送消息", exact: true }),
+  ).toBeEnabled();
   await expect(page.locator(".context-picker")).toHaveCount(0);
 });
 
@@ -38,8 +45,9 @@ test("slash searches installed skills in its focused input and Escape does not s
   await expect(page.locator(".context-picker")).toHaveCount(0);
 });
 
-test("context picker presents the display name and inserts the exact file path", async ({
+test("file mentions display a removable chip and deliver the exact project path", async ({
   page,
+  request: api,
 }) => {
   const filename = "report_20261107_223808-a964f31821cf.pdf";
   const reference = `artifacts/scratch/${filename}`;
@@ -47,6 +55,13 @@ test("context picker presents the display name and inserts the exact file path",
     route.fulfill({
       json: {
         items: [
+          {
+            id: "upload",
+            name: "源文件.docx",
+            detail: "源文件.docx",
+            kind: "file",
+            reference: "源文件.docx",
+          },
           {
             id: "report",
             name: filename,
@@ -62,12 +77,50 @@ test("context picker presents the display name and inserts the exact file path",
   );
   await page.goto("/tasks/s1");
   const input = page.locator(".composer textarea");
-  await input.fill("@");
+  await input.fill("请分析 @");
+  const upload = page.getByRole("option", { name: /源文件\.docx/ });
+  await expect(upload.getByText("源文件.docx", { exact: true })).toHaveCount(1);
+  await upload.click();
+  await expect(input).toHaveValue("请分析 ");
+  const remove = page.getByRole("button", { name: "移除引用 源文件.docx" });
+  await remove.click();
+  await expect(remove).toHaveCount(0);
+  await input.fill("请分析 @");
   const option = page.getByRole("option", { name: /年金分析报告\.pdf/ });
   await expect(option).toBeVisible();
   await expect(option).toContainText(reference);
   await option.click();
-  await expect(input).toHaveValue(`【项目文件：${reference}】 `);
+  await expect(input).toHaveValue("请分析 ");
+  await expect(
+    page.getByRole("button", { name: "移除引用 年金分析报告.pdf" }),
+  ).toBeVisible();
+
+  const request = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/chat/") && request.method() === "POST",
+  );
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  const message = (await request).postDataJSON().input;
+  expect(message.content[0].text).toContain(`【项目文件：${reference}】`);
+  expect(message.content[0].text).not.toContain("源文件.docx");
+  await expect(page.locator(".user-message").last()).toContainText("请分析");
+  await expect(page.locator(".user-message").last()).toContainText(
+    "年金分析报告.pdf",
+  );
+  await expect(page.locator(".user-message").last()).not.toContainText(
+    filename,
+  );
+  await expect(
+    page.getByRole("heading", { name: "已完成研究简报" }),
+  ).toBeVisible();
+  const savedHistory = await api.post("http://127.0.0.1:38194/__test/messages", {
+    data: { session_id: "s1", messages: [message] },
+  });
+  expect(savedHistory.ok()).toBe(true);
+  await page.reload();
+  await expect(page.locator(".user-message").last()).toContainText(
+    "年金分析报告.pdf",
+  );
 });
 
 test("old deliveries remain with their original reply and do not follow a new reply", async ({

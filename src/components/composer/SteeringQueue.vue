@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { GripVertical, Pencil, Send, Trash2, Check, X } from "lucide-vue-next";
 import type { SteeringDraft } from "../../composables/useSteeringQueue";
+import { isProjectFileReference } from "../../domain/previewReferences";
 
 const props = defineProps<{
   items: SteeringDraft[];
@@ -26,6 +27,10 @@ function save() {
     emit("edit", editing.value, text.value);
     editing.value = "";
   }
+}
+function draftLabel(item: SteeringDraft) {
+  const files = item.references.filter(isProjectFileReference);
+  return item.text || files.map((file) => file.name).join("、") || "预览批注";
 }
 function drop(event: DragEvent, index: number) {
   event.preventDefault();
@@ -66,12 +71,12 @@ function drop(event: DragEvent, index: number) {
           @keydown.esc.prevent="editing = ''"
         />
         <template v-else
-          ><p>{{ item.text || "预览批注" }}</p>
+          ><p>{{ draftLabel(item) }}</p>
           <small v-if="item.references.length || item.annotations.length"
             >{{
               item.references.length + item.annotations.length
             }}
-            项批注</small
+            项引用或批注</small
           ></template
         >
         <small

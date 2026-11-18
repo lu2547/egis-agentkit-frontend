@@ -8,6 +8,7 @@ import {
   useId,
   watch,
 } from "vue";
+import { useRouter } from "vue-router";
 import {
   Check,
   ChevronLeft,
@@ -25,6 +26,7 @@ import {
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { definitionName } from "../../types/api";
+import { isInvitableExpert } from "../../domain/expertInvitations";
 import type {
   Definition,
   PermissionModeOption,
@@ -33,7 +35,7 @@ import type {
 
 const props = defineProps<{
   definitions?: Definition[];
-  selected?: Definition | null;
+  canInviteExperts?: boolean;
   canManageResources: boolean;
   permissionMode?: string;
   permissionOptions?: PermissionModeOption[];
@@ -42,7 +44,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   "add-files": [];
-  select: [definition: Definition | null];
+  select: [definition: Definition];
   "update:permissionMode": [value: string];
 }>();
 type Category = "files" | "mode" | "experts" | "skills" | "connectors";
@@ -53,6 +55,7 @@ const entries = [
   { id: "skills" as const, label: "技能", icon: WandSparkles },
   { id: "connectors" as const, label: "连接器", icon: Link },
 ];
+const router = useRouter();
 const menuId = useId();
 const trigger = ref<HTMLButtonElement>();
 const menu = ref<HTMLElement>();
@@ -75,7 +78,7 @@ const categoryLabel = computed(
 const filteredDefinitions = computed(() =>
   (props.definitions || []).filter(
     (definition) =>
-      definition.is_usable &&
+      isInvitableExpert(definition) &&
       `${definitionName(definition)} ${definition.payload.description}`
         .toLocaleLowerCase()
         .includes(search.value.toLocaleLowerCase()),
@@ -223,11 +226,18 @@ async function changeResource(resource: Resource) {
   )
     return;
   const kind = category.value;
+  if (kind === "connectors" && !resource.is_installed && !resource.is_authorized) {
+    close();
+    await router.push("/connectors");
+    return;
+  }
   const request = resourceRequest;
   changingResource.value = resource.resource_id;
   resourceError.value = "";
   try {
-    if (resource.is_installed)
+    if (kind === "connectors" && resource.is_installed)
+      await manager.removeInstallation(kind, resource.resource_id);
+    else if (resource.is_installed)
       await manager.toggle(
         kind,
         resource.resource_id,
@@ -247,7 +257,17 @@ async function changeResource(resource: Resource) {
     changingResource.value = "";
   }
 }
-function selectExpert(definition: Definition | null) {
+function resourceActionLabel(resource: Resource) {
+  if (!resource.is_usable) return "未获授权";
+  if (changingResource.value === resource.resource_id) return "处理中…";
+  if (category.value === "connectors") {
+    if (resource.is_installed) return "取消添加";
+    return resource.is_authorized ? "添加" : "去广场授权";
+  }
+  if (!resource.is_installed) return "安装";
+  return resource.is_enabled ? "已启用 · 停用" : "启用";
+}
+function selectExpert(definition: Definition) {
   emit("select", definition);
   closeAndFocus();
 }
@@ -421,67 +441,30 @@ onBeforeUnmount(() => {
                 :aria-label="`搜索${categoryLabel}`"
             /></label>
             <div v-if="category === 'experts'" class="picker-list">
-              <p v-if="!definitions" class="menu-hint">
-                当前对话的专家不可切换
+              <p v-if="!canInviteExperts" class="menu-hint">
+                仅个人助理对话可以邀请专家
               </p>
               <template v-else>
-                <button
-                  v-if="'个人助理'.includes(search)"
-                  type="button"
-                  class="catalog-item"
-                  role="menuitemradio"
-                  :aria-checked="!selected"
-                  @click="selectExpert(null)"
-                >
-                  <span>个人助理</span
-                  ><Check v-if="!selected" :size="14" class="check" />
-                </button>
                 <button
                   v-for="definition in filteredDefinitions"
                   :key="`${definition.id}-${definition.resource_view_type}-${definition.resource_version}`"
                   type="button"
                   class="catalog-item"
-                  role="menuitemradio"
-                  :aria-checked="
-                    selected?.id === definition.id &&
-                    selected.resource_view_type ===
-                      definition.resource_view_type &&
-                    selected.resource_version === definition.resource_version
-                  "
+                  role="menuitem"
                   @click="selectExpert(definition)"
                 >
                   <span class="catalog-name"
                     >{{ definitionName(definition)
                     }}<small>{{ definition.payload.description }}</small></span
-                  ><Check
-                    v-if="
-                      selected?.id === definition.id &&
-                      selected.resource_view_type ===
-                        definition.resource_view_type &&
-                      selected.resource_version === definition.resource_version
-                    "
-                    :size="14"
-                    class="check"
-                  />
+                  >
                 </button>
-                <p
-                  v-if="
-                    !filteredDefinitions.length && !'个人助理'.includes(search)
-                  "
-                  class="menu-hint"
-                >
+                <p v-if="!filteredDefinitions.length" class="menu-hint">
                   没有匹配的专家
                 </p>
               </template>
             </div>
             <div v-else-if="!canManageResources" class="picker-list">
-              <p class="menu-hint">
-                {{
-                  selected
-                    ? "使用此专家预设的技能和连接器"
-                    : "当前对话使用其预设的技能和连接器"
-                }}
-              </p>
+              <p class="menu-hint">当前对话使用其预设的技能和连接器</p>
             </div>
             <div v-else class="picker-list">
               <p v-if="loadingResources" class="menu-hint">加载中…</p>
@@ -504,17 +487,7 @@ onBeforeUnmount(() => {
                 <span class="catalog-name"
                   >{{ resource.display_name
                   }}<small>{{ resource.description }}</small></span
-                ><small class="resource-state">{{
-                  !resource.is_usable
-                    ? "未获授权"
-                    : changingResource === resource.resource_id
-                      ? "处理中…"
-                      : !resource.is_installed
-                        ? "安装"
-                        : resource.is_enabled
-                          ? "已启用 · 停用"
-                          : "启用"
-                }}</small>
+                ><small class="resource-state">{{ resourceActionLabel(resource) }}</small>
               </button>
               <p v-if="resourceError" class="menu-hint" role="alert">
                 {{ resourceError }}

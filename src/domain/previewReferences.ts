@@ -36,6 +36,20 @@ export interface PreviewReference extends PreviewAnchor {
   image: string;
   excerpt: string;
 }
+export interface ProjectFileReference {
+  kind: "file";
+  id: string;
+  projectId: string;
+  path: string;
+  name: string;
+}
+export type ChatReference = PreviewReference | ProjectFileReference;
+
+export function isProjectFileReference(
+  ref: PreviewAnchor | ProjectFileReference,
+): ref is ProjectFileReference {
+  return "kind" in ref && ref.kind === "file";
+}
 export interface PreviewOptions {
   maxCount: number;
   maxTotalBytes: number;
@@ -82,20 +96,26 @@ export function validateReferenceBudget(
   )
     throw new Error("引用图片总大小超过限制，请减少引用页面或框选范围");
 }
-export function getReferenceLabel(ref: PreviewAnchor) {
+export function getReferenceLabel(ref: PreviewAnchor | ProjectFileReference) {
+  if (isProjectFileReference(ref)) return ref.name;
   if (ref.spreadsheet)
     return `${ref.path.split("/").pop()} · ${ref.spreadsheet.sheetName} · ${ref.spreadsheet.ranges.map(cellRangeAddress).join(", ")}`;
   return `${ref.path.split("/").pop()} · 第 ${ref.page} / ${ref.pageCount} 页`;
 }
 export function createReferenceMessage(
   text: string,
-  refs: PreviewReference[],
+  refs: ChatReference[],
 ): Msg {
   if (!refs.length) return UserMsg({ name: "user", content: text });
+  const files = refs.filter(isProjectFileReference);
+  const previews = refs.filter(
+    (ref): ref is PreviewReference => !isProjectFileReference(ref),
+  );
   const created_at = new Date().toISOString();
   const details = refs
-    .map(
-      (ref) =>
+    .map((ref) => {
+      if (isProjectFileReference(ref)) return `【项目文件：${ref.path}】`;
+      return (
         `【文件引用：${ref.path}；${ref.area}；${ref.spreadsheet ? getReferenceLabel(ref) : `第 ${ref.page} / ${ref.pageCount} 页`}；SHA-256=${ref.checksum}】\n` +
         ref.regions
           .map(
@@ -108,18 +128,19 @@ export function createReferenceMessage(
           : "") +
         (ref.regions.length
           ? "\n用户所说的“这里／这句话／这部分”指上述框选区域。修改前按区域坐标与区域文字核对对象；不要把框外标题或整页第一句话当作选中内容。"
-          : ""),
-    )
+          : "")
+      );
+    })
     .join("\n\n");
   const content: ContentBlock[] = [
     {
       id: crypto.randomUUID(),
       type: "text",
-      text: `${text}\n\n${details}`,
+      text: [text, details].filter(Boolean).join("\n\n"),
       created_at,
     },
   ];
-  for (const ref of refs) {
+  for (const ref of previews) {
     const matched = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(
       ref.image,
     );
@@ -142,9 +163,31 @@ export function createReferenceMessage(
     metadata: {
       preview_prompt: text,
       preview_references: JSON.parse(
-        JSON.stringify(refs.map(({ image, excerpt, ...anchor }) => anchor)),
+        JSON.stringify(previews.map(({ image, excerpt, ...anchor }) => anchor)),
       ),
+      ...(files.length
+        ? { project_file_references: files.map((file) => ({ ...file })) }
+        : {}),
     },
+  });
+}
+
+/** 恢复消息引用的项目文件路径和显示名。 */
+export function getMessageProjectFiles(message: Msg): ProjectFileReference[] {
+  const files = message.metadata?.project_file_references;
+  if (!Array.isArray(files)) return [];
+  return files.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const file = value as unknown as ProjectFileReference;
+    if (
+      file.kind !== "file" ||
+      typeof file.id !== "string" ||
+      typeof file.projectId !== "string" ||
+      typeof file.path !== "string" ||
+      typeof file.name !== "string"
+    )
+      return [];
+    return [file];
   });
 }
 /** 历史消息只信任符合当前引用结构的 metadata；普通附件继续使用原有展示。 */

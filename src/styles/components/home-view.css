@@ -31,8 +31,7 @@
   max-width: 720px;
   align-self: center;
 }
-.welcome p,
-.summoning {
+.welcome p {
   font-size: 14px;
   color: var(--muted);
   line-height: 1.8;

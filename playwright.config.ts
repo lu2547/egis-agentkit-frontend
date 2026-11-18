@@ -20,7 +20,8 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: "APP_API_URL=http://127.0.0.1:38194 npm run dev -- --port 5187",
+      command:
+        "APP_API_URL=http://127.0.0.1:38194 AUTH_API_URL=http://127.0.0.1:38194 npm run dev -- --port 5187",
       url: "http://127.0.0.1:5187",
       reuseExistingServer: false,
     },

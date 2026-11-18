@@ -3,6 +3,7 @@ import { computed, onMounted } from "vue";
 import { manager } from "../../api/manager";
 import { useAsyncData } from "../../composables/useAsyncData";
 import AsyncState from "../common/AsyncState.vue";
+import AdminSectionHeader from "./AdminSectionHeader.vue";
 
 const { data, loading, error, load } = useAsyncData(() => manager.definitions("agents"));
 const rows = computed(() =>
@@ -17,9 +18,11 @@ onMounted(load);
 </script>
 
 <template>
-  <RouterLink :to="{ path: '/experts/new', query: { execution: 'remote', returnTo: '/admin/remote-agents' } }">
-    登记第三方专家
-  </RouterLink>
+  <AdminSectionHeader title="第三方专家">
+    <RouterLink :to="{ path: '/experts/new', query: { execution: 'remote', returnTo: '/admin/remote-agents' } }">
+      登记第三方专家
+    </RouterLink>
+  </AdminSectionHeader>
   <AsyncState :loading="loading" :error="error" :empty="!rows.length" empty-title="暂无第三方专家" @retry="load">
     <t-table
       :data="rows"

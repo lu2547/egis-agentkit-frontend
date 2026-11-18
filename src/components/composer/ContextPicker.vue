@@ -126,6 +126,7 @@ function scroll(event: Event) {
         :aria-selected="index === activeIndex"
         :data-context-id="item.id"
         :data-context-index="index"
+        :title="item.kind === 'file' ? item.reference : undefined"
         @mousedown.prevent
         @mouseenter="$emit('highlight', index)"
         @click="$emit('select', index)"
@@ -136,7 +137,13 @@ function scroll(event: Event) {
         <FileTypeIcon v-else :name="item.name" :size="22" />
         <span class="option-text">
           <span>{{ item.display_name || item.name }}</span>
-          <small :title="item.kind === 'file' ? item.detail : undefined">
+          <small
+            v-if="
+              item.detail &&
+              (item.kind !== 'file' ||
+                item.detail !== (item.display_name || item.name))
+            "
+          >
             {{ item.detail }}
           </small>
         </span>

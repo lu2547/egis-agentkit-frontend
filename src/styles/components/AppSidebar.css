@@ -486,6 +486,9 @@
   width: 190px;
   padding: 8px;
 }
+.capability-status {
+  font-size: 10px;
+}
 .conversation-actions {
   display: grid;
   min-width: 160px;

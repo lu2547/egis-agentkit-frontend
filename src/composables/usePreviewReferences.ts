@@ -4,11 +4,13 @@ import { http, errorText } from "../api/http";
 import { workspacePath } from "../api/manager";
 import {
   validateReferenceBudget,
+  isProjectFileReference,
+  type ChatReference,
   type PreviewReference,
   type PreviewOptions,
 } from "../domain/previewReferences";
 export function usePreviewReferences(projectId: Ref<string | undefined>) {
-  const items = ref<PreviewReference[]>([]),
+  const items = ref<ChatReference[]>([]),
     options = ref<PreviewOptions>(),
     error = ref("");
   watch(
@@ -29,13 +31,16 @@ export function usePreviewReferences(projectId: Ref<string | undefined>) {
     },
     { immediate: true },
   );
-  function add(value: PreviewReference) {
+  function add(value: ChatReference) {
     try {
       if (value.projectId !== projectId.value)
-        throw new Error("项目已切换，请重新框选");
-      if (!options.value) throw new Error("引用配置尚未就绪，请稍后重试");
-      validateReferenceBudget([...items.value, value], options.value);
-      items.value = [...items.value, value];
+        throw new Error("项目已切换，请重新选择引用");
+      const next = [
+        ...items.value.filter((item) => item.id !== value.id),
+        value,
+      ];
+      check(next);
+      items.value = next;
       error.value = "";
       return true;
     } catch (e) {
@@ -51,11 +56,17 @@ export function usePreviewReferences(projectId: Ref<string | undefined>) {
     items.value = [];
     error.value = "";
   }
-  function validate() {
-    if (items.value.length) {
+  function check(values: ChatReference[]) {
+    const previews = values.filter(
+      (item): item is PreviewReference => !isProjectFileReference(item),
+    );
+    if (previews.length) {
       if (!options.value) throw new Error("引用配置未就绪");
-      validateReferenceBudget(items.value, options.value);
+      validateReferenceBudget(previews, options.value);
     }
+  }
+  function validate() {
+    check(items.value);
   }
   return { items, error, add, remove, clear, validate };
 }

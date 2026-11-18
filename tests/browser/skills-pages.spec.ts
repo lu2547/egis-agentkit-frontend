@@ -7,6 +7,24 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+for (const [skill, owner] of [
+  ["研究方法", "系统"],
+  ["会议纪要", "李晓"],
+]) {
+  test(`skill catalog and details show ${owner} as the owner of ${skill}`, async ({
+    page,
+  }) => {
+    await page.goto("/skills");
+    const open = page.getByRole("button", { name: `查看${skill}`, exact: true });
+    const card = page.getByTestId("catalog-card").filter({ has: open });
+    await expect(card.getByText(owner, { exact: true })).toBeVisible();
+    await open.click();
+    const details = page.locator(".resource-detail");
+    await expect(details.locator(".markdown")).toBeVisible();
+    await expect(details.getByText(owner, { exact: true })).toBeVisible();
+  });
+}
+
 for (const theme of ["light", "dark"]) {
   test(`skill editing loads original document and retains attachments in ${theme}`, async ({
     page,
@@ -26,6 +44,7 @@ for (const theme of ["light", "dark"]) {
       page.getByRole("heading", { name: "编辑技能", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("在技能广场展示", { exact: false })).toHaveCount(0);
     const document = page.getByRole("textbox", {
       name: "SKILL.md 文档",
       exact: true,
@@ -55,6 +74,7 @@ for (const theme of ["light", "dark"]) {
     expect(body.base_version).toBe("1.0.0");
     expect(body.markdown).toContain("metadata:\n  version: 1.0.1");
     expect(body).not.toHaveProperty("resource_version");
+    expect(body).not.toHaveProperty("is_skill_market_visible");
     await expect(page).toHaveURL("/skills");
   });
 }

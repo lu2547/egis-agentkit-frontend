@@ -2,7 +2,7 @@
 import type { Msg } from "@agentscope-ai/agentscope/message";
 import {
   createReferenceMessage,
-  type PreviewReference,
+  type ChatReference,
 } from "./previewReferences";
 export interface TextAnnotation {
   id: string;
@@ -23,7 +23,7 @@ export interface AnnotationThread {
 /** 与文件引用共用原生消息；注释原文仅是上下文，评论才是需要逐条回应的问题。 */
 export function createAnnotatedMessage(
   text: string,
-  references: PreviewReference[],
+  references: ChatReference[],
   annotations: TextAnnotation[],
 ): Msg {
   const message = createReferenceMessage(text, references);

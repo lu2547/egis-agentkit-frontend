@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useIdentity } from "./composables/useIdentity";
 import WorkbenchLayout from "./layouts/WorkbenchLayout.vue";
+
+const expertCatalog = { path: "/experts", query: { tab: "agent" } };
+
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -19,6 +22,7 @@ export const router = createRouter({
         },
         {
           path: "experts",
+          name: "expert-catalog",
           component: () => import("./views/ExpertCatalogView.vue"),
         },
         {
@@ -29,14 +33,9 @@ export const router = createRouter({
           path: "experts/:definitionId/edit",
           component: () => import("./views/ExpertEditView.vue"),
         },
-        {
-          path: "teams/new",
-          component: () => import("./views/ExpertEditView.vue"),
-        },
-        {
-          path: "teams/:definitionId/edit",
-          component: () => import("./views/ExpertEditView.vue"),
-        },
+        { path: "teams", redirect: expertCatalog },
+        { path: "teams/new", redirect: expertCatalog },
+        { path: "teams/:definitionId/edit", redirect: expertCatalog },
         { path: "skills", component: () => import("./views/SkillsView.vue") },
         {
           path: "skills/new",
@@ -52,6 +51,7 @@ export const router = createRouter({
         },
         {
           path: "connectors",
+          alias: "/connectors/oauth/callback",
           component: () => import("./views/ConnectorsView.vue"),
         },
         { path: "tools", component: () => import("./views/ToolsView.vue") },
@@ -79,6 +79,9 @@ export const router = createRouter({
 });
 
 router.beforeEach((to) => {
+  if (to.name === "expert-catalog" && to.query.tab === "team") {
+    return { ...expertCatalog, replace: true };
+  }
   const { user, isAdmin } = useIdentity();
   if (to.meta.adminOnly && user.value && !isAdmin.value) {
     return { name: "admin-access-denied" };

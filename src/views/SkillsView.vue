@@ -9,6 +9,7 @@ import AsyncState from "../components/common/AsyncState.vue";
 import ResourceCategoryTabs from "../components/catalog/ResourceCategoryTabs.vue";
 import ResourceCard from "../components/catalog/ResourceCard.vue";
 import ResourceDetailDrawer from "../components/catalog/ResourceDetailDrawer.vue";
+import BatchSkillShareDialog from "../components/skills/BatchSkillShareDialog.vue";
 import SkillImportList from "../components/skills/SkillImportList.vue";
 import type { Resource } from "../types/api";
 const { data, loading, error, load } = useAsyncData(() =>
@@ -16,6 +17,10 @@ const { data, loading, error, load } = useAsyncData(() =>
 );
 const router = useRouter();
 const imports = useSkillImports(load);
+const batchShareOpen = ref(false);
+const shareableSkills = computed(() =>
+  (data.value?.items || []).filter((resource) => resource.can_share),
+);
 const filter = ref("all"),
   search = ref(""),
   category = ref("全部"),
@@ -30,9 +35,7 @@ const categories = computed(() => [
 const resources = computed(() =>
   (data.value?.items || []).filter(
     (r) =>
-      (filter.value === "mine"
-        ? r.is_installed
-        : r.is_skill_market_visible !== false) &&
+      (filter.value !== "mine" || r.is_installed) &&
       (category.value === "全部" || r.payload.category === category.value) &&
       `${r.display_name} ${r.description}`
         .toLowerCase()
@@ -69,6 +72,14 @@ function edit(r: Resource) {
       />
       <div class="sm-segment-bar">
         <span class="sm-segment-item sm-segment-item--active">推荐</span>
+        <t-button
+          v-if="shareableSkills.length"
+          class="batch-share-action"
+          variant="outline"
+          size="small"
+          @click="batchShareOpen = true"
+          >批量申请共享</t-button
+        >
       </div>
       <ResourceCategoryTabs v-model="category" :categories="categories" />
       <AsyncState
@@ -97,7 +108,21 @@ function edit(r: Resource) {
       @close="detail = null"
       @edit="edit"
     />
+    <BatchSkillShareDialog
+      :visible="batchShareOpen"
+      title="批量申请共享"
+      submit-label="提交共享申请"
+      :resources="shareableSkills"
+      :submit-batch="manager.shareSkills"
+      @close="batchShareOpen = false"
+      @changed="load"
+    />
   </section>
 </template>
 
 <style scoped src="../styles/components/catalog-page.css"></style>
+<style scoped>
+.batch-share-action {
+  margin-inline-start: auto;
+}
+</style>

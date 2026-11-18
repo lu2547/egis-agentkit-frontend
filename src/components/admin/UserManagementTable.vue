@@ -5,6 +5,8 @@ import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { useAsyncData } from "../../composables/useAsyncData";
 import AsyncState from "../common/AsyncState.vue";
+import AdminSectionHeader from "./AdminSectionHeader.vue";
+import VirtualUserManagement from "./VirtualUserManagement.vue";
 const { data, loading, error, load } = useAsyncData(() =>
   manager.adminList<User>("users"),
 );
@@ -46,6 +48,7 @@ async function save() {
 }
 </script>
 <template>
+  <AdminSectionHeader title="用户" />
   <AsyncState
     :loading="loading"
     :error="error"
@@ -123,4 +126,5 @@ async function save() {
       </div>
     </form></t-dialog
   >
+  <VirtualUserManagement />
 </template>

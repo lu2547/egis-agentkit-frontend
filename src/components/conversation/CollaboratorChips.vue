@@ -12,6 +12,7 @@ defineEmits<{ remove: [member: Collaborator] }>();
     role="region"
     aria-label="协作专家"
   >
+    <span class="collaborator-label">邀请：</span>
     <span
       v-for="member in members"
       :key="`${member.definition_id}:${member.resource_view_type}`"
@@ -21,12 +22,11 @@ defineEmits<{ remove: [member: Collaborator] }>();
     >
       <CatalogAvatar :avatar="member.avatar" :name="member.display_name" />
       <span class="collaborator-name">{{ member.display_name }}</span>
-      <small>{{ member.status === "pending" ? "待协作" : "协作中" }}</small>
       <button
-        v-if="member.status === 'pending'"
+        v-if="member.status === 'pending' || member.worker_session_id"
         type="button"
         :disabled="disabled"
-        :aria-label="`移除待协作专家 ${member.display_name}`"
+        :aria-label="`移除${member.status === 'pending' ? '待' : ''}协作专家 ${member.display_name}`"
         @click="$emit('remove', member)"
       >
         <X :size="12" />

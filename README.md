@@ -4,12 +4,12 @@ Vue 3 + TypeScript + TDesign + Vite。三栏工作台包含任务/原生聊天�
 
 ```sh
 npm ci
-npm run dev
+npm run dev -- --host 127.0.0.1
 ```
 
-默认监听 `5179`，浏览器 `/api` 请求代理到 `http://localhost:38092` 并去掉 `/api`。可用 `APP_API_URL`，或 `API_HOST` + `APP_API_PORT` 指定 App 地址。前端仅连接 `egis-agentkit-app`。
+默认监听 `5179`。`/api/auth/login` 代理到独立认证服务（开发默认 `http://127.0.0.1:38093`，可用 `AUTH_API_URL` 指定），其他 `/api` 请求代理到 AgentKit App（默认 `http://localhost:38092`，可用 `APP_API_URL` 或 `API_HOST` + `APP_API_PORT` 指定）。代理转发时去掉 `/api`。
 
-身份通过 Bearer 传递；演示登录由 App 的 `/auth/login` 显式开启，正式环境需接入组织 JWT。前端不含固定用户或密钥。资源和会话均来自 HTTP；测试夹具只位于 `tests/browser`，不会进入生产构建。
+浏览器把认证服务返回的 JWT 通过 Bearer 交给 App。正式部署按公司认证流程配置网关。资源和会话均来自 HTTP，浏览器测试夹具位于 `tests/browser`。
 
 ```sh
 npm test

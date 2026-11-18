@@ -21,6 +21,11 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5179,
       proxy: {
+        "^/api/auth/login$": {
+          target: env.AUTH_API_URL || "http://127.0.0.1:38093",
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, ""),
+        },
         "/api": {
           target:
             env.APP_API_URL || `http://${host}:${env.APP_API_PORT || "38092"}`,

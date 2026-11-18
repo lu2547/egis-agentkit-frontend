@@ -3,6 +3,9 @@ import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import type { SkillImportJob } from "../types/api";
 
+const ACTIVE_REFRESH_MS = 1500;
+const REVIEW_REFRESH_MS = 10_000;
+
 export function useSkillImports(onCompleted?: () => void | Promise<void>) {
   const jobs = ref<SkillImportJob[]>([]),
     error = ref(""),
@@ -13,13 +16,15 @@ export function useSkillImports(onCompleted?: () => void | Promise<void>) {
     request = 0;
   function schedule() {
     clearTimeout(timer);
-    if (
-      !disposed &&
-      jobs.value.some(
-        (job) => job.status === "queued" || job.status === "running",
-      )
-    )
-      timer = setTimeout(() => void refresh(), 1500);
+    if (disposed) return;
+    const active = jobs.value.some(
+      (job) => job.status === "queued" || job.status === "running",
+    );
+    if (active) {
+      timer = setTimeout(() => void refresh(), ACTIVE_REFRESH_MS);
+    } else if (jobs.value.some((job) => job.status === "pending_approval")) {
+      timer = setTimeout(() => void refresh(), REVIEW_REFRESH_MS);
+    }
   }
   async function refresh() {
     const current = ++request;

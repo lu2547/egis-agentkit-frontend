@@ -30,7 +30,7 @@ test("selection uploads into the current session before sending, refreshes uploa
     });
   });
   await page.goto("/tasks/s1");
-  await expect(page.getByLabel("当前专家", { exact: true })).toContainText(
+  await expect(page.getByLabel("会话助手", { exact: true })).toContainText(
     "研究分析专家",
   );
   const panel = page.locator(".workspace-panel");
@@ -47,7 +47,7 @@ test("selection uploads into the current session before sending, refreshes uploa
     page.getByRole("heading", { name: "已完成研究简报" }),
   ).toBeVisible();
   expect(count).toBe(1);
-  await expect(page.getByLabel("当前专家", { exact: true })).toContainText(
+  await expect(page.getByLabel("会话助手", { exact: true })).toContainText(
     "研究分析专家",
   );
 });

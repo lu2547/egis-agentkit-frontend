@@ -168,7 +168,7 @@ test("markdown is sanitized and user cannot open admin content", async ({
   await expect(
     page.getByRole("heading", { name: "此页面仅管理员可访问" }),
   ).toBeVisible();
-  await expect(page.locator(".admin-tabs")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "管理功能" })).toHaveCount(0);
 });
 
 test("only administrators see Management under More", async ({
@@ -256,27 +256,6 @@ test("management registers a remote expert with a credential reference", async (
   await expect(page).toHaveURL(/\/admin\/remote-agents$/);
 });
 
-test("team edit loads its editable orchestrator configuration", async ({
-  page,
-}) => {
-  await page.goto("/teams/team-1/edit");
-  await expect(page.getByPlaceholder("team_orchestrator")).toHaveValue(
-    "research_leader",
-  );
-  await expect(page.getByPlaceholder("项目主理人")).toHaveValue("研究主理人");
-  await expect(
-    page.getByPlaceholder("描述主理人如何分工、协调和汇总结果"),
-  ).toHaveValue("先分配研究任务，再汇总结论。");
-  await page.screenshot({
-    path: "docs/screenshots/team-edit-desktop.png",
-    fullPage: true,
-  });
-  await page.getByPlaceholder("team_orchestrator").fill("");
-  await page.getByRole("button", { name: "保存专家团", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "请填写有效的主理人英文名称",
-  );
-});
 test("all management pages and creation forms render without application errors", async ({
   page,
 }) => {
@@ -284,7 +263,6 @@ test("all management pages and creation forms render without application errors"
   page.on("pageerror", (error) => errors.push(error.message));
   for (const path of [
     "/experts/new",
-    "/teams/new",
     "/connectors",
     "/experts?tab=personal",
     "/share-requests",
@@ -292,12 +270,16 @@ test("all management pages and creation forms render without application errors"
     "/admin/groups",
     "/admin/grants",
     "/admin/share-reviews",
+    "/admin/skills",
+    "/admin/connectors",
     "/admin/remote-agents",
+    "/admin/reply-feedback",
   ]) {
     await page.goto(path);
-    await expect(
-      page.locator(".page h1, .catalog-header").first(),
-    ).toBeVisible();
+    const header = path.startsWith("/admin/")
+      ? page.getByRole("region", { name: "管理内容" }).getByRole("heading", { level: 2 }).first()
+      : page.locator(".page h1, .catalog-header").first();
+    await expect(header).toBeVisible();
     await expect(page.locator(".empty .t-loading:visible")).toHaveCount(0);
   }
   expect(errors).toEqual([]);
@@ -350,7 +332,7 @@ test("initial skill sharing sends a stable resource and organization group", asy
   const request = page.waitForRequest(
     (r) => r.url().endsWith("/manager/share-requests") && r.method() === "POST",
   );
-  await page.getByRole("button", { name: "申请共享" }).click();
+  await page.getByRole("button", { name: "申请共享", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "申请共享" });
   const submit = dialog.getByRole("button", { name: "提交共享申请" });
   await expect(submit).toBeDisabled();
@@ -368,8 +350,8 @@ test("management grants current access by stable resource and recipient", async 
   page,
 }) => {
   const resource = {
-    resource_type: "mcp",
-    resource_id: "report-connector",
+    resource_type: "skill",
+    resource_id: "report-skill",
     resource_version: "2",
     resource_view_type: "system",
     resource_owner_type: "system",
@@ -380,7 +362,7 @@ test("management grants current access by stable resource and recipient", async 
     route.fulfill({
       json: {
         items: [
-          { ...resource, version_label: "1.1", display_name: "报表连接器" },
+          { ...resource, version_label: "1.1", display_name: "报表技能" },
         ],
       },
     }),
@@ -407,7 +389,7 @@ test("management grants current access by stable resource and recipient", async 
   });
   await expect(submit).toBeDisabled();
   await dialog.getByLabel("资源", { exact: true }).click();
-  await page.getByText("报表连接器 · mcp", { exact: true }).click();
+  await page.getByText("报表技能 · skill", { exact: true }).click();
   await dialog.getByLabel("授权对象").click();
   await page.getByText("分析师（用户 · analyst）", { exact: true }).click();
   const sent = page.waitForRequest(
@@ -417,8 +399,8 @@ test("management grants current access by stable resource and recipient", async 
   );
   await submit.click();
   expect((await sent).postDataJSON()).toEqual({
-    resource_type: "mcp",
-    resource_id: "report-connector",
+    resource_type: "skill",
+    resource_id: "report-skill",
     resource_view_type: "system",
     resource_owner_type: "system",
     resource_owner_id: "platform",
@@ -428,8 +410,8 @@ test("management grants current access by stable resource and recipient", async 
   await expect(
     page.getByRole("columnheader", { name: "版本", exact: true }),
   ).toHaveCount(0);
-  const row = page.getByRole("row").filter({ hasText: "报表连接器" });
-  await expect(row).toContainText("连接器广场 · 管理员直接授权");
+  const row = page.getByRole("row").filter({ hasText: "报表技能" });
+  await expect(row).toContainText("技能广场 · 管理员直接授权");
   await expect(row).toContainText("分析师");
   await expect(row).toContainText("用户 · analyst");
 });
@@ -465,27 +447,53 @@ test("sharing an expert update keeps the current audience without a version pick
   expect(historyRequests).toEqual([]);
 });
 
-test("summoning an expert uses the current displayed edition", async ({
+test("summon and add menu invite experts with their selected versions to a new personal task", async ({
   page,
 }) => {
   await page.goto("/experts");
-  await page.getByRole("button", { name: "查看写作与表达专家" }).click();
-  const detail = page.getByRole("dialog", { name: "写作与表达专家" });
-  await expect(detail.getByText("v1.2", { exact: true })).toBeVisible();
-  await detail.getByRole("button", { name: "召唤", exact: true }).click();
-  await expect(page.getByText("正在与 写作与表达专家 一起工作")).toBeVisible();
+  await page.locator(".catalog-card").filter({ hasText: "写作与表达专家" })
+    .getByRole("button", { name: "召唤", exact: true }).click();
+  const assistant = page.getByLabel("会话助手", { exact: true });
+  await expect(assistant).toContainText("个人助理");
+  const invitations = page.getByRole("region", { name: "协作专家" });
+  await expect(invitations).toContainText("邀请：");
+  await expect(invitations).toContainText("写作与表达专家");
+  const assistantBox = (await assistant.boundingBox())!;
+  expect((await invitations.boundingBox())!.x).toBeGreaterThanOrEqual(
+    assistantBox.x + assistantBox.width,
+  );
+  await page.getByRole("button", { name: "添加资源", exact: true }).click();
+  await page.getByRole("menuitem", { name: "专家", exact: true }).click();
+  await page.getByRole("menu", { name: "专家", exact: true })
+    .getByRole("menuitem", { name: /产品策略顾问/ }).click();
+  await expect(invitations).toContainText("产品策略顾问");
   await page
     .getByPlaceholder("今天帮你做些什么？@ 添加上下文，/调用技能与指令。")
     .fill("起草报告");
-  const sent = page.waitForRequest(
-    (request) =>
-      request.url().endsWith("/manager/tasks") && request.method() === "POST",
-  );
+  const sent: { path: string; body: any }[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && /^\/api\/(manager\/tasks(?:\/[^/]+\/collaborators)?|chat\/)$/u.test(path))
+      sent.push({ path, body: request.postDataJSON() });
+  });
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  expect((await sent).postDataJSON()).toMatchObject({
-    definition_id: "expert-2",
+  await expect(page.getByRole("heading", { name: "已完成研究简报" })).toBeVisible();
+  const sid = new URL(page.url()).pathname.split("/").at(-1);
+  expect(sent.map(({ path }) => path)).toEqual([
+    "/api/manager/tasks", `/api/manager/tasks/${sid}/collaborators`, "/api/chat/",
+  ]);
+  expect(sent[0].body).toMatchObject({
+    definition_id: "personal",
     resource_view_type: "private",
-    resource_version: "3",
+    resource_version: "1",
+  });
+  expect(sent[1].body.experts).toEqual([
+    { definition_id: "expert-2", resource_view_type: "private", resource_version: "3" },
+    { definition_id: "expert-1", resource_view_type: "system", resource_version: "1" },
+  ]);
+  expect(sent[2].body).toMatchObject({
+    session_id: sid,
+    agent_id: "a1",
   });
 });
 

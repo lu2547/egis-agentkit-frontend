@@ -6,7 +6,10 @@ import { createComposerPager } from "../../domain/composerOptions";
 import PreviewReferenceList from "./PreviewReferenceList.vue";
 import TextAnnotationList from "./TextAnnotationList.vue";
 import type { TextAnnotation } from "../../domain/textAnnotations";
-import type { PreviewReference } from "../../domain/previewReferences";
+import type {
+  ChatReference,
+  ProjectFileReference,
+} from "../../domain/previewReferences";
 import AttachmentList from "./AttachmentList.vue";
 import ContextPicker from "./ContextPicker.vue";
 import ModelSelector from "./ModelSelector.vue";
@@ -20,7 +23,6 @@ import type {
   PermissionModeOption,
   ComposerCategory,
 } from "../../types/api";
-import { definitionName } from "../../types/api";
 const props = withDefaults(
   defineProps<{
     modelValue: string;
@@ -28,9 +30,7 @@ const props = withDefaults(
     projectId?: string;
     fileRevision?: number;
     definitions?: Definition[];
-    selected?: Definition | null;
     selectedLabel?: string;
-    selectedAvatar?: unknown;
     models?: ModelOption[];
     modelKey?: string;
     permissionMode?: string;
@@ -45,8 +45,9 @@ const props = withDefaults(
     disabled?: boolean;
     compact?: boolean;
     isPersonal?: boolean;
+    canInviteExperts?: boolean;
     attachments?: File[];
-    references?: PreviewReference[];
+    references?: ChatReference[];
     referenceError?: string;
     annotations?: TextAnnotation[];
   }>(),
@@ -56,13 +57,14 @@ const emit = defineEmits<{
   "update:modelValue": [value: string];
   "update:modelKey": [value: string];
   "update:permissionMode": [value: string];
-  select: [definition: Definition | null];
+  select: [definition: Definition];
   submit: [];
   queue: [];
   stop: [];
   attach: [files: File[]];
   removeAttachment: [index: number];
-  openReference: [value: PreviewReference];
+  addFileReference: [value: ProjectFileReference];
+  openReference: [value: ChatReference];
   removeReference: [id: string];
   updateAnnotation: [id: string, comment: string];
   removeAnnotation: [id: string];
@@ -89,11 +91,8 @@ const availableDefinitions = computed(
 onMounted(async () => {
   if (props.definitions) return;
   try {
-    const [agents, teams] = await Promise.all([
-      manager.definitions("agents"),
-      manager.definitions("teams"),
-    ]);
-    fallbackDefinitions.value = [...agents.items, ...teams.items];
+    const agents = await manager.definitions("agents");
+    fallbackDefinitions.value = agents.items;
   } catch (error) {
     picker.state.error = errorText(error);
   }
@@ -102,9 +101,7 @@ function focusComposer() {
   nextTick(() => composerElement.value?.querySelector("textarea")?.focus());
 }
 const composing = ref(false);
-const canManageResources = computed(
-  () => props.isPersonal || (!props.compact && !props.selected),
-);
+const canManageResources = computed(() => !!props.isPersonal);
 const contextDismissed = ref(false);
 const contextSearch = ref("");
 const contextCategory = ref<ComposerCategory>("context");
@@ -183,14 +180,25 @@ function chooseContext(index: number) {
   const option = contextOptions.value[index],
     token = contextToken.value;
   if (!option || !token) return;
-  if (option.definition) emit("select", option.definition);
+  if (option.definition) {
+    if (!props.canInviteExperts) return;
+    emit("select", option.definition);
+  }
+  if (option.kind === "file") {
+    if (!props.projectId || !option.reference) return;
+    emit("addFileReference", {
+      kind: "file",
+      id: option.id,
+      projectId: props.projectId,
+      path: option.reference,
+      name: option.display_name || option.name,
+    });
+  }
   const text =
-    option.insert_text ??
-    (option.kind === "skill"
-      ? `请使用${option.name}技能 `
-      : option.kind === "file"
-        ? `【项目文件：${option.reference}】 `
-        : "");
+    option.kind === "file"
+      ? ""
+      : (option.insert_text ??
+        (option.kind === "skill" ? `请使用${option.name}技能 ` : ""));
   emit("update:modelValue", props.modelValue.slice(0, token.start) + text);
   contextDismissed.value = true;
   focusComposer();
@@ -266,7 +274,7 @@ defineExpose({ focusComposer });
     <PreviewReferenceList
       :references="references || []"
       removable
-      :disabled="pending || running"
+      :disabled="pending || (running && !steeringEnabled)"
       @open="$emit('openReference', $event)"
       @remove="$emit('removeReference', $event)"
     />
@@ -308,7 +316,7 @@ defineExpose({ focusComposer });
       <div class="composer-tools">
         <ComposerMenu
           :definitions="availableDefinitions"
-          :selected="selected"
+          :can-invite-experts="canInviteExperts"
           :can-manage-resources="canManageResources"
           :permission-mode="permissionMode"
           :permission-options="permissionOptions"
@@ -325,10 +333,10 @@ defineExpose({ focusComposer });
           @update:model-value="$emit('update:permissionMode', $event)"
         />
         <div
-          v-if="selected || selectedLabel"
+          v-if="selectedLabel"
           class="selected"
-          aria-label="当前专家"
-          :title="selected ? definitionName(selected) : selectedLabel"
+          aria-label="会话助手"
+          :title="selectedLabel"
         >
           <img
             v-if="isPersonal"
@@ -336,22 +344,8 @@ defineExpose({ focusComposer });
             src="/brand/sheep-head-v1.png"
             alt=""
           />
-          <CatalogAvatar
-            v-else
-            :avatar="selected?.payload.avatar || selectedAvatar"
-            :name="selected ? definitionName(selected) : selectedLabel"
-          />
-          <span class="selected-name">{{
-            selected ? definitionName(selected) : selectedLabel
-          }}</span
-          ><button
-            v-if="selected && definitions"
-            class="plain"
-            aria-label="移除专家"
-            @click="$emit('select', null)"
-          >
-            <AppIcon name="close" :size="12" />
-          </button>
+          <CatalogAvatar v-else :name="selectedLabel" />
+          <span class="selected-name">{{ selectedLabel }}</span>
         </div>
         <slot name="collaborators" />
       </div>

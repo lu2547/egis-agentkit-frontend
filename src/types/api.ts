@@ -15,12 +15,13 @@ export interface DefinitionVersion {
   resource_view_type: ViewType;
   resource_version: string;
 }
-export interface ResourceBinding {
-  resource_type: "skill" | "mcp" | "tool";
+export type ResourceBinding = {
   resource_id: string;
-  resource_version: string;
   resource_view_type: ViewType;
-}
+} & (
+  | { resource_type: "skill" | "tool"; resource_version: string }
+  | { resource_type: "mcp"; resource_version?: never }
+);
 export interface RemoteAgentConfig {
   transport: "http_sync" | "http_callback" | "websocket";
   protocol_version: "v1";
@@ -85,7 +86,8 @@ export interface Project {
 export interface Collaborator extends DefinitionRef {
   display_name: string;
   status: "pending" | "joined";
-  avatar?: string;
+  worker_session_id?: string;
+  avatar?: string | null;
 }
 export interface Task {
   collaboration_allowed?: boolean;
@@ -111,12 +113,6 @@ export type InstallableCatalog = Exclude<ResourceCatalog, "tools">;
 export type CatalogKind = "skill" | "mcp";
 export type ShareableKind = CatalogKind | "agent" | "team";
 export type ConnectorAuthType = "none" | "api_key" | "oauth";
-export interface ConnectorDependencyAuthorization {
-  resource_id: string;
-  resource_version: string;
-  display_name: string;
-  auth_type: Exclude<ConnectorAuthType, "none">;
-}
 export interface Resource {
   version_label?: string;
   can_share?: boolean;
@@ -124,9 +120,10 @@ export interface Resource {
   has_shared_version?: boolean;
   resource_view_type: ViewType;
   resource_id: string;
-  resource_version: string;
+  resource_version?: string;
   owner_type: string;
   owner_id: string;
+  owner_display_name?: string;
   display_name: string;
   description: string;
   is_usable: boolean;
@@ -135,9 +132,10 @@ export interface Resource {
   is_enabled: boolean;
   is_system_default?: boolean;
   is_agent_tool?: boolean;
-  is_skill_market_visible?: boolean;
   is_available?: boolean;
   auth_type?: ConnectorAuthType | null;
+  is_authorized?: boolean;
+  publication_revision?: number;
   payload: Record<string, unknown>;
 }
 export interface AdminResource extends Resource {
@@ -156,12 +154,11 @@ export interface SkillSaveInput {
   markdown: string;
   category: string;
   avatar: string;
-  is_skill_market_visible: boolean;
   base_version?: string;
 }
 export interface SkillImportJob {
   job_id: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "pending_approval" | "succeeded" | "failed" | "rejected";
   stage: string;
   progress: number;
   filename: string;
@@ -173,7 +170,18 @@ export interface SkillImportJob {
   attempts: number;
   created_at: string;
   updated_at: string;
-  result?: Resource | null;
+  owner_type: "user" | "system";
+  uploader_type: "user" | "admin" | "virtual";
+  uploaded_by?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  result?: { display_name?: string; description?: string } | null;
+}
+export interface VirtualUser {
+  user_id: string;
+  username: string;
+  is_enabled: boolean;
 }
 export interface PermissionModeOption {
   value: string;
@@ -245,6 +253,17 @@ export interface GrantResource {
   resource_owner_id: string;
   display_name: string;
 }
+export const MAX_SKILL_BATCH_SIZE = 50;
+export type SkillGrantReference = Pick<
+  GrantResource,
+  "resource_id" | "resource_owner_id"
+>;
+export type BatchAccessResult =
+  | { id: string; success: true }
+  | { id: string; success: false; status_code: number; detail: string };
+export interface BatchAccessResponse {
+  items: BatchAccessResult[];
+}
 export const principalName = (type: PrincipalType, id: string) =>
   `${type === "group" ? "组织组" : "用户"} · ${id}`;
 
@@ -277,6 +296,11 @@ export function definitionName(d: Definition) {
 }
 export const sourceName = (v: string) =>
   ({ private: "私有", shared: "已共享", system: "系统" })[v] || v;
+export function skillOwnerName(resource: Resource) {
+  return resource.owner_type === "system"
+    ? "系统"
+    : resource.owner_display_name || resource.owner_id;
+}
 
 export type ComposerCategory = "context" | "experts" | "skills" | "commands";
 export interface ComposerOption {

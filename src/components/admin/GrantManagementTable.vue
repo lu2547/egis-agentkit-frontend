@@ -9,6 +9,8 @@ import {
   type ShareTarget,
 } from "../../types/api";
 import AsyncState from "../common/AsyncState.vue";
+import AdminSectionHeader from "./AdminSectionHeader.vue";
+import BatchSkillShareDialog from "../skills/BatchSkillShareDialog.vue";
 
 interface Grant extends ShareTarget {
   id: string;
@@ -70,12 +72,22 @@ const { data, loading, error, load } = useAsyncData(async () => {
   };
 });
 const open = ref(false);
+const batchOpen = ref(false);
 const selectedResource = ref("");
 const selectedRecipient = ref("");
 const pending = ref(false);
 const notice = ref("");
 const grantsById = computed(
   () => new Map(data.value?.grants.map((grant) => [grant.id, grant])),
+);
+const systemSkills = computed(() =>
+  (data.value?.resources || [])
+    .filter(
+      ({ resource }) =>
+        resource.resource_type === "skill" &&
+        resource.resource_view_type === "system",
+    )
+    .map(({ resource, name }) => ({ ...resource, display_name: name })),
 );
 
 onMounted(load);
@@ -142,6 +154,18 @@ async function save() {
   }
 }
 
+function grantSkills(resourceIds: string[], target: ShareTarget) {
+  const skillsById = new Map(
+    systemSkills.value.map((skill) => [skill.resource_id, skill]),
+  );
+  const resources = resourceIds.map((resource_id) => {
+    const skill = skillsById.get(resource_id);
+    if (!skill) throw new Error("技能列表已更新，请重新选择。");
+    return { resource_id, resource_owner_id: skill.resource_owner_id };
+  });
+  return manager.grantSkills(resources, target);
+}
+
 async function revoke(grant: Grant) {
   pending.value = true;
   notice.value = "";
@@ -157,10 +181,16 @@ async function revoke(grant: Grant) {
 </script>
 
 <template>
-  <div class="toolbar">
+  <AdminSectionHeader title="使用授权">
     <t-button theme="primary" @click="openForm">授予使用权限</t-button>
-    <span class="muted">管理员发放的授权立即生效。</span>
-  </div>
+    <t-button
+      variant="outline"
+      :disabled="!systemSkills.length"
+      @click="batchOpen = true"
+    >
+      批量授权技能
+    </t-button>
+  </AdminSectionHeader>
   <div v-if="notice && !open" class="error" role="alert">{{ notice }}</div>
   <AsyncState
     :loading="loading"
@@ -175,7 +205,6 @@ async function revoke(grant: Grant) {
         { colKey: 'principal', title: '授权对象' },
         { colKey: 'resource_id', title: '资源' },
         { colKey: 'resource_type', title: '类型' },
-        { colKey: 'version', title: '版本' },
         { colKey: 'source', title: '来源' },
         { colKey: 'granted_by', title: '操作人' },
         { colKey: 'action', title: '操作', width: 110 },
@@ -260,4 +289,13 @@ async function revoke(grant: Grant) {
       </div>
     </form>
   </t-dialog>
+  <BatchSkillShareDialog
+    :visible="batchOpen"
+    title="批量授权技能"
+    submit-label="授予使用权限"
+    :resources="systemSkills"
+    :submit-batch="grantSkills"
+    @close="batchOpen = false"
+    @changed="load"
+  />
 </template>

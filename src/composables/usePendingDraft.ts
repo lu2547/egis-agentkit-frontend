@@ -1,12 +1,12 @@
-import type { PreviewReference } from "../domain/previewReferences";
+import type { ChatReference } from "../domain/previewReferences";
 const pending = new Map<
   string,
-  { text: string; references: PreviewReference[] }
+  { text: string; references: ChatReference[] }
 >();
 export function queueDraft(
   sessionId: string,
   text: string,
-  references: PreviewReference[] = [],
+  references: ChatReference[] = [],
 ) {
   pending.set(sessionId, { text, references });
 }

@@ -5,12 +5,12 @@ import {
   createAnnotatedMessage,
   type TextAnnotation,
 } from "../domain/textAnnotations";
-import type { PreviewReference } from "../domain/previewReferences";
+import type { ChatReference } from "../domain/previewReferences";
 
 export interface SteeringDraft {
   message: Msg;
   text: string;
-  references: PreviewReference[];
+  references: ChatReference[];
   annotations: TextAnnotation[];
   status: "draft" | "sending" | "failed";
 }
@@ -31,7 +31,7 @@ export function useSteeringQueue(
   );
   function add(
     text: string,
-    references: PreviewReference[] = [],
+    references: ChatReference[] = [],
     annotations: TextAnnotation[] = [],
   ) {
     if (!text.trim() && !references.length && !annotations.length) return false;

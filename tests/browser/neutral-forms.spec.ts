@@ -107,50 +107,38 @@ for (const theme of ["light", "dark"] as const) {
       );
     });
 
-    test("expert and team editors return to their source catalog", async ({
+    test("expert editor returns to its source catalog", async ({
       page,
     }, testInfo) => {
-      for (const [tab, name] of [
-        ["agent", "专家"],
-        ["team", "专家团"],
-      ] as const) {
-        await page.goto(`/experts?tab=${tab}`);
-        await page
-          .getByRole("button", { name: `添加${name}`, exact: true })
-          .click();
-        await expect(
-          page.getByRole("heading", { name: `创建${name}`, exact: true }),
-        ).toBeVisible();
-        const input = page.locator("#definition-name input");
-        await input.focus();
-        await expectNeutral(input.locator(".."));
-        await expectNeutral(
-          page.getByRole("button", { name: `保存${name}`, exact: true }),
-        );
-        await page.screenshot({
-          path: testInfo.outputPath(`create-${tab}-${theme}.png`),
-        });
-        await page
-          .getByRole("button", { name: `返回${name}目录`, exact: true })
-          .click();
-        await expect(page).toHaveURL(`/experts?tab=${tab}`);
-        await page
-          .getByTestId("catalog-card")
-          .filter({
-            has: page.getByRole("button", { name: "编辑", exact: true }),
-          })
-          .first()
-          .getByRole("button", { name: "编辑", exact: true })
-          .click();
-        await expect(
-          page.getByRole("heading", { name: `编辑${name}`, exact: true }),
-        ).toBeVisible();
-        await page.getByRole("button", { name: "取消", exact: true }).click();
-        await expect(page).toHaveURL(`/experts?tab=${tab}`);
-      }
-      await page.goto("/teams/new");
+      await page.goto("/experts?tab=agent");
+      await page.getByRole("button", { name: "添加专家", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "创建专家", exact: true }),
+      ).toBeVisible();
+      const input = page.locator("#definition-name input");
+      await input.focus();
+      await expectNeutral(input.locator(".."));
+      await expectNeutral(
+        page.getByRole("button", { name: "保存专家", exact: true }),
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`create-agent-${theme}.png`),
+      });
+      await page.getByRole("button", { name: "返回专家目录", exact: true }).click();
+      await expect(page).toHaveURL("/experts?tab=agent");
+      await page
+        .getByTestId("catalog-card")
+        .filter({
+          has: page.getByRole("button", { name: "编辑", exact: true }),
+        })
+        .first()
+        .getByRole("button", { name: "编辑", exact: true })
+        .click();
+      await expect(
+        page.getByRole("heading", { name: "编辑专家", exact: true }),
+      ).toBeVisible();
       await page.getByRole("button", { name: "取消", exact: true }).click();
-      await expect(page).toHaveURL("/experts?tab=team");
+      await expect(page).toHaveURL("/experts?tab=agent");
     });
 
     test("skill editor shares form actions and returns to skills", async ({
@@ -165,7 +153,6 @@ for (const theme of ["light", "dark"] as const) {
       const form = page.locator(".edit-content");
       await form.getByRole("textbox", { name: "技能 ID", exact: true }).focus();
       await expectNeutral(form.locator(".t-input--focused"));
-      await expectNeutral(form.locator(".t-checkbox__input"));
       await expectNeutral(
         form.getByRole("button", { name: "发布版本", exact: true }),
       );
@@ -182,22 +169,22 @@ for (const theme of ["light", "dark"] as const) {
     test("connector and administration dialogs inherit the gray palette", async ({
       page,
     }) => {
-      await page.route("**/api/manager/connectors", (route) =>
+      await page.route("**/api/manager/admin/resources/mcp", (route) =>
         route.fulfill({
           json: {
             items: [
               {
                 resource_id: "test-mcp",
-                resource_version: "1.0.0",
+                publication_revision: 2,
                 display_name: "测试连接器",
                 description: "连接器配置",
-                owner_type: "user",
-                owner_id: "demo",
-                resource_view_type: "private",
+                owner_type: "system",
+                owner_id: "system",
+                resource_view_type: "system",
+                is_available: true,
                 is_usable: true,
                 is_editable: true,
-                is_installed: true,
-                is_enabled: true,
+                auth_type: "none",
                 payload: {
                   config: {
                     transport: "streamable_http",
@@ -209,9 +196,9 @@ for (const theme of ["light", "dark"] as const) {
           },
         }),
       );
-      await page.goto("/connectors");
+      await page.goto("/admin/connectors");
       await page
-        .getByTestId("catalog-card")
+        .getByRole("article", { name: "测试连接器", exact: true })
         .getByRole("button", { name: "编辑", exact: true })
         .click();
       const connector = page.getByRole("dialog");
