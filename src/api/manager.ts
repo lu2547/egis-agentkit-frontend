@@ -100,6 +100,12 @@ export const manager = {
   },
   expertCatalog: (params: CatalogQuery, signal: AbortSignal) =>
     catalogPage<Definition>("agents", params, signal),
+  setExpertCandidate: (definitionId: string, view: ViewType, selected: boolean) =>
+    http<void>(
+      `/manager/agents/${id(definitionId)}/invite-candidate`,
+      { method: selected ? "PUT" : "DELETE" },
+      { view },
+    ),
   resourceCatalog: (kind: ResourceCatalog, params: CatalogQuery, signal: AbortSignal) =>
     catalogPage<Resource>(kind, params, signal),
   definition: (

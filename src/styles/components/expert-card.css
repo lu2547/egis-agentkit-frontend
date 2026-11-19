@@ -1,4 +1,5 @@
 .catalog-card {
+  position: relative;
   min-width: 0;
   height: 156px;
   box-sizing: border-box;
@@ -16,6 +17,32 @@
 .catalog-card:hover {
   border-color: var(--border-hover);
   box-shadow: var(--card-shadow-hover);
+}
+.candidate-toggle {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-end: 14px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.candidate-toggle:hover,
+.candidate-toggle[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+}
+.candidate-toggle:disabled {
+  cursor: wait;
+}
+.candidate-toggle + .card-open .card-heading {
+  padding-inline-end: 32px;
 }
 .card-open {
   text-align: left;

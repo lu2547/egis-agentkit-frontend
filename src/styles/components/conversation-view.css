@@ -12,6 +12,25 @@
   flex-direction: column;
   height: 100%;
 }
+.collaborator-windows-anchor {
+  position: relative;
+  flex: none;
+  height: 0;
+}
+.collaborator-windows {
+  position: absolute;
+  z-index: 12;
+  inset-block-start: 8px;
+  inset-inline-end: 12px;
+  width: min(244px, calc(100% - 24px));
+  max-height: min(56dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  border-radius: 9px;
+  box-shadow: var(--shadow);
+}
 .runtime-row {
   padding: 8px 23px;
   display: flex;

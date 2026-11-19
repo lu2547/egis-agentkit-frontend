@@ -17,6 +17,7 @@ import {
   sameExpert,
 } from "../domain/expertInvitations";
 import CollaboratorChips from "../components/conversation/CollaboratorChips.vue";
+import CollaboratorWindow from "../components/conversation/CollaboratorWindow.vue";
 import ConversationTopbar from "../components/layout/ConversationTopbar.vue";
 import { useRuntimeOptions } from "../composables/useRuntimeOptions";
 import { useConversation } from "../composables/useConversation";
@@ -516,6 +517,16 @@ const artifactsByReply = computed(() =>
         @update:search-query="searchQuery = $event"
         @search-next="searchNext"
       />
+      <div v-if="conversation.collaboratorProgress.value.size" class="collaborator-windows-anchor">
+        <div class="collaborator-windows" aria-label="专家运行进度">
+          <CollaboratorWindow
+            v-for="[id, progress] in conversation.collaboratorProgress.value"
+            :key="`${sid}:${id}`"
+            :progress="progress"
+            @file="openFile($event, 'work')"
+          />
+        </div>
+      </div>
       <div v-if="runtime.error.value" class="error" role="alert">
         {{ runtime.error.value }}
       </div>

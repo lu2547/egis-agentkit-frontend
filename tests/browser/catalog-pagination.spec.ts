@@ -42,6 +42,38 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+test("expert candidate checkbox persists independently of single summon", async ({ page }) => {
+  let selected = false;
+  const writes: string[] = [];
+  await page.route(/\/manager\/agents(?:\?|$)/, (route) =>
+    route.fulfill({
+      json: {
+        items: [{ ...entry(1, "专家"), is_invite_candidate: selected }],
+        next_cursor: null,
+      },
+    }),
+  );
+  await page.route(/\/manager\/agents\/catalog-1\/invite-candidate\?/, (route) => {
+    expect(new URL(route.request().url()).searchParams.get("view")).toBe("system");
+    writes.push(route.request().method());
+    selected = route.request().method() === "PUT";
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/experts");
+  const card = page.getByTestId("catalog-card");
+  const toggle = card.getByRole("button", { name: "自动邀请候选" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await card.getByRole("button", { name: "召唤", exact: true }).click();
+  await expect(page).toHaveURL(/\bdefinition=catalog-1\b/);
+  expect(writes).toEqual(["PUT", "DELETE"]);
+});
+
 for (const [path, kind, label] of catalogs) {
   test(`${kind} catalog appends one page per scroll to the bottom`, async ({
     page,

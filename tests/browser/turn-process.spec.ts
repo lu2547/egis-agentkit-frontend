@@ -36,6 +36,119 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+test("expert progress stacks at the top right after the assistant finishes", async ({
+  page,
+  request,
+}) => {
+  const worker = {
+    worker_session_id: "skills-worker",
+    worker_agent_id: "skills-agent",
+    display_name: "Skills 助手",
+    status: "running",
+    reply_id: "skills-reply",
+    revision: 1,
+    activities: [{ id: "create", name: "CreateSkill", state: "running" }],
+  };
+  const other = {
+    ...worker,
+    worker_session_id: "document-worker",
+    display_name: "文档专家",
+    activities: [{ id: "read", name: "Read", state: "running" }],
+  };
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：专家协作");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.locator(".process-heading")).toBeVisible();
+  await emit(request, [
+    { type: "REPLY_END", finished_reason: "completed" },
+    { type: "CUSTOM", name: "collaborator_progress", value: worker },
+    { type: "CUSTOM", name: "collaborator_progress", value: other },
+  ]);
+  const first = page.getByRole("region", { name: "Skills 助手", exact: true });
+  const second = page.getByRole("region", { name: "文档专家", exact: true });
+  const running = first.getByRole("status");
+  const spinner = running.locator("svg");
+  const activeTool = first.getByText("创建技能");
+  await expect(activeTool).toBeVisible();
+  await expect(activeTool).toHaveCSS("animation-name", "activity-shimmer");
+  await expect(spinner).toHaveCSS("animation-name", /^collaborator-spin/);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(spinner).toHaveCSS("animation-name", "none");
+  await expect(activeTool).toHaveCSS("animation-name", "none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(second.getByText("读取文件")).toBeVisible();
+  const top = (await first.boundingBox())!;
+  const bottom = (await second.boundingBox())!;
+  const chat = (await page.locator(".chat-column").boundingBox())!;
+  expect(top.y - chat.y).toBeLessThan(85);
+  expect(chat.x + chat.width - top.x - top.width).toBeLessThan(25);
+  expect(top.width).toBeLessThanOrEqual(260);
+  expect(bottom.y).toBeGreaterThanOrEqual(top.y + top.height);
+  await first.getByRole("button", { name: "缩小专家窗口" }).click();
+  await expect(spinner).toBeVisible();
+  await expect(first.getByText("创建技能")).toBeHidden();
+  await expect(second.getByText("读取文件")).toBeVisible();
+  await page.route("**/api/sessions/skills-worker/messages?**", (route) => {
+    expect(new URL(route.request().url()).searchParams.get("agent_id")).toBe("skills-agent");
+    const timestamp = new Date().toISOString();
+    return route.fulfill({ json: {
+      event_cursor: null,
+      is_running: false,
+      has_more: false,
+      messages: [{
+        id: "skills-reply", role: "assistant", name: "skills-assistant",
+        created_at: timestamp, finished_at: timestamp,
+        content: [
+          {
+            id: "answer",
+            type: "text",
+            created_at: timestamp,
+            text: "## 登记结果\n\n周报技能已登记。\n\n- **交付物** `artifacts/weekly-report/SKILL.md`",
+          },
+        ],
+      }],
+    } });
+  });
+  await emit(request, [{
+    type: "CUSTOM", name: "collaborator_progress",
+    value: { ...worker, revision: 2, status: "completed" },
+  }]);
+  await expect(first.getByText("已完成")).toBeVisible();
+  await expect(spinner).toHaveCount(0);
+  await first.getByRole("button", { name: "展开专家窗口" }).click();
+  await expect(first.getByText("周报技能已登记。")).toBeVisible();
+  const titleSize = await first
+    .locator(".worker-name")
+    .evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+  for (const text of [
+    "登记结果",
+    "周报技能已登记。",
+    "交付物",
+    "artifacts/weekly-report/SKILL.md",
+  ]) {
+    const size = await first
+      .getByText(text, { exact: true })
+      .evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+    expect(size, text).toBeLessThan(titleSize);
+  }
+  await page.route("**/api/manager/tasks/s1", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: {
+      ...(await response.json()),
+      collaborator_progress: [{ ...worker, revision: 2, status: "completed" }, other],
+    } });
+  });
+  await page.reload();
+  await expect(first.getByRole("button", { name: "展开专家窗口" })).toBeVisible();
+  await expect(second.getByText("读取文件")).toBeVisible();
+  await emit(request, [{
+    type: "CUSTOM", name: "collaborator_progress_removed",
+    value: { worker_session_id: other.worker_session_id },
+  }]);
+  await expect(second).toHaveCount(0);
+});
+
 test("the active Skill activity shows the catalog display name", async ({
   page,
   request,

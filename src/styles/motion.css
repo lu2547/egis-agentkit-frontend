@@ -5,7 +5,7 @@
   --motion-layout: 280ms;
   --motion-exit: 160ms;
   --motion-scroll: 160ms;
-  --motion-activity: 1.4s;
+  --motion-activity: 2.1s;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -24,6 +24,8 @@
     var(--activity-highlight) 50%,
     var(--activity-muted) 65%
   );
+  background-color: var(--activity-muted);
+  background-repeat: no-repeat;
   background-size: 250% 100%;
   background-clip: text;
   -webkit-background-clip: text;
@@ -32,10 +34,12 @@
 }
 @keyframes activity-shimmer {
   from {
-    background-position: 100% 0;
+    background-position: 120% 0;
   }
+  /* 扫过 1.6 秒后保持在文字外侧，留出 0.5 秒间隔。 */
+  76.190476%,
   to {
-    background-position: -100% 0;
+    background-position: -20% 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

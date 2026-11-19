@@ -25,6 +25,8 @@ const mine = ref(false),
   notice = ref(""),
   shareSource = ref<Definition | null>(null),
   shareUpdate = ref(false);
+const candidatePending = ref(new Set<string>());
+const candidateError = ref("");
 const enabled = computed(() => kind.value === "agent");
 watch(kind, () => {
   category.value = "全部";
@@ -40,6 +42,26 @@ const {
   (expert) => `${expert.id}-${expert.resource_view_type}-${expert.resource_version}`,
   { search, category, mine, enabled },
 );
+function candidateKey(expert: Definition) {
+  return `${expert.id}:${expert.resource_view_type}`;
+}
+async function toggleCandidate(expert: Definition) {
+  const key = candidateKey(expert);
+  if (candidatePending.value.has(key)) return;
+  candidatePending.value.add(key);
+  candidateError.value = "";
+  const selected = !expert.is_invite_candidate;
+  try {
+    await manager.setExpertCandidate(expert.id, expert.resource_view_type, selected);
+    experts.value = experts.value.map((item) =>
+      candidateKey(item) === key ? { ...item, is_invite_candidate: selected } : item,
+    );
+  } catch (cause) {
+    candidateError.value = errorText(cause);
+  } finally {
+    candidatePending.value.delete(key);
+  }
+}
 function summon(d: Definition, prompt?: string) {
   if (!d.is_usable) return;
   router.push({
@@ -102,6 +124,7 @@ function edit(d: Definition) {
     >
     <div class="catalog-toolbar"></div>
     <ResourceCategoryTabs v-model="category" :categories="categories" />
+    <div v-if="candidateError" class="error" role="alert">{{ candidateError }}</div>
     <div v-if="notice" class="notice" role="status">
       {{ notice
       }}<button class="plain" aria-label="关闭提示" @click="notice = ''">
@@ -120,9 +143,11 @@ function edit(d: Definition) {
           v-for="definition in experts"
           :key="`${definition.id}-${definition.resource_view_type}-${definition.resource_version}`"
           :definition="definition"
+          :candidate-pending="candidatePending.has(candidateKey(definition))"
           @detail="openDetail(definition)"
           @summon="summon(definition)"
           @edit="edit(definition)"
+          @toggle-candidate="toggleCandidate(definition)"
         /></div></AsyncState
     >
     <CatalogLoadMore

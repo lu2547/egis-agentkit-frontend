@@ -65,6 +65,10 @@ test("running tasks show a spinner, latest activity shimmers and background comp
     "animation-name",
     /activity-shimmer/,
   );
+  await expect(page.locator(".running-shimmer")).toHaveCSS(
+    "background-repeat",
+    "no-repeat",
+  );
   await page
     .getByRole("link", { name: "新建任务", exact: true })
     .first()

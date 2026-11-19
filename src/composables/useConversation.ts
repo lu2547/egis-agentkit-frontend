@@ -21,11 +21,29 @@ import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import { useChatStream } from "./useChatStream";
 import { useIdentity } from "./useIdentity";
-import type { Task, TaskSettings, ReplyFeedbackState } from "../types/api";
+import type {
+  CollaboratorProgress,
+  Task,
+  TaskSettings,
+  ReplyFeedbackState,
+} from "../types/api";
 import type { Msg } from "@agentscope-ai/agentscope/message";
 import { useTaskActivity } from "./useTaskActivity";
 export function useConversation() {
   const activity = useTaskActivity();
+  const collaboratorProgress = shallowRef(new Map<string, CollaboratorProgress>());
+  const removedCollaborators = new Set<string>();
+  function mergeCollaboratorProgress(entries: CollaboratorProgress[]) {
+    const progress = new Map(collaboratorProgress.value);
+    for (const entry of entries) {
+      const id = entry.worker_session_id;
+      if (!removedCollaborators.has(id) &&
+          (progress.get(id)?.revision ?? 0) < entry.revision) {
+        progress.set(id, entry);
+      }
+    }
+    collaboratorProgress.value = progress;
+  }
   const replyFeedback = ref<Record<string, ReplyFeedbackState>>({});
   const task = shallowRef<Task | null>(null),
     state = shallowRef(new ConversationEvents()),
@@ -130,6 +148,7 @@ export function useConversation() {
       void refreshRunState();
   });
   watch(stream.connection, (connection, previous) => {
+    if (lease && connection === "connected") void refreshMetadata(lease);
     if (lease && (connection === "failed" || connection === "retrying"))
       activity.clearReplyEnd(lease.key);
     if (
@@ -153,6 +172,19 @@ export function useConversation() {
         if (!scope.owns(current)) return;
         ++eventGeneration;
         if (!state.value.apply(event)) return;
+        if (event.type === EventType.CUSTOM) {
+          if (event.name === "collaborator_progress") {
+            mergeCollaboratorProgress([event.value as unknown as CollaboratorProgress]);
+          } else if (event.name === "collaborator_progress_removed") {
+            const id = event.value.worker_session_id;
+            if (typeof id === "string") {
+              removedCollaborators.add(id);
+              const progress = new Map(collaboratorProgress.value);
+              progress.delete(id);
+              collaboratorProgress.value = progress;
+            }
+          }
+        }
         const replyEnded =
           event.type === EventType.REPLY_END && state.value.phase === "idle";
         if (replyEnded)
@@ -173,8 +205,10 @@ export function useConversation() {
     const request = ++metadataGeneration;
     try {
       const selected = await manager.task(current.key, current.signal);
-      if (scope.owns(current) && request === metadataGeneration)
+      if (scope.owns(current) && request === metadataGeneration) {
         task.value = selected;
+        mergeCollaboratorProgress(selected.collaborator_progress ?? []);
+      }
     } catch (e) {
       if (scope.owns(current) && request === metadataGeneration)
         error.value = errorText(e);
@@ -212,6 +246,8 @@ export function useConversation() {
   }
   function clear() {
     replyFeedback.value = {};
+    collaboratorProgress.value = new Map();
+    removedCollaborators.clear();
     scope.dispose();
     stream.stop();
     task.value = null;
@@ -233,6 +269,7 @@ export function useConversation() {
       const selected = await manager.task(sid, current.signal);
       if (!scope.owns(current)) return;
       task.value = selected;
+      mergeCollaboratorProgress(selected.collaborator_progress ?? []);
       // 单次批量读取，不为历史中的每条回答各发一个请求；反馈状态失败不阻断聊天。
       void manager
         .listReplyFeedback(sid, current.signal)
@@ -446,6 +483,7 @@ export function useConversation() {
   }
   onScopeDispose(clear);
   return {
+    collaboratorProgress,
     replyFeedback,
     task,
     state,

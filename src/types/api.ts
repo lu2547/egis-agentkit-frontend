@@ -46,6 +46,7 @@ export interface DefinitionPayload {
   remote_config?: RemoteAgentConfig | null;
 }
 export interface Definition {
+  is_invite_candidate?: boolean;
   version_label?: string;
   can_share?: boolean;
   can_share_update?: boolean;
@@ -89,7 +90,17 @@ export interface Collaborator extends DefinitionRef {
   worker_session_id?: string;
   avatar?: string | null;
 }
+export interface CollaboratorProgress {
+  worker_session_id: string;
+  worker_agent_id: string;
+  display_name: string;
+  reply_id?: string;
+  revision: number;
+  status: "queued" | "running" | "waiting" | "completed" | "failed" | "interrupted";
+  activities: { id: string; name: string; state: string }[];
+}
 export interface Task {
+  collaborator_progress?: CollaboratorProgress[];
   collaboration_allowed?: boolean;
   pending_collaboration_request_id?: string | null;
   collaborators?: Collaborator[];
