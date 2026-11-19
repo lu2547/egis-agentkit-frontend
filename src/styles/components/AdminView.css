@@ -30,9 +30,37 @@
 
 .admin-sidebar-title h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.4;
   font-weight: 600;
+}
+
+.admin-navigation {
+  position: relative;
+}
+
+.admin-navigation-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--hover);
+  pointer-events: none;
+  transition:
+    transform var(--motion-normal) var(--ease-in-out),
+    width var(--motion-normal) var(--ease-in-out),
+    height var(--motion-normal) var(--ease-in-out);
+}
+
+.admin-navigation-indicator::before {
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: "";
 }
 
 .admin-navigation ul {
@@ -62,27 +90,19 @@
   font-size: 14px;
   line-height: 1.4;
   white-space: nowrap;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
 }
 
-.admin-navigation a:hover,
-.admin-navigation a[aria-current="page"] {
+.admin-navigation a:hover:not([aria-current="page"]) {
   background: var(--hover);
   color: var(--text);
 }
 
 .admin-navigation a[aria-current="page"] {
-  border-color: var(--border);
+  color: var(--text);
   font-weight: 600;
-}
-
-.admin-navigation a[aria-current="page"]::before {
-  position: absolute;
-  inset-block: 10px;
-  inset-inline-start: 0;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  content: "";
 }
 
 .admin-content {
@@ -94,17 +114,14 @@
 .admin-content-inner {
   max-width: 1280px;
   margin-inline: auto;
+  animation: surface-arrive var(--motion-normal) var(--ease-out);
 }
 
-.admin-content-inner :deep(.t-table) {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: auto;
-}
-
-.admin-content-inner :deep(.t-table th) {
-  background: var(--surface);
-  font-weight: 600;
+.admin-content :deep(.admin-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .admin-denied {

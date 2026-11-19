@@ -130,6 +130,8 @@ export function useConversation() {
       void refreshRunState();
   });
   watch(stream.connection, (connection, previous) => {
+    if (lease && (connection === "failed" || connection === "retrying"))
+      activity.clearReplyEnd(lease.key);
     if (
       connection === "failed" ||
       connection === "retrying" ||
@@ -150,10 +152,12 @@ export function useConversation() {
       (event: AgentEvent) => {
         if (!scope.owns(current)) return;
         ++eventGeneration;
-        state.value.apply(event);
-        if (event.type === EventType.REPLY_END && state.value.phase === "idle")
+        if (!state.value.apply(event)) return;
+        const replyEnded =
+          event.type === EventType.REPLY_END && state.value.phase === "idle";
+        if (replyEnded)
           pendingInputId = null;
-        publish();
+        publish(replyEnded);
         if (
           event.type === EventType.CUSTOM &&
           ["session_updated", "state_updated"].includes(event.name)
@@ -199,8 +203,8 @@ export function useConversation() {
       if (scope.owns(current)) settingsPending.value = false;
     }
   }
-  function publish() {
-    if (task.value) activity.mark(task.value, state.value.phase);
+  function publish(replyEnded = false) {
+    if (task.value) activity.mark(task.value, state.value.phase, replyEnded);
     state.value = Object.assign(
       Object.create(Object.getPrototypeOf(state.value)),
       state.value,

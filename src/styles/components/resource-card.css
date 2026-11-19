@@ -139,12 +139,73 @@
   stroke-width: 1.5;
 }
 
-.sm-add-btn-slot {
+.sm-card-more {
   position: absolute;
-  top: 0;
-  right: 0;
+  inset-block-start: 0;
+  inset-inline-end: 0;
   z-index: 2;
-  display: inline-flex;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sm-card-more:hover,
+.sm-card-more[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.sm-skill-menu {
+  display: grid;
+  min-width: 106px;
+}
+
+.sm-skill-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sm-skill-menu button:not(:disabled):hover {
+  background: var(--hover);
+}
+
+.sm-skill-menu button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.skill-card-footer > span:first-child {
+  flex-shrink: 0;
+}
+
+.skill-card-owner {
+  min-width: 0;
+  margin-inline-end: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill-card-footer > button {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
 }
 
 .sm-add-btn {

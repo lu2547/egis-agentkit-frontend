@@ -295,9 +295,10 @@ test("late resource response cannot replace the active category", async ({
 test("an unauthorized connector in the composer opens the marketplace instead of installing", async ({
   page,
 }) => {
-  await page.route("**/manager/connectors", (route) =>
+  await page.route(/\/manager\/connectors(?:\?|$)/, (route) =>
     route.fulfill({
       json: {
+        next_cursor: null,
         items: [{
           resource_id: "company-files",
           display_name: "公司文件",

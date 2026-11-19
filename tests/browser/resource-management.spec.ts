@@ -26,9 +26,11 @@ test("canceling a skill selection keeps its marketplace card available for selec
   page,
 }) => {
   let installed = true;
-  await page.route("**/manager/skills", (route) =>
+  await page.route(/\/manager\/skills\?/, (route) =>
     route.fulfill({
       json: {
+        next_cursor: null,
+        categories: ["办公协同"],
         items: [
           {
             ...tool,
@@ -49,7 +51,8 @@ test("canceling a skill selection keeps its marketplace card available for selec
     return route.fulfill({ status: 204 });
   });
   await page.goto("/skills");
-  await page.getByRole("button", { name: "取消选用", exact: true }).click();
+  await page.getByRole("button", { name: "报告技能的技能操作" }).click();
+  await page.getByRole("menuitem", { name: "取消选用", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "安装报告技能", exact: true }),
   ).toBeVisible();
@@ -57,7 +60,7 @@ test("canceling a skill selection keeps its marketplace card available for selec
     page.getByRole("button", { name: "查看报告技能", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "取消选用", exact: true }),
+    page.getByRole("menuitem", { name: "取消选用", exact: true }),
   ).toHaveCount(0);
 });
 
@@ -72,15 +75,16 @@ test("tools catalog displays public and expert tools with read-only details", as
     is_agent_tool: true,
     is_usable: false,
   };
-  const internal = {
-    ...tool,
-    resource_id: "Internal",
-    display_name: "内部工具",
-    payload: { exposure: "internal" },
-  };
-  await page.route("**/manager/tools", (route) =>
-    route.fulfill({ json: { items: [defaultTool, report, internal] } }),
-  );
+  await page.route(/\/manager\/tools\?/, (route) => {
+    const category = new URL(route.request().url()).searchParams.get("category");
+    return route.fulfill({
+      json: {
+        items: category === "专家工具" ? [report] : [defaultTool, report],
+        next_cursor: null,
+        categories: ["系统默认", "专家工具"],
+      },
+    });
+  });
   await page.route("**/manager/tools/Report?version=1.0.0", (route) =>
     route.fulfill({ json: report }),
   );
@@ -117,14 +121,26 @@ test("resource management excludes tools", async ({ page }) => {
   ).toHaveCount(0);
 });
 
-test("users authorize a company connector, then add and cancel it separately", async ({
+test("users authorize a company connector in another tab, then add and cancel it separately", async ({
+  context,
   page,
 }) => {
   let authorized = false;
   let installed = false;
-  await page.route("**/manager/connectors", (route) =>
+  const provider = "http://localhost:5187/test-oauth/authorize";
+  const callback =
+    "http://127.0.0.1:5187/connectors/oauth/callback?state=one&code=provider-code";
+  await context.route(provider, (route) =>
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      headers: { "Cross-Origin-Opener-Policy": "same-origin" },
+      body: `<a href="${callback}">同意授权</a>`,
+    }),
+  );
+  await context.route(/\/manager\/connectors\?/, (route) =>
     route.fulfill({
       json: {
+        next_cursor: null,
         items: [{
           resource_id: "files",
           display_name: "文档连接器",
@@ -143,13 +159,14 @@ test("users authorize a company connector, then add and cancel it separately", a
     expect(route.request().method()).toBe("POST");
     return route.fulfill({
       json: {
-        authorization_url: "http://127.0.0.1:5187/connectors/oauth/callback?state=one&code=provider-code",
+        authorization_url: provider,
         state: "one",
       },
     });
   });
-  await page.route("**/manager/connectors/files/authorization/callback", (route) => {
+  await context.route("**/manager/connectors/files/authorization/callback", (route) => {
     expect(route.request().method()).toBe("POST");
+    expect(route.request().headers().authorization).toBe("Bearer test-only");
     expect(route.request().postDataJSON()).toEqual({ state: "one", code: "provider-code" });
     authorized = true;
     return route.fulfill({ json: { authorized } });
@@ -168,9 +185,16 @@ test("users authorize a company connector, then add and cancel it separately", a
   await page.goto("/connectors");
   const card = page.getByTestId("catalog-card");
   await expect(card.getByRole("button", { name: "添加", exact: true })).toHaveCount(0);
+  const newTab = context.waitForEvent("page", { timeout: 5_000 });
   await card.getByRole("button", { name: "授权", exact: true }).click();
+  const authorizationTab = await newTab;
+  await expect(authorizationTab).toHaveURL(provider);
+  expect(await authorizationTab.evaluate(() => window.opener === null)).toBe(true);
   await expect(page).toHaveURL(/\/connectors$/);
+  await expect(card.getByText("未授权", { exact: true })).toBeVisible();
+  await authorizationTab.getByRole("link", { name: "同意授权" }).click();
   await expect(page.getByRole("status")).toContainText("连接器已授权，可以添加。");
+  await expect.poll(() => authorizationTab.isClosed()).toBe(true);
   await card.getByRole("button", { name: "添加", exact: true }).click();
   await card.getByRole("button", { name: "取消添加", exact: true }).click();
   await expect(card.getByText("已授权", { exact: true })).toBeVisible();

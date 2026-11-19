@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import AvatarPicker from "../common/AvatarPicker.vue";
 const props = defineProps<{
   category: string;
-  avatar: string;
   categories?: string[];
 }>();
 defineEmits<{
   "update:category": [value: string];
-  "update:avatar": [value: string];
 }>();
 const options = computed(() =>
   [
@@ -37,12 +34,5 @@ const options = computed(() =>
       @change="(value: unknown) => $emit('update:category', String(value))"
     />
   </div>
-  <div v-field-label class="field">
-    <label>头像</label
-    ><AvatarPicker
-      :model-value="avatar"
-      kind="skill"
-      @update:model-value="$emit('update:avatar', $event)"
-    />
-  </div>
+  <p class="muted">头像由 AI 自动生成，生成失败时使用技能名首字。</p>
 </template>

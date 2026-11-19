@@ -108,12 +108,25 @@ export interface Task {
   model_key?: string | null;
   plan: { id: string; subject: string; state: string }[];
 }
+export interface CatalogQuery {
+  query?: string;
+  category?: string;
+  mine?: boolean;
+  cursor?: string | null;
+}
+export interface CatalogPage<T> {
+  items: T[];
+  next_cursor: string | null;
+  categories?: string[];
+  has_shareable?: boolean;
+}
 export type ResourceCatalog = "skills" | "connectors" | "tools";
 export type InstallableCatalog = Exclude<ResourceCatalog, "tools">;
 export type CatalogKind = "skill" | "mcp";
 export type ShareableKind = CatalogKind | "agent" | "team";
 export type ConnectorAuthType = "none" | "api_key" | "oauth";
 export interface Resource {
+  runtime_name?: string;
   version_label?: string;
   can_share?: boolean;
   can_share_update?: boolean;
@@ -128,6 +141,7 @@ export interface Resource {
   description: string;
   is_usable: boolean;
   is_editable: boolean;
+  is_deletable: boolean;
   is_installed: boolean;
   is_enabled: boolean;
   is_system_default?: boolean;
@@ -153,7 +167,6 @@ export interface SkillSaveInput {
   resource_id: string;
   markdown: string;
   category: string;
-  avatar: string;
   base_version?: string;
 }
 export interface SkillImportJob {

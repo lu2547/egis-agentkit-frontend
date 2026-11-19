@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
+import { manager } from "../../api/manager";
+import { useAsyncData } from "../../composables/useAsyncData";
 import { useScrollFollower } from "../../composables/useScrollFollower";
 import type { Msg, ToolCallBlock } from "@agentscope-ai/agentscope/message";
 import { ArrowDown } from "lucide-vue-next";
@@ -39,6 +41,28 @@ const content = ref<HTMLElement | null>(null);
 const { sticky, onScroll, follow, scrollToBottom } = useScrollFollower(
   viewport,
   content,
+);
+const { data: skills, load: loadSkills } = useAsyncData(() =>
+  manager.resources("skills"),
+);
+const skillNames = computed(() => {
+  const names = new Map<string, string>();
+  for (const skill of skills.value?.items ?? []) {
+    if (skill.runtime_name) names.set(skill.runtime_name, skill.display_name);
+  }
+  return names;
+});
+watch(
+  () =>
+    props.messages.some((message) =>
+      message.content.some(
+        (block) => block.type === "tool_call" && block.name === "Skill",
+      ),
+    ),
+  (hasSkillCall) => {
+    if (hasSkillCall) void loadSkills();
+  },
+  { immediate: true },
 );
 const arriving = ref(new Set<string>());
 watch(
@@ -99,6 +123,7 @@ watch(
           /><AssistantMessage
             v-else-if="message.role === 'assistant'"
             :message="message"
+            :skill-names="skillNames"
             :confirm="confirm"
             :session-id="sessionId"
             :branch-disabled="branchDisabled"

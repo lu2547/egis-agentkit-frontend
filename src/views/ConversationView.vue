@@ -236,7 +236,7 @@ function openReference(value: ChatReference) {
 }
 const attachments = useAttachments(),
   uploading = ref(false),
-  collaborationWaiting = ref(false),
+  collaborationWaiting = ref<"session" | "expert" | null>(null),
   fileRevision = ref(0);
 let attachmentController = new AbortController();
 onScopeDispose(() => attachmentController.abort());
@@ -259,7 +259,7 @@ async function withCollaborationReady<T>(
         )
           throw error;
         const { sessionId, agentId } = error.busySession;
-        collaborationWaiting.value = true;
+        collaborationWaiting.value = sessionId === sid.value ? "session" : "expert";
         let status: string;
         do {
           await new Promise((resolve) =>
@@ -268,10 +268,12 @@ async function withCollaborationReady<T>(
           signal.throwIfAborted();
           ({ status } = await chatRuntime.status(sessionId, agentId, signal));
         } while (status === "running");
+        signal.throwIfAborted();
+        collaborationWaiting.value = null;
       }
     }
   } finally {
-    if (!signal.aborted) collaborationWaiting.value = false;
+    if (!signal.aborted) collaborationWaiting.value = null;
   }
 }
 
@@ -291,7 +293,7 @@ watch(
     references.clear();
     annotations.value = [];
     uploading.value = false;
-    collaborationWaiting.value = false;
+    collaborationWaiting.value = null;
     await conversation.open(value);
     if (
       generation !== current ||
@@ -732,15 +734,17 @@ const artifactsByReply = computed(() =>
               readonly
             >
               {{
-                collaborationWaiting
+                collaborationWaiting === "session"
                   ? "上一轮正在收尾，结束后会自动继续"
-                  : pendingExperts.length
-                    ? "发送后邀请所选专家在当前对话协作，共享项目文件。"
-                    : conversation.state.value.phase === "waiting"
-                      ? "正在等待你的确认"
-                      : conversation.state.value.phase === "interrupting"
-                        ? "已请求停止，等待服务端结束当前执行"
-                        : "内容由 AI 生成，请核对重要信息。"
+                  : collaborationWaiting === "expert"
+                    ? "正在等待专家结束，随后自动继续"
+                    : pendingExperts.length
+                      ? "发送后邀请所选专家在当前对话协作，共享项目文件。"
+                      : conversation.state.value.phase === "waiting"
+                        ? "正在等待你的确认"
+                        : conversation.state.value.phase === "interrupting"
+                          ? "已请求停止，等待服务端结束当前执行"
+                          : "内容由 AI 生成，请核对重要信息。"
               }}
             </ComposerProjectBar>
           </template>

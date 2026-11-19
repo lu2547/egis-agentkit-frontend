@@ -45,8 +45,13 @@ const toolTitles: Record<string, string> = {
   WebSearch: "搜索网页",
   WebFetch: "读取网页",
   Skill: "使用技能",
+  CreateSkill: "创建技能",
+  InstallSkillPackage: "安装技能",
   TeamSay: "联系团队成员",
 };
+export function toolTitle(name: string) {
+  return Object.hasOwn(toolTitles, name) ? toolTitles[name] : name;
+}
 function excerpt(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);
 }
@@ -63,9 +68,17 @@ function formattedInput(input: string) {
     return bounded(input);
   }
 }
-function toolSummary(call: ToolCallBlock) {
+function toolSummary(
+  call: ToolCallBlock,
+  skillNames?: ReadonlyMap<string, string>,
+) {
   try {
     const input = JSON.parse(call.input) as Record<string, unknown>;
+    if (call.name === "Skill") {
+      return typeof input.skill === "string"
+        ? excerpt(skillNames?.get(input.skill) ?? "")
+        : "";
+    }
     if (typeof input.file_path === "string") {
       const filename = input.file_path.split(/[\\/]/).pop() || input.file_path;
       return excerpt(
@@ -73,15 +86,7 @@ function toolSummary(call: ToolCallBlock) {
           (typeof input.pages === "string" ? ` · 第 ${input.pages} 页` : ""),
       );
     }
-    for (const key of [
-      "command",
-      "query",
-      "pattern",
-      "url",
-      "skill",
-      "path",
-      "to",
-    ]) {
+    for (const key of ["command", "query", "pattern", "url", "path", "to"]) {
       if (typeof input[key] === "string") return excerpt(input[key]);
     }
   } catch {
@@ -149,7 +154,10 @@ function hintText(block: Extract<ContentBlock, { type: "hint" }>) {
 }
 
 /** Derive an immutable display view; native SDK events and message ordering stay intact. */
-export function presentTurn(message: Msg) {
+export function presentTurn(
+  message: Msg,
+  skillNames?: ReadonlyMap<string, string>,
+) {
   const results = new Map(
     message.content
       .filter((b): b is ToolResultBlock => b.type === "tool_result")
@@ -218,14 +226,15 @@ export function presentTurn(message: Msg) {
       });
     } else if (block.type === "tool_call" && !seenCalls.has(block.id)) {
       seenCalls.add(block.id);
+      const summary = toolSummary(block, skillNames);
       appendActivity({
         id: `tool:${block.id}`,
         kind: "tool",
         rawName: block.name,
-        title: toolTitles[block.name] || block.name,
-        summary: toolSummary(block),
+        title: toolTitle(block.name),
+        summary,
         ...toolStatus(message, block, results.get(block.id)),
-        input: formattedInput(block.input),
+        input: block.name === "Skill" ? summary : formattedInput(block.input),
         output: readableOutput(results.get(block.id)),
       });
     }

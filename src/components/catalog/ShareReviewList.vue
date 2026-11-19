@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, watchEffect } from "vue";
 import {
   MAX_SKILL_BATCH_SIZE,
   principalName,
@@ -8,9 +8,15 @@ import {
 } from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
+import AdminStatusBadge from "../admin/AdminStatusBadge.vue";
+import AdminTable from "../admin/AdminTable.vue";
 import BatchAccessNotice from "../common/BatchAccessNotice.vue";
-const props = defineProps<{ reviews: Review[]; admin?: boolean }>();
-const emit = defineEmits<{ changed: [] }>();
+const props = defineProps<{
+  reviews: Review[];
+  admin?: boolean;
+  disabled?: boolean;
+}>();
+const emit = defineEmits<{ changed: []; busy: [value: boolean] }>();
 const selected = ref<Review | null>(null),
   reason = ref(""),
   pending = ref(false),
@@ -38,11 +44,22 @@ const eligibleIds = computed(
 watch(eligibleIds, (ids) => {
   batchIds.value = batchIds.value.filter((id) => ids.has(id));
 });
+watchEffect(() =>
+  emit(
+    "busy",
+    !!selected.value || batchOpen.value || pending.value || batchPending.value,
+  ),
+);
 const names: Record<string, string> = {
   pending: "审核中",
   approved: "已通过",
   rejected: "已拒绝",
   cancelled: "已取消",
+};
+const tones: Partial<Record<string, "warning" | "success" | "danger">> = {
+  pending: "warning",
+  approved: "success",
+  rejected: "danger",
 };
 const types: Record<string, string> = {
   agent: "专家",
@@ -50,6 +67,13 @@ const types: Record<string, string> = {
   skill: "技能",
   mcp: "连接器",
 };
+
+function openReview(review: Review) {
+  selected.value = review;
+  reason.value = "";
+  error.value = "";
+}
+
 async function decide(allowed: boolean) {
   if (!selected.value) return;
   pending.value = true;
@@ -106,7 +130,7 @@ async function decideBatch(allowed: boolean) {
     <div v-if="eligibleIds.size" class="toolbar">
       <t-button
         variant="outline"
-        :disabled="!batchIds.length"
+        :disabled="disabled || !batchIds.length"
         @click="openBatch"
       >
         批量审核
@@ -120,56 +144,117 @@ async function decideBatch(allowed: boolean) {
       :results="batchResults"
       :labels="batchLabels"
     />
-    <article
-      v-for="review in reviews"
-      :key="review.review_id"
-      class="review-row"
-    >
-      <input
-        v-if="eligibleIds.has(review.review_id)"
-        v-model="batchIds"
-        type="checkbox"
-        :value="review.review_id"
-        :aria-label="`选择 ${review.resource_id}`"
-        :disabled="
-          batchPending ||
-          (batchIds.length >= MAX_SKILL_BATCH_SIZE &&
-            !batchIds.includes(review.review_id))
-        "
-      />
-      <div>
-        <span class="badge">{{
-          types[review.resource_type] || review.resource_type
-        }}</span
-        ><strong>{{ review.resource_id }} · {{ review.version_label || review.resource_version }}</strong>
-        <p>
-          {{ review.share_scope_type && review.principal_id ? principalName(review.share_scope_type, review.principal_id) : "现有共享受众" }}
-          <template v-if="review.review_reason">
-            · {{ review.review_reason }}</template
-          >
-        </p>
-      </div>
-      <span
-        class="badge"
-        :class="{ green: review.review_status_type === 'approved' }"
-        >{{
-          names[review.review_status_type] || review.review_status_type
-        }}</span
-      ><t-button
-        variant="text"
-        size="small"
-        @click="
-          selected = review;
-          reason = '';
-          error = '';
-        "
-        >{{
-          admin && review.review_status_type === "pending"
-            ? "审核版本"
-            : "查看申请"
-        }}</t-button
+    <AdminTable v-if="admin" label="共享审核表格">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">资源与版本</th>
+            <th scope="col">接收对象</th>
+            <th scope="col">申请原因</th>
+            <th scope="col">状态</th>
+            <th scope="col">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="review in reviews" :key="review.review_id">
+            <td>
+              <div class="review-resource">
+                <input
+                  v-if="eligibleIds.has(review.review_id)"
+                  v-model="batchIds"
+                  type="checkbox"
+                  :value="review.review_id"
+                  :aria-label="`选择 ${review.resource_id}`"
+                  :disabled="
+                    disabled ||
+                    batchPending ||
+                    (batchIds.length >= MAX_SKILL_BATCH_SIZE &&
+                      !batchIds.includes(review.review_id))
+                  "
+                />
+                <span>
+                  <span class="badge">{{
+                    types[review.resource_type] || review.resource_type
+                  }}</span>
+                  <strong
+                    >{{ review.resource_id }} ·
+                    {{
+                      review.version_label || review.resource_version
+                    }}</strong
+                  >
+                </span>
+              </div>
+            </td>
+            <td>
+              {{
+                review.share_scope_type && review.principal_id
+                  ? principalName(review.share_scope_type, review.principal_id)
+                  : "现有共享受众"
+              }}
+            </td>
+            <td>{{ review.review_reason || "—" }}</td>
+            <td>
+              <AdminStatusBadge :tone="tones[review.review_status_type]">
+                {{
+                  names[review.review_status_type] || review.review_status_type
+                }}
+              </AdminStatusBadge>
+            </td>
+            <td>
+              <t-button
+                size="small"
+                variant="outline"
+                theme="default"
+                :disabled="disabled"
+                @click="openReview(review)"
+              >
+                {{
+                  review.review_status_type === "pending"
+                    ? "审核版本"
+                    : "查看申请"
+                }}
+              </t-button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </AdminTable>
+    <template v-else>
+      <article
+        v-for="review in reviews"
+        :key="review.review_id"
+        class="review-row"
       >
-    </article>
+        <div>
+          <span class="badge">{{
+            types[review.resource_type] || review.resource_type
+          }}</span
+          ><strong
+            >{{ review.resource_id }} ·
+            {{ review.version_label || review.resource_version }}</strong
+          >
+          <p>
+            {{
+              review.share_scope_type && review.principal_id
+                ? principalName(review.share_scope_type, review.principal_id)
+                : "现有共享受众"
+            }}
+            <template v-if="review.review_reason">
+              · {{ review.review_reason }}</template
+            >
+          </p>
+        </div>
+        <span
+          class="badge"
+          :class="{ green: review.review_status_type === 'approved' }"
+          >{{
+            names[review.review_status_type] || review.review_status_type
+          }}</span
+        ><t-button variant="text" size="small" @click="openReview(review)"
+          >查看申请</t-button
+        >
+      </article>
+    </template>
     <t-dialog
       role="dialog"
       aria-modal="true"
@@ -180,10 +265,17 @@ async function decideBatch(allowed: boolean) {
       width="760px"
       @close="selected = null"
       ><template v-if="selected"
-        ><p>{{ types[selected.resource_type] }} {{ selected.resource_id }} · 发布版本 {{ selected.version_label || selected.resource_version }}</p>
+        ><p>
+          {{ types[selected.resource_type] }} {{ selected.resource_id }} ·
+          发布版本 {{ selected.version_label || selected.resource_version }}
+        </p>
         <p>
           接收对象
-          {{ selected.share_scope_type && selected.principal_id ? principalName(selected.share_scope_type, selected.principal_id) : "现有共享受众" }}
+          {{
+            selected.share_scope_type && selected.principal_id
+              ? principalName(selected.share_scope_type, selected.principal_id)
+              : "现有共享受众"
+          }}
         </p>
         <p class="muted">申请编号 {{ selected.review_id }}</p>
         <template v-if="admin && selected.review_status_type === 'pending'"

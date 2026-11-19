@@ -37,8 +37,9 @@ for (const theme of ["light", "dark"]) {
     await page
       .getByTestId("catalog-card")
       .filter({ hasText: "报告写作" })
-      .getByRole("button", { name: "编辑", exact: true })
+      .getByRole("button", { name: "报告写作的技能操作", exact: true })
       .click();
+    await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
     await expect(page).toHaveURL(/\/skills\/writing\/edit\?version=1.0.0$/);
     await expect(
       page.getByRole("heading", { name: "编辑技能", exact: true }),
@@ -83,10 +84,8 @@ test("imports keep processing after returning to the catalog and only appear whe
   page,
 }) => {
   await page.goto("/skills/upload");
-  await page
-    .getByRole("group", { name: "选择头像" })
-    .getByRole("button", { name: "ppt", exact: true })
-    .click();
+  await expect(page.getByRole("group", { name: "选择头像" })).toHaveCount(0);
+  await expect(page.getByText("AI 自动生成", { exact: false })).toBeVisible();
   await page.getByLabel("选择技能文件").setInputFiles({
     name: "async-skill.zip",
     mimeType: "application/zip",
@@ -106,12 +105,84 @@ test("imports keep processing after returning to the catalog and only appear whe
   await expect(
     page.getByRole("progressbar", { name: "async-skill.zip 导入进度" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "技能导入任务" }),
-  ).toContainText("已完成", { timeout: 10000 });
-  await expect(
-    page.getByTestId("catalog-card").filter({ hasText: "导入的技能" }),
-  ).toBeVisible();
+  const imported = page.getByTestId("catalog-card").filter({ hasText: "导入的技能" });
+  await expect(imported).toBeVisible({ timeout: 10000 });
+  await expect(imports).toHaveCount(0);
+  await page.reload();
+  await expect(imported).toBeVisible();
+  await expect(imports).toHaveCount(0);
+  await expect(imported.locator(".catalog-avatar")).toHaveText("导");
+});
+
+test("loads generated skill avatar through the authorized version endpoint", async ({
+  page,
+}) => {
+  await page.route(/\/api\/manager\/skills\?/, async (route) => {
+    const original = await route.fetch();
+    const payload = await original.json();
+    const skill = payload.items.find(
+      (item: { resource_id: string }) => item.resource_id === "writing",
+    );
+    skill.payload.avatar = "auto";
+    skill.payload.has_generated_avatar = true;
+    await route.fulfill({ json: payload });
+  });
+  await page.route("**/api/manager/skills/writing/avatar?version=1.0.0", (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer test-only");
+    return route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M12 30 L25 43 L51 18" fill="none" stroke="#32a170"/></svg>',
+    });
+  });
+  await page.goto("/skills");
+  const card = page.getByTestId("catalog-card").filter({ hasText: "报告写作" });
+  const image = card.locator(".catalog-avatar img");
+  await expect(image).toHaveAttribute("src", /^blob:/);
+  await expect(image).toBeVisible();
+});
+
+test("the owner can confirm deletion of a skill from the catalog", async ({ page }) => {
+  let deleted = false;
+  await page.route(/\/api\/manager\/skills\?/, async (route) => {
+    const original = await route.fetch();
+    const payload = await original.json();
+    payload.items = payload.items
+      .filter((item: { resource_id: string }) => !deleted || item.resource_id !== "writing")
+      .map((item: { resource_id: string }) => ({
+        ...item,
+        is_deletable: item.resource_id === "writing",
+      }));
+    await route.fulfill({ json: payload });
+  });
+  await page.route("**/api/manager/skills/writing", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted = true;
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/skills");
+  await expect(page.getByRole("button", { name: "会议纪要的技能操作" })).toHaveCount(0);
+  const ownerMenu = page.getByRole("button", { name: "报告写作的技能操作" });
+  const selection = page.getByRole("button", { name: "停用报告写作" });
+  await expect(selection).toBeVisible();
+  const menuBounds = (await ownerMenu.boundingBox())!;
+  const selectionBounds = (await selection.boundingBox())!;
+  expect(menuBounds.y).toBeLessThan(selectionBounds.y);
+  expect(menuBounds.x + menuBounds.width).toBeCloseTo(
+    selectionBounds.x + selectionBounds.width,
+  );
+  await expect(page.getByRole("menuitem", { name: "删除", exact: true })).toHaveCount(0);
+  await ownerMenu.click();
+  await expect(page.getByRole("menuitem", { name: "编辑", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  const confirmation = page.getByRole("dialog", { name: "删除技能" });
+  await expect(confirmation).toContainText("删除「报告写作」的所有版本，并撤销选用和共享？");
+  await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+  expect(deleted).toBe(false);
+  await ownerMenu.click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await confirmation.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByRole("button", { name: "查看报告写作" })).toHaveCount(0);
+  expect(deleted).toBe(true);
 });
 
 test("failed import exposes its error and retries as a queued job", async ({

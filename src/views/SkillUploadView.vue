@@ -14,7 +14,6 @@ const route = useRoute();
 const system = computed(() => route.query.system === "1");
 const file = ref<File | null>(null),
   category = ref("办公协同"),
-  avatar = ref("skill:deep-thinking"),
   pending = ref(false),
   error = ref(""),
   fileInput = ref<HTMLInputElement>();
@@ -39,12 +38,7 @@ async function upload() {
   pending.value = true;
   error.value = "";
   try {
-    const job = await manager.importSkill(
-      file.value,
-      category.value,
-      avatar.value,
-      system.value,
-    );
+    const job = await manager.importSkill(file.value, category.value, system.value);
     imports.track(job);
     file.value = null;
     if (fileInput.value) fileInput.value.value = "";
@@ -61,7 +55,7 @@ async function upload() {
       <ResourceFormHeader
         level="h1"
         :title="system ? '上传系统技能' : '上传技能'"
-        description="上传包含 SKILL.md 的 ZIP 技能包，并选择分类和头像。"
+        description="上传包含 SKILL.md 的 ZIP 技能包，并选择分类。"
         :return-label="system ? '返回技能管理' : '返回技能目录'"
         @back="back"
       />
@@ -84,7 +78,6 @@ async function upload() {
         </div>
         <SkillMetadataFields
           v-model:category="category"
-          v-model:avatar="avatar"
           :categories="categories"
         />
         <div v-if="error" class="error" role="alert">{{ error }}</div>

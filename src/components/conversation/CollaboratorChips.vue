@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { X } from "lucide-vue-next";
 import type { Collaborator } from "../../types/api";
-import CatalogAvatar from "../common/CatalogAvatar.vue";
 defineProps<{ members: Collaborator[]; disabled?: boolean }>();
 defineEmits<{ remove: [member: Collaborator] }>();
 </script>
@@ -20,7 +19,6 @@ defineEmits<{ remove: [member: Collaborator] }>();
       :data-status="member.status"
       :title="`${member.display_name} · ${member.status === 'pending' ? '待协作' : '已加入协作'}`"
     >
-      <CatalogAvatar :avatar="member.avatar" :name="member.display_name" />
       <span class="collaborator-name">{{ member.display_name }}</span>
       <button
         v-if="member.status === 'pending' || member.worker_session_id"

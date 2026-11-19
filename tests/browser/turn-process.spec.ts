@@ -36,6 +36,29 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+test("the active Skill activity shows the catalog display name", async ({
+  page,
+  request,
+}) => {
+  const alias = "skill-0123456789abcdef0123456789abcdef_0123456789ab";
+  await page.route("**/manager/skills", (route) =>
+    route.fulfill({
+      json: { items: [{ runtime_name: alias, display_name: "ppt-master" }] },
+    }),
+  );
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：用技能制作演示文稿");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.locator(".process-heading")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await emit(request, call("skill", "Skill", { skill: alias }));
+  const activity = page.locator(".latest-activity");
+  await expect(activity).toHaveText("正在使用技能 · ppt-master");
+  await expect(activity).not.toContainText(alias);
+});
+
 test("process and activity groups start folded, stream status updates correctly and preserve reading order", async ({
   page,
   request,

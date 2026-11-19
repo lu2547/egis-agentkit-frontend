@@ -2,11 +2,16 @@
 import { onMounted, ref } from "vue";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-import { useAsyncData } from "../../composables/useAsyncData";
+import { useAdminPage } from "../../composables/useAdminPage";
+import AdminPagination from "./AdminPagination.vue";
+import AdminStatusBadge from "./AdminStatusBadge.vue";
+import AdminTable from "./AdminTable.vue";
 import type { VirtualUser } from "../../types/api";
 import AsyncState from "../common/AsyncState.vue";
 
-const { data, loading, error, load } = useAsyncData(manager.virtualUsers);
+const { data, loading, error, load, changePage } = useAdminPage((page) =>
+  manager.adminPage<VirtualUser>("virtual-users", page),
+);
 const creating = ref(false);
 const rotating = ref<VirtualUser | null>(null);
 const name = ref("");
@@ -67,40 +72,56 @@ function toggle(account: VirtualUser) {
       <t-button variant="outline" @click="startCreate">添加虚拟用户</t-button>
     </div>
     <p v-if="notice" class="error" role="alert">{{ notice }}</p>
-    <AsyncState :loading="loading && !data" :error="error" @retry="load">
-      <t-table
-        :data="data?.items || []"
-        row-key="user_id"
-        :columns="[
-          { colKey: 'username', title: '对接系统' },
-          { colKey: 'user_id', title: '用户 ID' },
-          { colKey: 'enabled', title: '状态' },
-          { colKey: 'action', title: '操作', width: 190 },
-        ]"
-      >
-        <template #enabled="{ row }">{{
-          row.is_enabled ? "启用" : "停用"
-        }}</template>
-        <template #action="{ row }">
-          <t-button
-            size="small"
-            variant="text"
-            :disabled="pending"
-            @click="toggle(row)"
-          >
-            {{ row.is_enabled ? "停用" : "启用" }}
-          </t-button>
-          <t-button
-            size="small"
-            variant="text"
-            :disabled="pending"
-            @click="rotating = row"
-          >
-            更新凭证
-          </t-button>
-        </template>
-      </t-table>
+    <AsyncState :loading="loading" :error="error" @retry="load">
+      <AdminTable label="虚拟用户表格">
+        <t-table
+          :data="data?.items || []"
+          row-key="user_id"
+          :columns="[
+            { colKey: 'username', title: '对接系统' },
+            { colKey: 'user_id', title: '用户 ID' },
+            { colKey: 'enabled', title: '状态' },
+            { colKey: 'action', title: '操作', width: 190 },
+          ]"
+        >
+          <template #enabled="{ row }">
+            <AdminStatusBadge :tone="row.is_enabled ? 'success' : 'neutral'">
+              {{ row.is_enabled ? "已启用" : "已停用" }}
+            </AdminStatusBadge>
+          </template>
+          <template #action="{ row }">
+            <div class="admin-actions">
+              <t-button
+                size="small"
+                variant="outline"
+                theme="default"
+                :disabled="pending"
+                @click="toggle(row)"
+              >
+                {{ row.is_enabled ? "停用" : "启用" }}
+              </t-button>
+              <t-button
+                size="small"
+                variant="outline"
+                theme="default"
+                :disabled="pending"
+                @click="rotating = row"
+              >
+                更新凭证
+              </t-button>
+            </div>
+          </template>
+        </t-table>
+      </AdminTable>
     </AsyncState>
+    <AdminPagination
+      v-if="data?.items.length"
+      label="虚拟用户"
+      :page="data.page"
+      :has-next="data.has_next"
+      :disabled="loading || pending"
+      @change="changePage"
+    />
     <t-dialog v-model:visible="creating" header="添加虚拟用户" :footer="false">
       <form class="form-stack" @submit.prevent="create">
         <div class="field">
@@ -166,5 +187,7 @@ function toggle(account: VirtualUser) {
 }
 .virtual-user-heading h2 {
   margin: 0;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>

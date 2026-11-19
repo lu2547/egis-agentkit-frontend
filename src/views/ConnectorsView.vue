@@ -1,49 +1,70 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { errorText } from "../api/http";
 import { manager } from "../api/manager";
-import { useAsyncData } from "../composables/useAsyncData";
-import { takeConnectorOAuthRequest } from "../domain/connectorAuthorization";
+import { useCatalogScroll } from "../composables/useCatalogScroll";
+import {
+  notifyConnectorOAuthResult,
+  takeConnectorOAuthRequest,
+  watchConnectorOAuthResult,
+} from "../domain/connectorAuthorization";
 import CatalogHeader from "../components/catalog/CatalogHeader.vue";
+import CatalogLoadMore from "../components/catalog/CatalogLoadMore.vue";
 import AsyncState from "../components/common/AsyncState.vue";
 import ResourceCard from "../components/catalog/ResourceCard.vue";
 import ResourceDetailDrawer from "../components/catalog/ResourceDetailDrawer.vue";
-import type { Resource } from "../types/api";
 
-const { data, loading, error, load } = useAsyncData(() =>
-  manager.resources("connectors"),
-);
-const search = ref("");
-const detail = ref<Resource | null>(null);
-const resources = computed(() =>
-  (data.value?.items || []).filter((resource) =>
-    `${resource.display_name} ${resource.description}`
-      .toLowerCase()
-      .includes(search.value.toLowerCase()),
-  ),
-);
 const route = useRoute();
 const router = useRouter();
+const enabled = ref(typeof route.query.state !== "string");
+const search = ref("");
+const detailId = ref<string | null>(null);
+const {
+  scrollRoot, items: resources, loading, error, hasMore, loadingMore, moreError,
+  onScroll, onWheel, loadMore, refresh, retry,
+} = useCatalogScroll(
+  (query, signal) => manager.resourceCatalog("connectors", query, signal),
+  (resource) => resource.resource_id,
+  { search, enabled },
+);
+const detail = computed(
+  () => resources.value.find((resource) => resource.resource_id === detailId.value) ?? null,
+);
 const oauthNotice = ref("");
+let stopWatchingOAuth: (() => void) | undefined;
 
 onMounted(async () => {
   const { state, code } = route.query;
-  if (typeof state === "string") {
+  if (typeof state !== "string") {
+    stopWatchingOAuth = watchConnectorOAuthResult((message) => {
+      oauthNotice.value = message;
+      void refresh();
+    });
+  } else {
     await router.replace({ path: "/connectors" });
+    const pending = takeConnectorOAuthRequest(state);
+    let succeeded = false;
     try {
-      const resourceId = takeConnectorOAuthRequest(state);
-      if (!resourceId) throw new Error("当前浏览器没有对应的连接器授权请求。");
+      if (!pending) throw new Error("当前浏览器没有对应的连接器授权请求。");
       await manager.finishConnectorOAuth(
-        resourceId, state, typeof code === "string" ? code : null,
+        pending.resourceId,
+        state,
+        typeof code === "string" ? code : null,
       );
+      succeeded = true;
       oauthNotice.value = "连接器已授权，可以添加。";
     } catch (err) {
       oauthNotice.value = errorText(err);
     }
+    if (pending?.authorizationTab) {
+      notifyConnectorOAuthResult(state, oauthNotice.value);
+      if (succeeded) window.close();
+    }
+    enabled.value = true;
   }
-  await load();
 });
+onUnmounted(() => stopWatchingOAuth?.());
 </script>
 
 <template>
@@ -52,7 +73,10 @@ onMounted(async () => {
       page="connectors"
       v-model:query="search"
     />
-    <div class="catalog-content">
+    <div ref="scrollRoot" class="catalog-content"
+      @scroll.passive="onScroll"
+      @wheel.passive="onWheel"
+    >
       <div class="catalog-toolbar"></div>
       <p v-if="oauthNotice" role="status">{{ oauthNotice }}</p>
       <AsyncState
@@ -61,7 +85,7 @@ onMounted(async () => {
         :empty="!resources.length"
         empty-title="暂无可用连接器"
         empty-text="如需使用其他连接器，请联系管理员。"
-        @retry="load"
+        @retry="retry"
       >
         <div class="card-grid">
           <ResourceCard
@@ -69,18 +93,25 @@ onMounted(async () => {
             :key="resource.resource_id"
             :resource="resource"
             kind="connectors"
-            @detail="detail = resource"
-            @changed="load"
+            @detail="detailId = resource.resource_id"
+            @changed="refresh"
           />
         </div>
       </AsyncState>
+      <CatalogLoadMore
+        :has-more="hasMore"
+        :loading="loadingMore"
+        :error="moreError"
+        @load-more="loadMore"
+        @retry="retry"
+      />
     </div>
     <ResourceDetailDrawer
       kind="connectors"
       :resource="detail"
-      :resources="data?.items || []"
-      @close="detail = null"
-      @changed="load"
+      :resources="resources"
+      @close="detailId = null"
+      @changed="refresh"
     />
   </section>
 </template>

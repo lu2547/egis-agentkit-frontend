@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Task } from "../../src/types/api";
 test("running tasks show a spinner, latest activity shimmers and background completion becomes unread", async ({
   page,
   request,
@@ -76,4 +77,52 @@ test("running tasks show a spinner, latest activity shimmers and background comp
   await expect(page.locator(".task-running")).toHaveCount(0);
   await page.locator('.sidebar a[href="/tasks/s1"]').click();
   await expect(page.getByLabel("已完成，待读", { exact: true })).toHaveCount(0);
+});
+
+test("a finished reply stays idle when the next sidebar poll still sees its lock", async ({
+  page,
+  request,
+}) => {
+  const base = "http://127.0.0.1:38194";
+  await request.post(base + "/__test/reset");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("egis_access_token", "test-only"),
+  );
+  let lockHeldAfterReply = false;
+  await page.route("**/api/manager/tasks", async (route) => {
+    const response = await route.fetch();
+    const { items } = (await response.json()) as { items: Task[] };
+    await route.fulfill({
+      json: {
+        items: items.map((task) =>
+          lockHeldAfterReply && task.session_id === "s1"
+            ? { ...task, is_running: true, name: "收尾期间的会话" }
+            : task,
+        ),
+      },
+    });
+  });
+  await page.goto("/tasks/s1");
+  const chatInput = page.locator(".composer textarea");
+  const taskRow = page.locator('.sidebar a[href="/tasks/s1"]');
+  const send = page.getByRole("button", { name: "发送消息", exact: true });
+  await chatInput.fill("长任务：验证会话锁");
+  await send.click();
+  await expect(taskRow.getByLabel("正在运行")).toBeVisible();
+  await expect(page.locator(".process-heading")).toContainText("正在处理");
+  lockHeldAfterReply = true;
+  const emitted = await request.post(base + "/__test/events", {
+    data: {
+      session_id: "s1",
+      events: [{ type: "REPLY_END", finished_reason: "completed" }],
+    },
+  });
+  expect(emitted.ok()).toBe(true);
+  await expect(page.locator(".process-heading")).toContainText("处理时长");
+  await expect(taskRow).toHaveAttribute("title", "收尾期间的会话");
+  await expect(taskRow.getByLabel("正在运行")).toHaveCount(0);
+  lockHeldAfterReply = false;
+  await chatInput.fill("长任务：开始下一轮");
+  await send.click();
+  await expect(taskRow.getByLabel("正在运行")).toBeVisible();
 });

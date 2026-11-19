@@ -12,6 +12,7 @@ const props = defineProps<{
   message?: Msg;
   preparing?: boolean;
   displayName?: string;
+  skillNames?: ReadonlyMap<string, string>;
   personal?: boolean;
   annotations?: TextAnnotation[];
   sessionId?: string;
@@ -30,7 +31,7 @@ defineEmits<{
   branched: [task: Task];
 }>();
 const presentation = computed(() =>
-  props.message ? presentTurn(props.message) : undefined,
+  props.message ? presentTurn(props.message, props.skillNames) : undefined,
 );
 const replyError = computed(() =>
   props.message?.error?.message === "The reply failed with an unknown error."

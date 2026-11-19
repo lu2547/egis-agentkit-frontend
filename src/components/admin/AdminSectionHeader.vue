@@ -25,7 +25,7 @@ defineProps<{ title: string }>();
 }
 .admin-section-header h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1.35;
 }

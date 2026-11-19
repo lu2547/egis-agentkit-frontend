@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, useId, watch } from "vue";
 import type { ConnectorAuthType, Resource } from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 
 const props = defineProps<{ visible: boolean; resource?: Resource | null }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
+const formId = useId();
 const transport = "streamable_http";
 const authOptions = [
   { label: "无认证", value: "none" },
@@ -114,19 +115,19 @@ async function save() {
 
 <template>
   <t-dialog
+    class="connector-dialog-context"
     role="dialog"
     aria-modal="true"
     :aria-label="title"
     :visible="visible"
     :header="title"
-    :footer="false"
     :close-on-overlay-click="false"
     placement="center"
-    width="min(620px, calc(100vw - 32px))"
+    width="min(880px, 100%)"
     dialog-class-name="connector-dialog"
     @close="close"
   >
-    <form class="connector-form" @submit.prevent="save">
+    <form :id="formId" class="connector-form" @submit.prevent="save">
       <fieldset class="connector-fields" :disabled="pending">
         <legend>基础信息</legend>
         <div v-field-label class="field">
@@ -223,31 +224,50 @@ async function save() {
         连接器 ID <code>{{ resource.resource_id }}</code>
       </p>
       <div v-if="error" class="error" role="alert">{{ error }}</div>
-      <div class="connector-form-actions">
-        <t-button variant="outline" :disabled="pending" @click="close"
-          >取消</t-button
-        >
-        <t-button
-          theme="primary"
-          type="submit"
-          :loading="pending"
-          :disabled="!form.display_name.trim() || !form.url.trim()"
-        >
-          保存
-        </t-button>
-      </div>
     </form>
+    <template #footer>
+      <t-button variant="outline" :disabled="pending" @click="close"
+        >取消</t-button
+      >
+      <t-button
+        theme="primary"
+        type="submit"
+        :form="formId"
+        :loading="pending"
+        :disabled="!form.display_name.trim() || !form.url.trim()"
+      >
+        保存
+      </t-button>
+    </template>
   </t-dialog>
 </template>
 
 <style scoped>
+:global(.connector-dialog-context .t-dialog__position) {
+  padding: 16px;
+}
+
+:global(.connector-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  padding-block: 24px;
+}
+
 :global(.connector-dialog .t-dialog__header) {
+  flex: none;
   font-size: 20px;
   font-weight: 600;
 }
+
 :global(.connector-dialog .t-dialog__body) {
-  max-height: calc(100dvh - 176px);
-  padding-bottom: 0;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+:global(.connector-dialog .t-dialog__footer) {
+  flex: none;
+  border-top: 1px solid var(--border);
 }
 
 .connector-form {
@@ -303,19 +323,11 @@ async function save() {
   margin-inline-start: 6px;
 }
 
-.connector-form-actions {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  padding-bottom: 2px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-
 @media (max-width: 540px) {
+  :global(.connector-dialog) {
+    padding: 16px;
+  }
+
   .connection-fields {
     grid-template-columns: minmax(0, 1fr);
   }

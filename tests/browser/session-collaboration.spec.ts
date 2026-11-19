@@ -91,6 +91,7 @@ test("explicit expert collaboration sends on the same conversation and keeps its
   const invitation = page.getByRole("region", { name: "协作专家" });
   await expect(invitation).toContainText("邀请：");
   await expect(invitation).toContainText("产品策略顾问");
+  await expect(invitation.locator(".catalog-avatar")).toHaveCount(0);
   await page.locator(".composer textarea").fill("请一起梳理产品需求");
   const chat = page.waitForRequest(
     (r) => r.url().endsWith("/chat/") && r.method() === "POST",
@@ -133,6 +134,8 @@ test("permission rejection retains draft and pending expert without sending chat
 test("sends the same invitation after the previous reply releases its session lock", async ({ page }) => {
   await personal(page);
   const ids: string[] = [];
+  let finishRetry!: () => void;
+  const retryPending = new Promise<void>((resolve) => { finishRetry = resolve; });
   await page.route("**/api/sessions/s1/status?**", (route) =>
     route.fulfill({ json: { session_id: "s1", status: "idle" } }),
   );
@@ -143,13 +146,21 @@ test("sends the same invitation after the previous reply releases its session lo
         code: "collaboration_session_busy", detail: "对话正在运行",
         session_id: "s1", agent_id: "a1",
       } });
+    await retryPending;
     return route.fulfill({ json: { session_id: "s1", collaborators: [] } });
   });
   await chooseExpert(page);
   await page.locator(".composer textarea").fill("整理成 Markdown");
   const chat = page.waitForRequest((request) => request.url().endsWith("/chat/") && request.method() === "POST");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await expect(page.getByText("上一轮正在收尾，结束后会自动继续")).toBeVisible();
+  const waiting = page.getByText("上一轮正在收尾，结束后会自动继续");
+  try {
+    await expect(waiting).toBeVisible();
+    await expect.poll(() => ids.length).toBe(2);
+    await expect(waiting).toBeHidden();
+  } finally {
+    finishRetry();
+  }
   expect((await chat).postDataJSON().input.content[0].text).toBe("整理成 Markdown");
   expect(ids).toHaveLength(2);
   expect(ids[0]).toBe(ids[1]);
@@ -181,6 +192,12 @@ test("removes a joined expert without sending another message", async ({ page })
     return route.fulfill({ json: { session_id: "worker-1", status: "idle" } });
   });
   await page.goto("/tasks/s1");
+  await expect(page.getByRole("region", { name: "协作专家" })).toContainText(
+    "产品策略顾问",
+  );
+  await expect(
+    page.getByRole("region", { name: "协作专家" }).locator(".catalog-avatar"),
+  ).toHaveCount(0);
   const removed = page.waitForRequest((request) => request.url().endsWith("/collaborators/worker-1") && request.method() === "DELETE");
   await page.getByRole("button", { name: "移除协作专家 产品策略顾问" }).click();
   await removed;

@@ -8,7 +8,7 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
-test("expert catalog includes definitions from later pages", async ({ page }) => {
+test("expert catalog reveals later pages on demand", async ({ page }) => {
   await page.route(/\/api\/manager\/agents(?:\?|$)/, async (route) => {
     const url = new URL(route.request().url());
     url.searchParams.set("limit", "3");
@@ -19,9 +19,10 @@ test("expert catalog includes definitions from later pages", async ({ page }) =>
   await expect(
     page.getByRole("button", { name: "查看研究分析专家" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "查看项目协作伙伴" }),
-  ).toBeVisible();
+  const last = page.getByRole("button", { name: "查看项目协作伙伴" });
+  await expect(last).toHaveCount(0);
+  await page.getByRole("button", { name: "加载更多" }).click();
+  await expect(last).toBeVisible();
 });
 
 test("Escape restores expert card focus without a pointer-open outline", async ({ page }) => {
@@ -51,15 +52,6 @@ test("Escape restores expert card focus without a pointer-open outline", async (
 test("catalog navigation and filters use ownership and installation state", async ({
   page,
 }) => {
-  await page.route("**/api/manager/skills", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.items[0].is_installed = true;
-    data.items[0].is_enabled = true;
-    data.items[1].is_installed = false;
-    data.items[1].is_enabled = false;
-    await route.fulfill({ response, json: data });
-  });
   await page.goto("/experts");
   const nav = page.getByRole("navigation", { name: "能力目录" });
   await expect(nav.getByRole("button")).toHaveText([
@@ -81,7 +73,7 @@ test("catalog navigation and filters use ownership and installation state", asyn
   await nav.getByRole("button", { name: "技能" }).click();
   await page.getByRole("button", { name: "我安装的" }).click();
   await expect(page.getByTestId("catalog-card")).toHaveCount(1);
-  await expect(page.getByTestId("catalog-card")).toContainText("研究方法");
+  await expect(page.getByTestId("catalog-card")).toContainText("报告写作");
   await page.getByRole("button", { name: "添加技能" }).click();
   await expect(page.getByRole("menuitem", { name: "上传技能" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "创建技能" })).toBeVisible();
@@ -262,7 +254,7 @@ test("expert avatar saves a stable ID and appears when reopened", async ({
   await page.route("**/api/manager/agents/created?view=private", (route) =>
     route.fulfill({ json: created() }),
   );
-  await page.route("**/api/manager/agents", async (route) => {
+  await page.route(/\/api\/manager\/agents(?:\?|$)/, async (route) => {
     if (route.request().method() === "POST") {
       saved = route.request().postDataJSON();
       await route.fulfill({ json: { id: "created", ...saved } });
@@ -322,7 +314,7 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
-test("skill avatar saves and reopens from the resource payload", async ({
+test("created skills use the name fallback before avatar generation", async ({
   page,
 }) => {
   await page.goto("/skills");
@@ -334,25 +326,16 @@ test("skill avatar saves and reopens from the resource payload", async ({
     .fill(
       "---\nname: 测试技能\ndescription: 测试说明\nversion: 1.0.0\n---\n技能说明",
     );
-  await page
-    .getByRole("group", { name: "选择头像" })
-    .getByRole("button", { name: "ppt", exact: true })
-    .click();
+  await expect(page.getByRole("group", { name: "选择头像" })).toHaveCount(0);
   const saving = page.waitForRequest(
     (request) =>
       request.url().endsWith("/manager/skills") && request.method() === "POST",
   );
   await page.getByRole("button", { name: "发布版本" }).click();
-  expect((await saving).postDataJSON().avatar).toBe("skill:ppt");
+  expect((await saving).postDataJSON()).not.toHaveProperty("avatar");
   const card = page.getByTestId("catalog-card").filter({ hasText: "测试技能" });
-  await expect(card.locator("img")).toHaveAttribute(
-    "src",
-    "/catalog/skills/ppt.webp",
-  );
-  await card.getByRole("button", { name: "编辑" }).click();
-  await expect(
-    page
-      .getByRole("group", { name: "选择头像" })
-      .getByRole("button", { name: "ppt", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  await expect(card.locator(".catalog-avatar")).toHaveText("测");
+  await card.getByRole("button", { name: "测试技能的技能操作" }).click();
+  await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
+  await expect(page.getByText(/头像由 AI 自动生成/)).toBeVisible();
 });

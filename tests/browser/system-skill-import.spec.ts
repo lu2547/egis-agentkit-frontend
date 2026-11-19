@@ -16,7 +16,7 @@ test("administrator issues a credential for a virtual user", async ({
     is_enabled: true,
   };
   let created = false;
-  await page.route("**/manager/admin/virtual-users", (route) => {
+  await page.route(/\/manager\/admin\/virtual-users(?:\?|$)/, (route) => {
     if (route.request().method() === "POST") {
       expect(route.request().postDataJSON()).toEqual({ username: "知识平台" });
       created = true;
@@ -25,7 +25,14 @@ test("administrator issues a credential for a virtual user", async ({
         json: { ...account, token: "one-time" },
       });
     }
-    return route.fulfill({ json: { items: created ? [account] : [] } });
+    return route.fulfill({
+      json: {
+        items: created ? [account] : [],
+        page: 1,
+        page_size: 20,
+        has_next: false,
+      },
+    });
   });
 
   await page.goto("/admin/users");
@@ -54,8 +61,15 @@ test("administrator can upload and approve multiple system skills", async ({
   const report = pending("first", "报告提取");
   const notes = pending("second", "会议总结");
   let approved = false;
-  await page.route("**/manager/admin/skill-imports", (route) =>
-    route.fulfill({ json: { items: approved ? [] : [report, notes] } }),
+  await page.route(/\/manager\/admin\/skill-imports(?:\?|$)/, (route) =>
+    route.fulfill({
+      json: {
+        items: approved ? [] : [report, notes],
+        page: 1,
+        page_size: 20,
+        has_next: false,
+      },
+    }),
   );
   await page.route("**/manager/admin/skill-imports/batch/decision", (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -96,7 +110,10 @@ test("administrator can upload and approve multiple system skills", async ({
     page.getByRole("region", { name: "技能导入任务" }),
   ).toContainText("待审核");
   await page.getByRole("button", { name: "返回技能管理" }).click();
-  const reviews = page.getByRole("region", { name: "系统技能导入审核" });
+  const reviews = page.getByRole("region", {
+    name: "系统技能导入审核",
+    exact: true,
+  });
   await reviews.getByRole("checkbox", { name: /报告提取/ }).check();
   await reviews.getByRole("checkbox", { name: /会议总结/ }).check();
   await reviews.getByRole("button", { name: "通过所选" }).click();

@@ -4,7 +4,9 @@ import { manager } from "../../api/manager";
 import type { ReplyFeedback } from "../../types/api";
 import { useAsyncData } from "../../composables/useAsyncData";
 import AsyncState from "../common/AsyncState.vue";
+import AdminPagination from "./AdminPagination.vue";
 import AdminSectionHeader from "./AdminSectionHeader.vue";
+import AdminTable from "./AdminTable.vue";
 const cursor = ref<string>(),
   history = ref<(string | undefined)[]>([]),
   selected = ref<ReplyFeedback>();
@@ -28,6 +30,9 @@ async function previous() {
   if (!error.value) history.value.pop();
   else cursor.value = current;
 }
+function changePage(page: number) {
+  return page > history.value.length + 1 ? next() : previous();
+}
 </script>
 <template>
   <section class="feedback-management">
@@ -43,42 +48,43 @@ async function previous() {
       empty-title="暂无回复反馈"
       @retry="load"
     >
-      <t-table
-        :data="data?.items || []"
-        row-key="id"
-        :columns="[
-          { colKey: 'created_at', title: '提交时间', width: 175 },
-          { colKey: 'username', title: '提交人', width: 110 },
-          { colKey: 'project_name', title: '项目', width: 130 },
-          { colKey: 'session_name', title: '会话', width: 180 },
-          { colKey: 'comment', title: '吐槽内容' },
-          { colKey: 'action', title: '操作', width: 100 },
-        ]"
-        hover
-      >
-        <template #created_at="{ row }">{{
-          new Date(row.created_at).toLocaleString()
-        }}</template>
-        <template #action="{ row }"
-          ><t-button variant="text" size="small" @click="selected = row"
-            >查看详情</t-button
-          ></template
+      <AdminTable label="回复反馈表格" :min-width="860">
+        <t-table
+          :data="data?.items || []"
+          row-key="id"
+          :columns="[
+            { colKey: 'created_at', title: '提交时间', width: 175 },
+            { colKey: 'username', title: '提交人', width: 110 },
+            { colKey: 'project_name', title: '项目', width: 130 },
+            { colKey: 'session_name', title: '会话', width: 180 },
+            { colKey: 'comment', title: '吐槽内容' },
+            { colKey: 'action', title: '操作', width: 100 },
+          ]"
+          hover
         >
-      </t-table>
+          <template #created_at="{ row }">{{
+            new Date(row.created_at).toLocaleString()
+          }}</template>
+          <template #action="{ row }">
+            <t-button
+              size="small"
+              variant="outline"
+              theme="default"
+              @click="selected = row"
+              >查看详情</t-button
+            >
+          </template>
+        </t-table>
+      </AdminTable>
     </AsyncState>
-    <nav v-if="history.length || data?.next_cursor" aria-label="反馈分页">
-      <t-button
-        variant="outline"
-        :disabled="!history.length || loading"
-        @click="previous"
-        >上一页</t-button
-      ><t-button
-        variant="outline"
-        :disabled="!data?.next_cursor || loading"
-        @click="next"
-        >下一页</t-button
-      >
-    </nav>
+    <AdminPagination
+      v-if="data && (data.items.length || history.length || data.next_cursor)"
+      label="回复反馈"
+      :page="history.length + 1"
+      :has-next="!!data.next_cursor"
+      :disabled="loading"
+      @change="changePage"
+    />
     <t-dialog
       :visible="!!selected"
       header="反馈详情"
@@ -119,12 +125,6 @@ async function previous() {
   </section>
 </template>
 <style scoped>
-.feedback-management nav {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 16px;
-}
 .feedback-detail {
   max-height: 65vh;
   overflow: auto;

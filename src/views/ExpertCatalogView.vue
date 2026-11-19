@@ -1,23 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onScopeDispose, watch } from "vue";
+import { ref, computed, onScopeDispose, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
-import { useIdentity } from "../composables/useIdentity";
-import { useAsyncData } from "../composables/useAsyncData";
+import { useCatalogScroll } from "../composables/useCatalogScroll";
 import AsyncState from "../components/common/AsyncState.vue";
 import ShareRequestDialog from "../components/catalog/ShareRequestDialog.vue";
 import CatalogHeader from "../components/catalog/CatalogHeader.vue";
+import CatalogLoadMore from "../components/catalog/CatalogLoadMore.vue";
 import ResourceCategoryTabs from "../components/catalog/ResourceCategoryTabs.vue";
 import ExpertCard from "../components/experts/ExpertCard.vue";
 import ExpertDetailDialog from "../components/experts/ExpertDetailDialog.vue";
 import PreferencesView from "./PreferencesView.vue";
 import type { Definition } from "../types/api";
 import { definitionName } from "../types/api";
-const router = useRouter(), route = useRoute(),
-  { user } = useIdentity();
+const router = useRouter(), route = useRoute();
 const kind = computed(() => route.query.tab === "personal" ? "personal" : "agent");
-const mine = ref("all"),
+const mine = ref(false),
   search = ref(""),
   category = ref("全部"),
   detail = ref<Definition | null>(null),
@@ -26,33 +25,20 @@ const mine = ref("all"),
   notice = ref(""),
   shareSource = ref<Definition | null>(null),
   shareUpdate = ref(false);
-const { data, loading, error, load } = useAsyncData(async () => {
-  const agents = await manager.definitions("agents");
-  return agents.items;
-});
-onMounted(load);
-watch(() => route.query.tab, () => {
+const enabled = computed(() => kind.value === "agent");
+watch(kind, () => {
   category.value = "全部";
-  mine.value = "all";
+  mine.value = false;
   closeDetail();
   shareSource.value = null;
 });
-const current = computed(() =>
-  (data.value || []).filter((d) => d.definition_type === kind.value && d.agent_type !== "personal"),
-);
-const categories = computed(() => [
-  ...new Set(current.value.map((d) => d.payload.category).filter(Boolean)),
-]);
-const filtered = computed(() =>
-  current.value.filter(
-    (d) =>
-      (mine.value !== "mine" ||
-        (d.owner_type === "user" && d.owner_id === user.value?.user_id)) &&
-      (category.value === "全部" || d.payload.category === category.value) &&
-      `${definitionName(d)} ${d.payload.description} ${d.payload.tags?.join(" ")}`
-        .toLowerCase()
-        .includes(search.value.toLowerCase()),
-  ),
+const {
+  scrollRoot, items: experts, categories, loading, error, hasMore,
+  loadingMore, moreError, onScroll, onWheel, loadMore, refresh, retry,
+} = useCatalogScroll(
+  manager.expertCatalog,
+  (expert) => `${expert.id}-${expert.resource_view_type}-${expert.resource_version}`,
+  { search, category, mine, enabled },
 );
 function summon(d: Definition, prompt?: string) {
   if (!d.is_usable) return;
@@ -108,9 +94,12 @@ function edit(d: Definition) {
 </script>
 <template>
   <section class="page expert-page">
-    <CatalogHeader :page="kind" v-model:query="search" :selected="mine === 'mine'" @toggle="mine = mine === 'mine' ? 'all' : 'mine'" @create="router.push({ path: '/experts/new', query: { returnTo: route.fullPath } })" />
+    <CatalogHeader :page="kind" v-model:query="search" :selected="mine" @toggle="mine = !mine" @create="router.push({ path: '/experts/new', query: { returnTo: route.fullPath } })" />
     <PreferencesView v-if="kind === 'personal'" embedded />
-    <div v-else class="catalog-content">
+    <div v-else ref="scrollRoot" class="catalog-content"
+      @scroll.passive="onScroll"
+      @wheel.passive="onWheel"
+    >
     <div class="catalog-toolbar"></div>
     <ResourceCategoryTabs v-model="category" :categories="categories" />
     <div v-if="notice" class="notice" role="status">
@@ -122,22 +111,30 @@ function edit(d: Definition) {
     <AsyncState
       :loading="loading"
       :error="error"
-      :empty="!filtered.length"
+      :empty="!experts.length"
       empty-title="还没有匹配的工作伙伴"
       empty-text="试试其他分类，或创建你自己的专家。"
-      @retry="load"
+      @retry="retry"
       ><div class="card-grid">
         <ExpertCard
-          v-for="definition in filtered"
+          v-for="definition in experts"
           :key="`${definition.id}-${definition.resource_view_type}-${definition.resource_version}`"
           :definition="definition"
           @detail="openDetail(definition)"
           @summon="summon(definition)"
           @edit="edit(definition)"
         /></div></AsyncState
-    ><ExpertDetailDialog
+    >
+    <CatalogLoadMore
+      :has-more="hasMore"
+      :loading="loadingMore"
+      :error="moreError"
+      @load-more="loadMore"
+      @retry="retry"
+    />
+    <ExpertDetailDialog
       :definition="detail"
-      :definitions="data || []"
+      :definitions="experts"
       :pending="detailPending"
       :error="detailError"
       @close="closeDetail"
@@ -152,7 +149,7 @@ function edit(d: Definition) {
       :version="shareSource?.version_label || shareSource?.resource_version || ''"
       :update="shareUpdate"
       @close="shareSource && openDetail(shareSource); shareSource = null"
-      @submitted="shareSource = null; notice = '共享申请已提交。'; load()"
+      @submitted="shareSource = null; notice = '共享申请已提交。'; refresh()"
     />
     </div>
   </section>

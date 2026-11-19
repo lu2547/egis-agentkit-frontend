@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import {
   skillOwnerName,
   type Resource,
   type ResourceCatalog,
 } from "../../types/api";
 import CatalogAvatar from "../common/CatalogAvatar.vue";
+import AppIcon from "../common/AppIcon.vue";
 import { ResourceInstallation } from "../../domain/resourceState";
 import { beginConnectorOAuth } from "../../domain/connectorAuthorization";
 import { manager } from "../../api/manager";
@@ -21,7 +22,18 @@ const installation = reactive(
     ),
   ),
   error = ref(""),
+  menuOpen = ref(false),
+  deleteOpen = ref(false),
+  deleting = ref(false),
   authorizing = ref(false);
+const selectionLabel = computed(() => {
+  const action = !props.resource.is_installed
+    ? "安装"
+    : installation.enabled
+      ? "停用"
+      : "启用";
+  return action + props.resource.display_name;
+});
 watch(
   () => props.resource.is_enabled && props.resource.is_installed,
   (enabled) => (installation.enabled = enabled),
@@ -74,6 +86,25 @@ async function removeSelection() {
     error.value = errorText(e);
   }
 }
+async function deleteSkill() {
+  if (deleting.value) return;
+  deleting.value = true;
+  error.value = "";
+  try {
+    await manager.deleteSkill(props.resource.resource_id);
+    deleteOpen.value = false;
+    emit("changed");
+  } catch (e) {
+    error.value = errorText(e);
+  } finally {
+    deleting.value = false;
+  }
+}
+function confirmSkillDeletion() {
+  menuOpen.value = false;
+  error.value = "";
+  deleteOpen.value = true;
+}
 </script>
 <template>
   <article class="sm-card" data-testid="catalog-card">
@@ -82,6 +113,7 @@ async function removeSelection() {
         class="sm-card-icon"
         :avatar="resource.payload.avatar"
         :name="resource.display_name"
+        :skill="kind === 'skills' ? resource : undefined"
       />
       <div class="sm-card-top">
         <button
@@ -95,21 +127,53 @@ async function removeSelection() {
           ><span class="sm-card-desc">{{ resource.description }}</span>
         </button>
       </div>
-      <span v-if="kind === 'skills'" class="sm-add-btn-slot">
+      <t-popup
+        v-if="kind === 'skills' && (resource.is_editable || resource.is_deletable || resource.is_installed)"
+        v-model:visible="menuOpen"
+        trigger="click"
+        placement="bottom-right"
+      >
         <button
           type="button"
-          :class="
-            resource.is_installed ? 'sm-card-installed-check' : 'sm-add-btn'
-          "
-          :disabled="!resource.is_usable || installation.pending"
-          :aria-label="`${resource.is_installed ? (installation.enabled ? '停用' : '启用') : '安装'}${resource.display_name}`"
-          @click="toggle"
+          class="sm-card-more"
+          :aria-label="`${resource.display_name}的技能操作`"
+          :aria-expanded="menuOpen"
+          aria-haspopup="menu"
         >
-          {{
-            resource.is_installed ? (installation.enabled ? "✓" : "启用") : "+"
-          }}
+          <AppIcon name="more" :size="16" />
         </button>
-      </span>
+        <template #content>
+          <div class="sm-skill-menu" role="menu">
+            <button
+              v-if="resource.is_editable"
+              type="button"
+              role="menuitem"
+              @click="menuOpen = false; $emit('edit')"
+            >
+              <AppIcon name="edit" :size="15" />编辑
+            </button>
+            <button
+              v-if="resource.is_installed"
+              type="button"
+              role="menuitem"
+              :disabled="installation.pending || deleting"
+              @click="menuOpen = false; removeSelection()"
+            >
+              <AppIcon name="close" :size="15" />取消选用
+            </button>
+            <button
+              v-if="resource.is_deletable"
+              type="button"
+              role="menuitem"
+              class="delete-skill"
+              :disabled="deleting || installation.pending"
+              @click="confirmSkillDeletion"
+            >
+              <AppIcon name="trash" :size="15" />删除
+            </button>
+          </div>
+        </template>
+      </t-popup>
     </div>
     <div v-if="kind === 'connectors'" class="sm-card-stats">
       <span v-if="resource.auth_type === 'none'">无需授权</span>
@@ -135,31 +199,40 @@ async function removeSelection() {
         </button>
       </div>
     </div>
-    <div v-else class="sm-card-stats">
-      <span>{{ resource.version_label || resource.resource_version }}</span
-      ><span>{{
-        kind === "tools"
-          ? resource.is_system_default
-            ? "系统默认工具"
-            : "专家工具"
-          : skillOwnerName(resource)
-      }}</span
-      ><button
-        v-if="resource.is_installed && kind !== 'tools'"
-        class="edit"
-        :disabled="installation.pending"
-        @click="removeSelection"
+    <div v-else-if="kind === 'skills'" class="sm-card-stats skill-card-footer">
+      <span>{{ resource.version_label || resource.resource_version }}</span>
+      <span class="skill-card-owner" :title="skillOwnerName(resource)">{{ skillOwnerName(resource) }}</span>
+      <button
+        type="button"
+        :class="installation.enabled ? 'sm-card-installed-check' : 'sm-add-btn'"
+        :disabled="!resource.is_usable || installation.pending || deleting"
+        :aria-label="selectionLabel"
+        :title="selectionLabel"
+        @click="toggle"
       >
-        取消选用</button
-      ><button
-        v-if="resource.is_editable && kind !== 'tools'"
-        class="edit"
-        @click="$emit('edit')"
-      >
-        编辑
+        <AppIcon :name="installation.enabled ? 'check' : 'plus'" :size="15" />
       </button>
     </div>
-    <div v-if="error" class="error" role="alert">{{ error }}</div>
+    <div v-else class="sm-card-stats">
+      <span>{{ resource.version_label || resource.resource_version }}</span>
+      <span>{{ resource.is_system_default ? "系统默认工具" : "专家工具" }}</span>
+    </div>
+    <div v-if="error && !deleteOpen" class="error" role="alert">{{ error }}</div>
+    <t-dialog
+      v-if="kind === 'skills' && resource.is_deletable"
+      v-model:visible="deleteOpen"
+      attach="body"
+      destroy-on-close
+      header="删除技能"
+      role="dialog"
+      aria-label="删除技能"
+      :confirm-btn="{ content: '删除', theme: 'danger', loading: deleting }"
+      :close-on-overlay-click="false"
+      @confirm="deleteSkill"
+    >
+      <p>删除「{{ resource.display_name }}」的所有版本，并撤销选用和共享？</p>
+      <div v-if="error" class="error" role="alert">{{ error }}</div>
+    </t-dialog>
   </article>
 </template>
 <style scoped src="../../styles/components/resource-card.css"></style>
@@ -168,5 +241,8 @@ async function removeSelection() {
   display: flex;
   gap: 6px;
   margin-inline-start: auto;
+}
+.sm-skill-menu .delete-skill {
+  color: var(--danger);
 }
 </style>

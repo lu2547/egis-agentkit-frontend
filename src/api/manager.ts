@@ -11,6 +11,8 @@ import type {
   User,
   Resource,
   ResourceCatalog,
+  CatalogQuery,
+  CatalogPage,
   InstallableCatalog,
   CatalogKind,
   AdminResource,
@@ -33,6 +35,27 @@ import type {
   VirtualUser,
 } from "../types/api";
 const id = encodeURIComponent;
+export interface AdminPage<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  has_next: boolean;
+}
+
+function catalogPage<T>(
+  kind: "agents" | ResourceCatalog,
+  { query, category, mine, cursor }: CatalogQuery,
+  signal: AbortSignal,
+) {
+  return http<CatalogPage<T>>(`/manager/${kind}`, { signal }, {
+    catalog: "true",
+    query,
+    category,
+    mine: mine ? "true" : undefined,
+    cursor,
+  });
+}
+
 export const workspacePath = (projectId: string) =>
   `/manager/projects/${id(projectId)}`;
 export const manager = {
@@ -43,8 +66,6 @@ export const manager = {
       { ...params },
     ),
   me: () => http<User>("/manager/me"),
-  virtualUsers: () =>
-    http<{ items: VirtualUser[] }>("/manager/admin/virtual-users"),
   createVirtualUser: (username: string) =>
     http<VirtualUser & { token: string }>(
       "/manager/admin/virtual-users",
@@ -77,6 +98,10 @@ export const manager = {
     } while (cursor !== null);
     return { items };
   },
+  expertCatalog: (params: CatalogQuery, signal: AbortSignal) =>
+    catalogPage<Definition>("agents", params, signal),
+  resourceCatalog: (kind: ResourceCatalog, params: CatalogQuery, signal: AbortSignal) =>
+    catalogPage<Resource>(kind, params, signal),
   definition: (
     kind: "agents" | "teams",
     definitionId: string,
@@ -180,8 +205,6 @@ export const manager = {
     ),
   resourceVersions: (kind: ResourceCatalog, resourceId: string) =>
     http<{ items: Resource[] }>(`/manager/${kind}/${id(resourceId)}/versions`),
-  adminResources: (kind: CatalogKind) =>
-    http<{ items: AdminResource[] }>(`/manager/admin/resources/${kind}`),
   registerSystemResource: (kind: "skill" | "mcp", body: unknown) =>
     http<Resource>(`/manager/admin/resources/${kind}`, json("POST", body)),
   setResourceAvailability: (kind: CatalogKind, resourceId: string, version: string | undefined, is_enabled: boolean) =>
@@ -196,26 +219,27 @@ export const manager = {
     ),
   skillImports: () =>
     http<{ items: SkillImportJob[] }>("/manager/skills/imports"),
+  deleteSkill: (resourceId: string) =>
+    http<void>(`/manager/skills/${id(resourceId)}`, json("DELETE")),
   skillImport: (jobId: string) =>
     http<SkillImportJob>(`/manager/skills/imports/${id(jobId)}`),
-  importSkill: (file: File, category: string, avatar: string, system = false) => {
+  importSkill: (file: File, category: string, system = false) => {
     const body = new FormData();
     body.append("file", file);
     body.append("category", category);
-    body.append("avatar", avatar);
     body.append("owner_type", system ? "system" : "user");
     return http<SkillImportJob>("/manager/skills/imports", {
       method: "POST",
       body,
     });
   },
+  skillAvatar: (rid: string, version: string, signal: AbortSignal) =>
+    requestRaw(`/manager/skills/${id(rid)}/avatar`, { signal }, { version }),
   retrySkillImport: (jobId: string) =>
     http<SkillImportJob>(
       `/manager/skills/imports/${id(jobId)}/retry`,
       json("POST"),
     ),
-  skillImportReviews: () =>
-    http<{ items: SkillImportJob[] }>("/manager/admin/skill-imports"),
   decideSkillImports: (job_ids: string[], approved: boolean, reason: string) =>
     http<{ items: { id: string; ok: boolean; detail?: string }[] }>(
       "/manager/admin/skill-imports/batch/decision",
@@ -273,6 +297,17 @@ export const manager = {
     http<unknown>("/manager/preferences", json("PUT", body)),
   reviews: () => http<{ items: Review[] }>("/manager/share-requests"),
   shareRecipients: () => http<{ items: ShareRecipient[] }>("/manager/share-recipients"),
+  searchRecipients: (
+    principal_type: ShareTarget["principal_type"],
+    q: string,
+    page: number,
+    signal?: AbortSignal,
+  ) =>
+    http<AdminPage<ShareRecipient>>(
+      "/manager/share-recipients",
+      { signal },
+      { principal_type, q, page },
+    ),
   grantResources: () => http<{ items: GrantResource[] }>("/manager/admin/grant-resources"),
   shareSkills: (resource_ids: string[], target: ShareTarget) =>
     http<BatchAccessResponse>(
@@ -334,8 +369,12 @@ export const manager = {
       `${workspacePath(projectId)}/deliver`,
       json("POST", { path }),
     ),
-  adminList: <T>(kind: string) =>
-    http<{ items: T[] }>(`/manager/admin/${kind}`),
+  groupOptions: () =>
+    http<{ items: { group_id: string; group_name: string }[] }>(
+      "/manager/admin/groups", {}, { include_members: "false" },
+    ),
+  adminPage: <T>(kind: string, page: number, filters?: { group_id?: string }) =>
+    http<AdminPage<T>>(`/manager/admin/${kind}`, {}, { page, ...filters }),
   adminSave: (kind: string, body: unknown, key?: string) =>
     http<unknown>(
       `/manager/admin/${kind}${key ? `/${id(key)}` : ""}`,

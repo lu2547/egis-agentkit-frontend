@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { SkillImportJob } from "../../types/api";
-defineProps<{
+const props = defineProps<{
   jobs: SkillImportJob[];
   error: string;
   loading: boolean;
   retrying: string;
 }>();
+const visibleJobs = computed(() =>
+  props.jobs.filter((job) => job.status !== "succeeded"),
+);
 defineEmits<{ refresh: []; retry: [jobId: string] }>();
 const statuses = {
   queued: "等待处理",
@@ -30,7 +34,7 @@ function progress(job: SkillImportJob) {
 </script>
 <template>
   <section
-    v-if="jobs.length || error"
+    v-if="visibleJobs.length || error"
     class="skill-imports"
     aria-label="技能导入任务"
   >
@@ -52,7 +56,7 @@ function progress(job: SkillImportJob) {
       >
     </div>
     <ol class="import-list">
-      <li v-for="job in jobs" :key="job.job_id" :data-status="job.status">
+      <li v-for="job in visibleJobs" :key="job.job_id" :data-status="job.status">
         <div class="import-identity">
           <strong>{{ job.filename }}</strong
           ><span role="status">{{ statuses[job.status] }}</span>
@@ -67,11 +71,6 @@ function progress(job: SkillImportJob) {
             max="100"
             :aria-label="`${job.filename} 导入进度`"
         /></template>
-        <p v-else-if="job.status === 'succeeded'">
-          {{ job.resource_id }}
-          <span v-if="job.resource_version">· {{ job.resource_version }}</span>
-          · 已可在技能目录查看
-        </p>
         <p v-else-if="job.status === 'pending_approval'">
           技能包已校验，等待管理员审核。
         </p>

@@ -1,45 +1,34 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-import { useAsyncData } from "../../composables/useAsyncData";
 import {
   MAX_SKILL_BATCH_SIZE,
-  principalName,
   type BatchAccessResponse,
   type BatchAccessResult,
   type ShareTarget,
 } from "../../types/api";
-import AsyncState from "../common/AsyncState.vue";
 import BatchAccessNotice from "../common/BatchAccessNotice.vue";
+import RecipientPicker from "../common/RecipientPicker.vue";
 
 const props = defineProps<{
   visible: boolean;
   title: string;
   submitLabel: string;
   resources: { resource_id: string; display_name: string }[];
+  resourcesLoading?: boolean;
+  resourcesError?: string;
   submitBatch: (
     resourceIds: string[],
     target: ShareTarget,
   ) => Promise<BatchAccessResponse>;
 }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; retryResources: [] }>();
 const selectedResources = ref<string[]>([]);
-const selectedRecipient = ref("");
+const selectedRecipient = ref<ShareTarget | null>(null);
 const pending = ref(false);
 const submitError = ref("");
 const results = ref<BatchAccessResult[]>([]);
 const labels = ref<Record<string, string>>({});
-const { data, loading, error, load } = useAsyncData(manager.shareRecipients);
-const recipients = computed(() =>
-  (data.value?.items || []).map(
-    ({ principal_type, principal_id, display_name }) => ({
-      value: JSON.stringify([principal_type, principal_id]),
-      label: `${display_name}（${principalName(principal_type, principal_id)}）`,
-      target: { principal_type, principal_id },
-    }),
-  ),
-);
 const options = computed(() =>
   props.resources.map(({ resource_id, display_name }) => ({
     value: resource_id,
@@ -52,18 +41,21 @@ watch(
   (visible) => {
     if (!visible) return;
     selectedResources.value = [];
-    selectedRecipient.value = "";
+    selectedRecipient.value = null;
     submitError.value = "";
     results.value = [];
-    void load();
   },
 );
 
 async function submit() {
-  const recipient = recipients.value.find(
-    ({ value }) => value === selectedRecipient.value,
-  );
-  if (pending.value || !selectedResources.value.length || !recipient) return;
+  const recipient = selectedRecipient.value;
+  if (
+    pending.value ||
+    props.resourcesLoading ||
+    props.resourcesError ||
+    !selectedResources.value.length ||
+    !recipient
+  ) return;
   pending.value = true;
   submitError.value = "";
   results.value = [];
@@ -73,7 +65,7 @@ async function submit() {
   try {
     const response = await props.submitBatch(
       selectedResources.value,
-      recipient.target,
+      recipient,
     );
     results.value = response.items;
     selectedResources.value = response.items
@@ -108,24 +100,22 @@ async function submit() {
           multiple
           filterable
           :max="MAX_SKILL_BATCH_SIZE"
-          :disabled="pending"
+          :disabled="pending || resourcesLoading || !!resourcesError"
+          :loading="resourcesLoading"
           :options="options"
           :popup-props="{ placement: 'top-left' }"
           placeholder="选择技能"
         />
       </div>
-      <AsyncState :loading="loading" :error="error" @retry="load">
-        <div v-field-label class="field">
-          <label>接收对象</label>
-          <t-select
-            v-model="selectedRecipient"
-            filterable
-            :disabled="pending"
-            :options="recipients"
-            placeholder="选择用户或组织组"
-          />
-        </div>
-      </AsyncState>
+      <div v-if="resourcesError" class="error" role="alert">
+        {{ resourcesError }}
+        <t-button variant="text" @click="emit('retryResources')">重新加载</t-button>
+      </div>
+      <RecipientPicker
+        v-if="visible"
+        v-model="selectedRecipient"
+        :disabled="pending"
+      />
       <BatchAccessNotice
         v-if="results.length"
         :results="results"
@@ -139,7 +129,7 @@ async function submit() {
         <t-button
           theme="primary"
           type="submit"
-          :disabled="!selectedResources.length || !selectedRecipient"
+          :disabled="resourcesLoading || !!resourcesError || !selectedResources.length || !selectedRecipient"
           :loading="pending"
           >{{ submitLabel }}</t-button
         >

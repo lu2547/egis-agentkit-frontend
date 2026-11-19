@@ -37,9 +37,16 @@ test("owners can submit private skills together and retry a failed item", async 
       },
     }),
   );
-  await page.route("**/manager/skills", (route) =>
-    route.fulfill({ json: { items: [report, research] } }),
-  );
+  let optionsRequests = 0;
+  await page.route(/\/manager\/skills(?:\?|$)/, (route) => {
+    const catalog = new URL(route.request().url()).searchParams.get("catalog") === "true";
+    if (!catalog) optionsRequests++;
+    return route.fulfill({
+      json: catalog
+        ? { items: [report], next_cursor: "10", categories: [], has_shareable: true }
+        : { items: [report, research] },
+    });
+  });
   let attempts = 0;
   await page.route("**/manager/share-requests/batch", async (route) => {
     expect(route.request().method()).toBe("POST");
@@ -66,14 +73,19 @@ test("owners can submit private skills together and retry a failed item", async 
   });
 
   await page.goto("/skills");
-  await expect(page.getByRole("button", { name: "查看报告技能" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "查看报告技能" }),
+  ).toBeVisible();
+  expect(optionsRequests).toBe(0);
   await page.getByRole("button", { name: "批量申请共享" }).click();
   const dialog = page.getByRole("dialog", { name: "批量申请共享" });
   await dialog.getByLabel("技能", { exact: true }).click();
   await page.getByRole("listitem", { name: "报告技能", exact: true }).click();
   await page.getByRole("listitem", { name: "研究技能", exact: true }).click();
+  expect(optionsRequests).toBe(1);
+  await dialog.getByText("用户组", { exact: true }).click();
   await dialog.getByLabel("接收对象", { exact: true }).click();
-  await page.getByText("全公司（组织组 · company）", { exact: true }).click();
+  await page.getByText("全公司 · company", { exact: true }).click();
   const submit = dialog.getByRole("button", { name: "提交共享申请" });
   await submit.click();
   await expect(dialog.getByRole("status")).toContainText(
@@ -104,9 +116,12 @@ test("administrators can review selected pending skills and see results after re
     resource_id: "expert",
   };
   let approved = false;
-  await page.route("**/manager/admin/share-reviews", (route) =>
+  await page.route(/\/manager\/admin\/share-reviews(?:\?|$)/, (route) =>
     route.fulfill({
       json: {
+        page: 1,
+        page_size: 20,
+        has_next: false,
         items: [
           approved ? { ...first, review_status_type: "approved" } : first,
           second,
@@ -209,8 +224,9 @@ test("administrators can grant selected system skills to a common recipient", as
   await expect(page.getByText("个人技能", { exact: true })).toHaveCount(0);
   await page.getByText("报告技能", { exact: true }).click();
   await page.getByText("研究技能", { exact: true }).click();
+  await dialog.getByText("用户组", { exact: true }).click();
   await dialog.getByLabel("接收对象", { exact: true }).click();
-  await page.getByText("全公司（组织组 · company）", { exact: true }).click();
+  await page.getByText("全公司 · company", { exact: true }).click();
   await dialog.getByRole("button", { name: "授予使用权限" }).click();
   await expect(dialog.getByRole("status")).toContainText(
     "成功 2 项，失败 0 项",

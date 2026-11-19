@@ -1,4 +1,3 @@
-
 .review-row {
   display: flex;
   align-items: center;
@@ -21,6 +20,14 @@
   color: var(--muted);
   line-height: 1.8;
   margin-top: 10px;
+}
+.review-resource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-resource .badge {
+  margin-inline-end: 6px;
 }
 @media (max-width: 600px) {
   .review-row {

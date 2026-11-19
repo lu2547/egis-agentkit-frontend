@@ -16,7 +16,6 @@ const form = reactive({
     ? String(props.resource.payload.markdown || "")
     : "---\nname: 我的技能\ndescription: 说明技能的用途与适用场景\nversion: 1.0.0\n---\n\n# 工作步骤\n\n1. 明确目标与输入。\n2. 执行工作并核对结果。\n",
   category: String(props.resource?.payload.category || "办公协同"),
-  avatar: String(props.resource?.payload.avatar || "skill:deep-thinking"),
 });
 const files = computed(
   () =>
@@ -43,7 +42,6 @@ function save() {
     </div>
     <SkillMetadataFields
       v-model:category="form.category"
-      v-model:avatar="form.avatar"
       :categories="categories"
     />
     <div v-field-label class="field">

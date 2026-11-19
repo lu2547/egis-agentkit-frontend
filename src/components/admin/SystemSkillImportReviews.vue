@@ -1,18 +1,32 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-import { useAsyncData } from "../../composables/useAsyncData";
+import { useAdminPage } from "../../composables/useAdminPage";
 import type { SkillImportJob } from "../../types/api";
+import AsyncState from "../common/AsyncState.vue";
+import AdminPagination from "./AdminPagination.vue";
+import AdminTable from "./AdminTable.vue";
 
 const emit = defineEmits<{ changed: [] }>();
-const { data, loading, error, load } = useAsyncData(manager.skillImportReviews);
+const { data, loading, error, load, changePage } = useAdminPage((page) =>
+  manager.adminPage<SkillImportJob>("skill-imports", page),
+);
 const selected = ref<string[]>([]);
 const reason = ref("");
 const reviewing = ref(false);
 const notice = ref("");
 const outcome = ref("");
 onMounted(load);
+watch(data, (current, previous) => {
+  selected.value =
+    current?.page === previous?.page
+      ? selected.value.filter((id) =>
+          current?.items.some((job) => job.job_id === id),
+        )
+      : [];
+  if (!selected.value.length) reason.value = "";
+});
 
 function select(id: string, checked: boolean) {
   selected.value = checked
@@ -46,9 +60,6 @@ async function decide(approved: boolean) {
       .join("\n");
     if (!selected.value.length) reason.value = "";
     await load();
-    selected.value = selected.value.filter((id) =>
-      data.value?.items.some((job) => job.job_id === id),
-    );
     const reviewed = items.filter((item) => item.ok).length;
     if (reviewed) {
       outcome.value = approved
@@ -83,42 +94,72 @@ async function download(job: SkillImportJob) {
   <section class="skill-reviews" aria-label="系统技能导入审核">
     <div class="review-heading">
       <h3>系统技能导入审核</h3>
-      <t-button size="small" variant="text" :loading="loading" @click="load"
+      <t-button
+        size="small"
+        variant="outline"
+        theme="default"
+        :loading="loading"
+        :disabled="reviewing"
+        @click="load"
         >刷新</t-button
       >
     </div>
-    <p v-if="error || notice" class="error review-notice" role="alert">
-      {{ error || notice }}
+    <p v-if="notice" class="error review-notice" role="alert">
+      {{ notice }}
     </p>
     <p v-if="outcome" class="muted" role="status">{{ outcome }}</p>
-    <p v-if="!data?.items.length && !loading" class="muted">暂无待审核的导入</p>
-    <ul v-if="data?.items.length" class="review-list">
-      <li v-for="job in data.items" :key="job.job_id">
-        <label class="review-job">
-          <input
-            type="checkbox"
-            :checked="selected.includes(job.job_id)"
-            :disabled="reviewing"
-            @change="
-              select(job.job_id, ($event.target as HTMLInputElement).checked)
-            "
-          />
-          <span>
-            <strong>{{ job.result?.display_name || job.filename }}</strong>
-            <span class="muted"> · {{ job.resource_version }}</span
-            ><br />
-            <span class="muted">
-              {{ job.uploader_type === "virtual" ? "虚拟用户" : "管理员" }} ·
-              {{ job.uploaded_by }}
-            </span>
-          </span>
-        </label>
-        <t-button size="small" variant="text" @click="download(job)"
-          >查看 ZIP</t-button
-        >
-      </li>
-    </ul>
-    <div v-if="selected.length" class="review-actions">
+    <AsyncState :loading="loading" :error="error" @retry="load">
+      <p v-if="!data?.items.length" class="muted">暂无待审核的导入</p>
+      <AdminTable v-else label="系统技能导入审核表格">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">导入技能</th>
+              <th scope="col">版本</th>
+              <th scope="col">上传者</th>
+              <th scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="job in data.items" :key="job.job_id">
+              <td>
+                <label class="review-job">
+                  <input
+                    type="checkbox"
+                    :checked="selected.includes(job.job_id)"
+                    :disabled="reviewing"
+                    @change="
+                      select(
+                        job.job_id,
+                        ($event.target as HTMLInputElement).checked,
+                      )
+                    "
+                  />
+                  <strong>{{
+                    job.result?.display_name || job.filename
+                  }}</strong>
+                </label>
+              </td>
+              <td>{{ job.resource_version }}</td>
+              <td>
+                {{ job.uploader_type === "virtual" ? "虚拟用户" : "管理员" }} ·
+                {{ job.uploaded_by }}
+              </td>
+              <td>
+                <t-button
+                  size="small"
+                  variant="outline"
+                  theme="default"
+                  @click="download(job)"
+                  >查看 ZIP</t-button
+                >
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </AdminTable>
+    </AsyncState>
+    <div v-if="selected.length && !loading && !error" class="review-actions">
       <input
         v-model="reason"
         aria-label="审核意见"
@@ -137,6 +178,14 @@ async function download(job: SkillImportJob) {
         >通过所选</t-button
       >
     </div>
+    <AdminPagination
+      v-if="data?.items.length"
+      label="系统技能导入审核"
+      :page="data.page"
+      :has-next="data.has_next"
+      :disabled="loading || reviewing"
+      @change="changePage"
+    />
   </section>
 </template>
 
@@ -145,23 +194,18 @@ async function download(job: SkillImportJob) {
   margin-block: 16px 24px;
 }
 .review-heading,
-.review-actions,
-.review-list li {
+.review-actions {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.review-heading,
-.review-list li {
+.review-heading {
   justify-content: space-between;
+  margin-bottom: 8px;
 }
-.review-list {
-  margin: 0 0 12px;
-  padding: 0;
-  list-style: none;
-}
-.review-list li {
-  padding: 8px 0;
+.review-actions {
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 .review-job {
   display: flex;

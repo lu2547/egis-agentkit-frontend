@@ -35,7 +35,12 @@ export function useTaskActivity() {
             typeof item.unread === "boolean" &&
             typeof item.updatedAt === "string"
           )
-            activity.value[key] = item;
+            activity.value[key] = {
+              running: item.running,
+              waiting: item.waiting,
+              unread: item.unread,
+              updatedAt: item.updatedAt,
+            };
         }
       } catch {
         /* Invalid local state does not affect tasks. */
@@ -55,18 +60,24 @@ export function useTaskActivity() {
       persist();
     },
     activate(sessionId: string) {
+      if (active !== sessionId) {
+        const previous = activity.value[active];
+        if (previous) previous.replyEnded = false;
+      }
       active = sessionId;
       const item = activity.value[sessionId];
       if (item) item.unread = false;
       persist();
     },
-    mark(task: Task, phase: string) {
+    mark(task: Task, phase: string, replyEnded = false) {
       const previous = activity.value[task.session_id];
       const running = phase === "streaming" || phase === "interrupting",
         waiting = phase === "waiting";
       activity.value[task.session_id] = {
         running,
         waiting,
+        replyEnded:
+          !running && !waiting && (replyEnded || !!previous?.replyEnded),
         optimistic: running,
         updatedAt: task.updated_at,
         unread:
@@ -77,6 +88,10 @@ export function useTaskActivity() {
           ),
       };
       persist();
+    },
+    clearReplyEnd(sessionId: string) {
+      const item = activity.value[sessionId];
+      if (item) item.replyEnded = false;
     },
     forget(sessionId: string) {
       delete activity.value[sessionId];

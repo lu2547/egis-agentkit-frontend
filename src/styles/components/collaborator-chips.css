@@ -32,12 +32,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.collaborator-chip :deep(.catalog-avatar) {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
 .collaborator-chip button {
   display: inline-flex;
   flex-shrink: 0;

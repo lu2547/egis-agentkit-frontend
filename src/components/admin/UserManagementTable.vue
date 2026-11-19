@@ -3,17 +3,20 @@ import { ref, reactive, onMounted } from "vue";
 import type { User } from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-import { useAsyncData } from "../../composables/useAsyncData";
+import { useAdminPage } from "../../composables/useAdminPage";
+import AdminPagination from "./AdminPagination.vue";
+import AdminTable from "./AdminTable.vue";
 import AsyncState from "../common/AsyncState.vue";
 import AdminSectionHeader from "./AdminSectionHeader.vue";
+import AdminStatusBadge from "./AdminStatusBadge.vue";
 import VirtualUserManagement from "./VirtualUserManagement.vue";
-const { data, loading, error, load } = useAsyncData(() =>
-  manager.adminList<User>("users"),
+const { data, loading, error, load, changePage } = useAdminPage((page) =>
+  manager.adminPage<User>("users", page),
 );
 const editing = ref(false),
   pending = ref(false),
   saveError = ref(""),
-  groups = ref<{ group_id: string; group_name: string }[]>([]);
+  groups = ref<{ group_id: string; group_name: string }[]>();
 const form = reactive<User>({
   user_id: "",
   username: "",
@@ -21,17 +24,17 @@ const form = reactive<User>({
   group_ids: [],
   is_enabled: true,
 });
-onMounted(() => {
-  void load();
-  void manager
-    .adminList<{ group_id: string; group_name: string }>("groups")
-    .then((x) => (groups.value = x.items))
-    .catch(() => {});
-});
+onMounted(load);
+
 function edit(user: User) {
   Object.assign(form, structuredClone(user));
   editing.value = true;
   saveError.value = "";
+  if (groups.value) return;
+  void manager
+    .groupOptions()
+    .then((x) => (groups.value = x.items))
+    .catch((error) => (saveError.value = errorText(error)));
 }
 async function save() {
   pending.value = true;
@@ -54,35 +57,53 @@ async function save() {
     :error="error"
     :empty="!data?.items.length"
     @retry="load"
-    ><t-table
-      :data="data?.items || []"
-      row-key="user_id"
-      :columns="[
-        { colKey: 'username', title: '用户' },
-        { colKey: 'user_id', title: '用户 ID' },
-        { colKey: 'role_type', title: '角色' },
-        { colKey: 'groups', title: '所属组' },
-        { colKey: 'status', title: '状态' },
-        { colKey: 'action', title: '操作', width: 90 },
-      ]"
-      hover
-      ><template #role_type="{ row }">{{
-        row.role_type === "admin" ? "管理员用户" : "普通用户"
-      }}</template
-      ><template #groups="{ row }">{{
-        row.group_ids?.join("、") || "无"
-      }}</template
-      ><template #status="{ row }"
-        ><span class="badge" :class="{ green: row.is_enabled }">{{
-          row.is_enabled ? "启用" : "停用"
-        }}</span></template
-      ><template #action="{ row }"
-        ><t-button variant="text" size="small" @click="edit(row)"
-          >编辑</t-button
-        ></template
-      ></t-table
-    ></AsyncState
-  ><t-dialog
+  >
+    <AdminTable label="用户表格">
+      <t-table
+        :data="data?.items || []"
+        row-key="user_id"
+        :columns="[
+          { colKey: 'username', title: '用户' },
+          { colKey: 'user_id', title: '用户 ID' },
+          { colKey: 'role_type', title: '角色' },
+          { colKey: 'groups', title: '所属组' },
+          { colKey: 'status', title: '状态' },
+          { colKey: 'action', title: '操作', width: 90 },
+        ]"
+        hover
+      >
+        <template #role_type="{ row }">{{
+          row.role_type === "admin" ? "管理员用户" : "普通用户"
+        }}</template>
+        <template #groups="{ row }">{{
+          row.group_ids?.join("、") || "无"
+        }}</template>
+        <template #status="{ row }">
+          <AdminStatusBadge :tone="row.is_enabled ? 'success' : 'neutral'">
+            {{ row.is_enabled ? "已启用" : "已停用" }}
+          </AdminStatusBadge>
+        </template>
+        <template #action="{ row }">
+          <t-button
+            size="small"
+            variant="outline"
+            theme="default"
+            @click="edit(row)"
+            >编辑</t-button
+          >
+        </template>
+      </t-table>
+    </AdminTable>
+  </AsyncState>
+  <AdminPagination
+    v-if="data?.items.length"
+    label="用户"
+    :page="data.page"
+    :has-next="data.has_next"
+    :disabled="loading"
+    @change="changePage"
+  />
+  <t-dialog
     role="dialog"
     aria-modal="true"
     aria-label="编辑用户"
@@ -112,7 +133,8 @@ async function save() {
           v-model="form.group_ids"
           multiple
           :options="
-            groups.map((g) => ({ label: g.group_name, value: g.group_id }))
+            groups?.map((g) => ({ label: g.group_name, value: g.group_id })) ||
+            []
           "
         />
       </div>

@@ -68,8 +68,9 @@ async function download() {
     ><div v-if="resource" class="resource-detail">
       <div class="detail-identity">
         <CatalogAvatar
-          :avatar="resource.payload.avatar"
-          :name="resource.display_name"
+          :avatar="(detail.value || resource).payload.avatar"
+          :name="(detail.value || resource).display_name"
+          :skill="kind === 'skills' ? (detail.value || resource) : undefined"
         /><strong>{{ resource.display_name }}</strong>
       </div>
       <p v-if="kind !== 'connectors'" class="muted">

@@ -147,6 +147,23 @@ const resources = [
     payload: { markdown: "# 会议纪要\n\n记录会议讨论和行动项。" },
   },
 ];
+function catalogFixture(items, url, { name, category, mine, facets = {} }) {
+  const query = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+  const selectedCategory = url.searchParams.get("category");
+  const owned = url.searchParams.get("mine") === "true";
+  const offset = Number(url.searchParams.get("cursor") ?? 0);
+  const limit = Number(url.searchParams.get("limit") ?? 10);
+  const filtered = items.filter((item) =>
+    (!query || name(item).toLowerCase().includes(query)) &&
+    (!selectedCategory || category?.(item) === selectedCategory) &&
+    (!owned || mine?.(item)),
+  );
+  return {
+    items: filtered.slice(offset, offset + limit),
+    next_cursor: offset + limit < filtered.length ? String(offset + limit) : null,
+    ...(offset === 0 ? facets : {}),
+  };
+}
 const files = [
   {
     name: "研究简报.html",
@@ -420,6 +437,14 @@ createServer(async (req, res) => {
     });
   }
   if (p === "/manager/agents" && req.method === "GET") {
+    if (url.searchParams.get("catalog") === "true") {
+      return json(res, catalogFixture(definitions, url, {
+        name: (definition) => `${definition.agent_display_name} ${definition.payload.description} ${definition.payload.tags.join(" ")}`,
+        category: (definition) => definition.payload.category,
+        mine: (definition) => definition.owner_type === "user" && definition.owner_id === "demo",
+        facets: { categories: [...new Set(definitions.map((item) => item.payload.category))] },
+      }));
+    }
     const types = url.searchParams.getAll("type");
     const matching = types.length
       ? definitions.filter((definition) => types.includes(definition.agent_type))
@@ -843,8 +868,21 @@ createServer(async (req, res) => {
     if (p.endsWith("/retry")) Object.assign(job, { status: "queued", stage: "queued", progress: 0, error: null, attempts: job.attempts + 1, polls: 0 });
     return json(res, job, p.endsWith("/retry") ? 202 : 200);
   }
-  if (p === "/manager/skills" && req.method !== "POST")
-    return json(res, { items: skillResources.map(resource => ({ ...resource, payload: { ...resource.payload, markdown: undefined, files: undefined } })) });
+  if (p === "/manager/skills" && req.method !== "POST") {
+    const items = skillResources.map(resource => ({ ...resource, payload: { ...resource.payload, markdown: undefined, files: undefined } }));
+    if (url.searchParams.get("catalog") === "true") {
+      return json(res, catalogFixture(items, url, {
+        name: (resource) => `${resource.display_name} ${resource.description}`,
+        category: (resource) => resource.payload.category,
+        mine: (resource) => resource.is_installed,
+        facets: {
+          categories: [...new Set(items.map((item) => item.payload.category).filter(Boolean))],
+          has_shareable: items.some((item) => item.can_share),
+        },
+      }));
+    }
+    return json(res, { items });
+  }
   if (p === "/manager/skills" || p.startsWith("/manager/skills/")) {
     if (p.endsWith("/installation"))
       return json(res, { detail: "未获授权，启停失败" }, 403);
@@ -859,20 +897,42 @@ createServer(async (req, res) => {
     }
     return json(res, skillResources.find(resource => resource.resource_id === p.split("/")[3] && (!url.searchParams.get("version") || resource.resource_version === url.searchParams.get("version"))) || skillResources[0]);
   }
-  if (p === "/manager/connectors" || p === "/manager/tools") return json(res, { items: [] });
+  if (p === "/manager/connectors" || p === "/manager/tools") {
+    if (url.searchParams.get("catalog") === "true") {
+      return json(res, {
+        items: [],
+        next_cursor: null,
+        ...(p === "/manager/tools" && !url.searchParams.has("cursor")
+          ? { categories: ["系统默认", "专家工具"] }
+          : {}),
+      });
+    }
+    return json(res, { items: [] });
+  }
   if (p === "/manager/preferences")
     return json(res, {
       agent_md: "# 工作规范",
       soul_md: "# 角色与风格",
       user_md: "# 关于我",
     });
-  if (p === "/manager/share-recipients") return json(res, {
-    items: [
+  if (p === "/manager/share-recipients") {
+    const items = [
       { principal_type: "group", principal_id: "company", display_name: "全公司" },
       { principal_type: "user", principal_id: "analyst", display_name: "分析师" },
       { principal_type: "group", principal_id: "research", display_name: "研究部" },
-    ],
-  });
+    ];
+    const type = url.searchParams.get("principal_type");
+    if (!type) return json(res, { items });
+    const keyword = (url.searchParams.get("q") || "").toLowerCase();
+    const matches = items.filter((item) => item.principal_type === type &&
+      [item.principal_id, item.display_name].some((value) => value.toLowerCase().includes(keyword)));
+    const page = Number(url.searchParams.get("page") || 1);
+    const pageSize = 20;
+    return json(res, {
+      items: matches.slice((page - 1) * pageSize, page * pageSize),
+      page, page_size: pageSize, has_next: matches.length > page * pageSize,
+    });
+  }
   if (p === "/manager/share-requests" && req.method === "POST") {
     const input = await body(req);
     const source = input.resource_type === "agent"
@@ -894,6 +954,14 @@ createServer(async (req, res) => {
   if (p.startsWith("/manager/admin/")) {
     if (role !== "admin") return json(res, { detail: "仅管理员" }, 403);
     if(p === '/manager/admin/reply-feedback') return json(res,{items:replyFeedback,next_cursor:null});
+    if (req.method === "GET" && url.searchParams.has("page")) {
+      return json(res, {
+        items: [],
+        page: Number(url.searchParams.get("page")),
+        page_size: Number(url.searchParams.get("page_size") ?? 20),
+        has_next: false,
+      });
+    }
     return json(res, { items: [] });
   }
   return json(res, { detail: `测试端点未实现: ${req.method} ${p}` }, 404);

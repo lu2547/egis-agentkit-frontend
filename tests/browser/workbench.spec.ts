@@ -175,9 +175,12 @@ test("only administrators see Management under More", async ({
   page,
   request,
 }) => {
-  await page.route("**/manager/admin/users", (route) =>
+  await page.route(/\/manager\/admin\/users(?:\?|$)/, (route) =>
     route.fulfill({
       json: {
+        page: 1,
+        page_size: 20,
+        has_next: false,
         items: [
           {
             user_id: "admin",
@@ -285,7 +288,7 @@ test("all management pages and creation forms render without application errors"
   expect(errors).toEqual([]);
 });
 
-test("skill upload uses an asynchronous import with category and avatar", async ({
+test("skill upload starts an asynchronous import using the package and category", async ({
   page,
 }) => {
   await page.goto("/skills");
@@ -293,6 +296,7 @@ test("skill upload uses an asynchronous import with category and avatar", async 
   await page.getByRole("menuitem", { name: "上传技能", exact: true }).click();
   await expect(page).toHaveURL("/skills/upload");
   await expect(page.getByRole("textbox", { name: "技能版本" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "选择头像" })).toHaveCount(0);
   await page.getByLabel("选择技能文件").setInputFiles({
     name: "skill.zip",
     mimeType: "application/zip",
@@ -308,7 +312,7 @@ test("skill upload uses an asynchronous import with category and avatar", async 
   expect(new URL(request.url()).searchParams.has("version")).toBe(false);
   const job = await (await request.response())!.json();
   expect(job.category).toBe("办公协同");
-  expect(job.avatar).toBe("skill:deep-thinking");
+  expect(job.avatar).toBe("");
   expect(job).not.toHaveProperty("version");
   await expect(
     page.getByRole("region", { name: "技能导入任务" }),
@@ -367,9 +371,11 @@ test("management grants current access by stable resource and recipient", async 
       },
     }),
   );
-  await page.route("**/manager/admin/grants", (route) => {
+  await page.route(/\/manager\/admin\/grants(?:\?|$)/, (route) => {
     if (route.request().method() === "GET")
-      return route.fulfill({ json: { items: grants } });
+      return route.fulfill({
+        json: { items: grants, page: 1, page_size: 20, has_next: false },
+      });
     grants = [
       {
         ...route.request().postDataJSON(),
@@ -512,8 +518,10 @@ test("admin review presents the submitted edition and existing audience", async 
     review_status_type: "pending",
     review_reason: "",
   };
-  await page.route("**/manager/admin/share-reviews", (route) =>
-    route.fulfill({ json: { items: [review] } }),
+  await page.route(/\/manager\/admin\/share-reviews(?:\?|$)/, (route) =>
+    route.fulfill({
+      json: { items: [review], page: 1, page_size: 20, has_next: false },
+    }),
   );
   await page.route(
     "**/manager/admin/share-reviews/upgrade-review/decision",

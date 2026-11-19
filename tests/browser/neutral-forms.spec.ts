@@ -169,9 +169,12 @@ for (const theme of ["light", "dark"] as const) {
     test("connector and administration dialogs inherit the gray palette", async ({
       page,
     }) => {
-      await page.route("**/api/manager/admin/resources/mcp", (route) =>
+      await page.route(/\/manager\/admin\/resources\/mcp(?:\?|$)/, (route) =>
         route.fulfill({
           json: {
+            page: 1,
+            page_size: 20,
+            has_next: false,
             items: [
               {
                 resource_id: "test-mcp",

@@ -3,15 +3,17 @@ import { onMounted, ref } from "vue";
 import { Plug, Plus } from "lucide-vue-next";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
-import { useAsyncData } from "../../composables/useAsyncData";
+import { useAdminPage } from "../../composables/useAdminPage";
+import AdminPagination from "./AdminPagination.vue";
 import type { AdminResource, ConnectorAuthType } from "../../types/api";
 import AsyncState from "../common/AsyncState.vue";
 import ConnectorConfigDialog from "../connectors/ConnectorConfigDialog.vue";
 import ConnectorConnectionTest from "../connectors/ConnectorConnectionTest.vue";
 import AdminSectionHeader from "./AdminSectionHeader.vue";
+import AdminStatusBadge from "./AdminStatusBadge.vue";
 
-const { data, loading, error, load } = useAsyncData(() =>
-  manager.adminResources("mcp"),
+const { data, loading, error, load, changePage } = useAdminPage((page) =>
+  manager.adminPage<AdminResource>("resources/mcp", page),
 );
 const notice = ref("");
 const pending = ref(false);
@@ -59,7 +61,7 @@ async function toggle(resource: AdminResource) {
     </AdminSectionHeader>
     <div v-if="notice" class="error" role="alert">{{ notice }}</div>
     <AsyncState
-      :loading="loading && !data"
+      :loading="loading"
       :error="error"
       :empty="!data?.items.length"
       empty-title="暂无连接器"
@@ -85,12 +87,11 @@ async function toggle(resource: AdminResource) {
                 }}
               </p>
             </div>
-            <span
-              class="server-status"
-              :class="{ enabled: resource.is_available }"
+            <AdminStatusBadge
+              :tone="resource.is_available ? 'success' : 'neutral'"
             >
               {{ resource.is_available ? "已启用" : "已停用" }}
-            </span>
+            </AdminStatusBadge>
           </div>
           <p v-if="resource.description" class="server-description">
             {{ resource.description }}
@@ -100,13 +101,18 @@ async function toggle(resource: AdminResource) {
               <span>Streamable HTTP</span>
               <span>{{ authLabels[resource.auth_type || "none"] }}</span>
             </div>
-            <div class="server-actions">
-              <t-button size="small" variant="text" @click="edit(resource)"
+            <div class="admin-actions">
+              <t-button
+                size="small"
+                variant="outline"
+                theme="default"
+                @click="edit(resource)"
                 >编辑</t-button
               >
               <t-button
                 size="small"
-                variant="text"
+                variant="outline"
+                theme="default"
                 :disabled="!resource.is_available"
                 @click="testing = resource"
               >
@@ -115,6 +121,7 @@ async function toggle(resource: AdminResource) {
               <t-button
                 size="small"
                 variant="outline"
+                theme="default"
                 :disabled="pending"
                 @click="toggle(resource)"
               >
@@ -125,6 +132,14 @@ async function toggle(resource: AdminResource) {
         </article>
       </div>
     </AsyncState>
+    <AdminPagination
+      v-if="data?.items.length"
+      label="MCP"
+      :page="data.page"
+      :has-next="data.has_next"
+      :disabled="loading || pending"
+      @change="changePage"
+    />
     <ConnectorConfigDialog
       :visible="editorOpen"
       :resource="editing"
@@ -183,25 +198,6 @@ async function toggle(resource: AdminResource) {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.server-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-top: 2px;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.server-status::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--subtle);
-  content: "";
-}
-.server-status.enabled::before {
-  background: var(--success);
-}
 .server-description {
   margin-top: 12px;
   font-size: 13px;
@@ -209,8 +205,7 @@ async function toggle(resource: AdminResource) {
   overflow-wrap: anywhere;
 }
 .server-footer,
-.server-configuration,
-.server-actions {
+.server-configuration {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

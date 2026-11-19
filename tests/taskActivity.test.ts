@@ -58,6 +58,17 @@ describe("task run and unread indicators", () => {
     expect(waiting.waiting).toBe(true);
     expect(waiting.unread).toBe(false);
   });
+  it("keeps a finished reply idle while the server still holds the session lock", () => {
+    const ended = { ...running, running: false, replyEnded: true };
+    const locked = task({ is_running: true });
+    const active = reconcileActivity(ended, locked, true);
+    expect(active.running).toBe(false);
+    expect(active.replyEnded).toBe(true);
+    const released = reconcileActivity(active, task({}), true);
+    expect(released.replyEnded).toBeFalsy();
+    expect(reconcileActivity(released, locked, true).running).toBe(true);
+    expect(reconcileActivity(ended, locked, false).running).toBe(true);
+  });
   it("does not mark old history unread on initial load", () => {
     expect(
       reconcileActivity(undefined, task({ is_running: false }), false).unread,

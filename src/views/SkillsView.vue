@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useSkillImports } from "../composables/useSkillImports";
 import { manager } from "../api/manager";
+import { useCatalogScroll } from "../composables/useCatalogScroll";
 import { useAsyncData } from "../composables/useAsyncData";
 import CatalogHeader from "../components/catalog/CatalogHeader.vue";
+import CatalogLoadMore from "../components/catalog/CatalogLoadMore.vue";
 import AsyncState from "../components/common/AsyncState.vue";
 import ResourceCategoryTabs from "../components/catalog/ResourceCategoryTabs.vue";
 import ResourceCard from "../components/catalog/ResourceCard.vue";
@@ -12,37 +14,38 @@ import ResourceDetailDrawer from "../components/catalog/ResourceDetailDrawer.vue
 import BatchSkillShareDialog from "../components/skills/BatchSkillShareDialog.vue";
 import SkillImportList from "../components/skills/SkillImportList.vue";
 import type { Resource } from "../types/api";
-const { data, loading, error, load } = useAsyncData(() =>
-  manager.resources("skills"),
-);
 const router = useRouter();
-const imports = useSkillImports(load);
+const mine = ref(false);
+const search = ref("");
+const category = ref("全部");
+const detail = ref<Resource | null>(null);
 const batchShareOpen = ref(false);
-const shareableSkills = computed(() =>
-  (data.value?.items || []).filter((resource) => resource.can_share),
+const {
+  scrollRoot, items: resources, categories, hasShareable, loading, error,
+  hasMore, loadingMore, moreError, onScroll, onWheel, loadMore, refresh, retry,
+} = useCatalogScroll(
+  (query, signal) => manager.resourceCatalog("skills", query, signal),
+  (resource) => `${resource.resource_id}-${resource.resource_version}`,
+  { search, category, mine },
 );
-const filter = ref("all"),
-  search = ref(""),
-  category = ref("全部"),
-  detail = ref<Resource | null>(null);
-const categories = computed(() => [
-  ...new Set(
-    (data.value?.items || [])
-      .map((r) => String(r.payload.category || ""))
-      .filter(Boolean),
-  ),
-]);
-const resources = computed(() =>
-  (data.value?.items || []).filter(
-    (r) =>
-      (filter.value !== "mine" || r.is_installed) &&
-      (category.value === "全部" || r.payload.category === category.value) &&
-      `${r.display_name} ${r.description}`
-        .toLowerCase()
-        .includes(search.value.toLowerCase()),
-  ),
-);
-onMounted(load);
+const imports = useSkillImports(refresh);
+const {
+  data: shareableSkills,
+  loading: batchShareLoading,
+  error: batchShareError,
+  load: loadBatchShareOptions,
+} = useAsyncData(async () => {
+  const { items } = await manager.resources("skills");
+  return items.filter((resource) => resource.can_share);
+});
+function openBatchShare() {
+  batchShareOpen.value = true;
+  void loadBatchShareOptions();
+}
+function onBatchShareChanged() {
+  void refresh();
+  void loadBatchShareOptions();
+}
 function edit(r: Resource) {
   detail.value = null;
   void router.push({
@@ -56,12 +59,15 @@ function edit(r: Resource) {
     <CatalogHeader
       page="skills"
       v-model:query="search"
-      :selected="filter === 'mine'"
-      @toggle="filter = filter === 'mine' ? 'all' : 'mine'"
+      :selected="mine"
+      @toggle="mine = !mine"
       @upload="router.push('/skills/upload')"
       @create="router.push('/skills/new')"
     />
-    <div class="catalog-content skill-market">
+    <div ref="scrollRoot" class="catalog-content skill-market"
+      @scroll.passive="onScroll"
+      @wheel.passive="onWheel"
+    >
       <SkillImportList
         :jobs="imports.jobs.value"
         :error="imports.error.value"
@@ -73,11 +79,11 @@ function edit(r: Resource) {
       <div class="sm-segment-bar">
         <span class="sm-segment-item sm-segment-item--active">推荐</span>
         <t-button
-          v-if="shareableSkills.length"
+          v-if="hasShareable"
           class="batch-share-action"
           variant="outline"
           size="small"
-          @click="batchShareOpen = true"
+          @click="openBatchShare"
           >批量申请共享</t-button
         >
       </div>
@@ -88,7 +94,7 @@ function edit(r: Resource) {
         :empty="!resources.length"
         empty-title="还没有可用的技能"
         empty-text="创建你的工作方法，或联系管理员获取使用授权。"
-        @retry="load"
+        @retry="retry"
         ><div class="card-grid">
           <ResourceCard
             v-for="resource in resources"
@@ -97,14 +103,21 @@ function edit(r: Resource) {
             kind="skills"
             @detail="detail = resource"
             @edit="edit(resource)"
-            @changed="load"
+            @changed="refresh"
           /></div
       ></AsyncState>
+      <CatalogLoadMore
+        :has-more="hasMore"
+        :loading="loadingMore"
+        :error="moreError"
+        @load-more="loadMore"
+        @retry="retry"
+      />
     </div>
     <ResourceDetailDrawer
       kind="skills"
       :resource="detail"
-      :resources="data?.items || []"
+      :resources="resources"
       @close="detail = null"
       @edit="edit"
     />
@@ -112,10 +125,13 @@ function edit(r: Resource) {
       :visible="batchShareOpen"
       title="批量申请共享"
       submit-label="提交共享申请"
-      :resources="shareableSkills"
+      :resources="shareableSkills || []"
+      :resources-loading="batchShareLoading"
+      :resources-error="batchShareError"
+      @retry-resources="loadBatchShareOptions"
       :submit-batch="manager.shareSkills"
       @close="batchShareOpen = false"
-      @changed="load"
+      @changed="onBatchShareChanged"
     />
   </section>
 </template>

@@ -50,6 +50,21 @@ const message = (content: ContentBlock[], finished = true): Msg => ({
   finished_at: finished ? stamp : null,
 });
 describe("native reply presentation", () => {
+  it("shows a skill's readable name while its native call is still running", () => {
+    const alias = "skill-0123456789abcdef0123456789abcdef_0123456789ab";
+    const skillCall = {
+      ...call("skill", "Skill"),
+      input: JSON.stringify({ skill: alias }),
+    };
+    const msg = message([skillCall], false);
+    expect(
+      presentTurn(msg, new Map([[alias, "ppt-master"]])).entries[0],
+    ).toMatchObject({ items: [{ summary: "ppt-master" }] });
+    expect(presentTurn(msg).entries[0]).toMatchObject({
+      items: [{ title: "使用技能", summary: "" }],
+    });
+    expect(skillCall.input).toContain(alias);
+  });
   it("keeps commentary in order and groups adjacent tool calls despite out-of-order results", () => {
     const view = presentTurn(
       message([
