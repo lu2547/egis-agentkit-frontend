@@ -36,6 +36,110 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
+test("knowledge search shows native execution states and structured references", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：查询缴费规则");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.locator(".process-heading")).toBeVisible();
+  await emit(request, [
+    ...call("search", "KnowledgeBaseSearch", { query: "缴费规则" }),
+    {
+      type: "TOOL_RESULT_START",
+      tool_call_id: "search",
+      tool_call_name: "KnowledgeBaseSearch",
+    },
+  ]);
+  await expect(page.locator(".latest-activity")).toContainText("正在检索知识库");
+  await page.locator(".process-heading").click();
+  await page.getByRole("button", { name: "执行工具 1 次", exact: true }).click();
+  const row = page.locator('[data-activity-id="tool:search"]');
+  await expect(row).toHaveAttribute("data-status", "running");
+  await row.locator("summary").click();
+  const metadata = {
+    knowledge_search: {
+      answers: [
+        { source: "doc", answer: "已找到缴费规则。" },
+        { source: "wiki", answer: "Wiki 也有操作指引。" },
+      ],
+      references: [
+        {
+          index: 1,
+          source: "doc",
+          title: "年金政策",
+          kb: "年金库",
+          doc_id: "doc-001",
+          snippet: "缴费比例以合同为准。",
+        },
+      ],
+    },
+  };
+  await emit(request, [
+    {
+      type: "TOOL_RESULT_TEXT_DELTA",
+      tool_call_id: "search",
+      delta: "已找到缴费规则。",
+    },
+    {
+      type: "TOOL_RESULT_END",
+      tool_call_id: "search",
+      state: "success",
+      metadata,
+    },
+    { type: "REPLY_END", finished_reason: "completed" },
+  ]);
+  await expect(row).toHaveAttribute("data-status", "success");
+  await expect(row.getByText("已找到缴费规则。")).toBeVisible();
+  await expect(row.getByText("Wiki 也有操作指引。")).toBeVisible();
+  await expect(row.getByRole("heading", { name: "参考来源" })).toBeVisible();
+  await expect(row.getByText("年金政策", { exact: true })).toBeVisible();
+  await expect(row.getByText("缴费比例以合同为准。")).toBeVisible();
+
+  const timestamp = new Date().toISOString();
+  const savedBlocks = [
+    {
+      type: "tool_call",
+      id: "search",
+      name: "KnowledgeBaseSearch",
+      input: '{"query":"缴费规则"}',
+      state: "finished",
+    },
+    {
+      type: "tool_result",
+      id: "search",
+      name: "KnowledgeBaseSearch",
+      output: "已找到缴费规则。",
+      state: "success",
+      metadata,
+    },
+  ];
+  const history = await request.post(base + "/__test/messages", {
+    data: {
+      session_id: "s1",
+      messages: [{
+        id: "saved-search",
+        role: "assistant",
+        name: "assistant",
+        created_at: timestamp,
+        finished_at: timestamp,
+        content: savedBlocks.map((block) => ({
+          ...block,
+          created_at: timestamp,
+          finished_at: timestamp,
+        })),
+      }],
+    },
+  });
+  expect(history.ok()).toBe(true);
+  await page.reload();
+  await page.locator(".process-heading").click();
+  await page.getByRole("button", { name: "执行工具 1 次", exact: true }).click();
+  await row.locator("summary").click();
+  await expect(row.getByText("年金政策", { exact: true })).toBeVisible();
+});
+
 test("expert progress stacks at the top right after the assistant finishes", async ({
   page,
   request,

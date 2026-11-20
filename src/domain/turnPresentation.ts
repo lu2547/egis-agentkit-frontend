@@ -24,6 +24,19 @@ export interface ProcessActivity {
   statusLabel: string;
   input: string;
   output: string;
+  knowledgeSearch?: KnowledgeSearchResult;
+}
+
+type KnowledgeSource = "doc" | "wiki";
+interface KnowledgeSearchResult {
+  answers: { source: KnowledgeSource; answer: string }[];
+  references: {
+    index: number;
+    source: KnowledgeSource;
+    title: string;
+    kb?: string;
+    snippet: string;
+  }[];
 }
 export interface ActivityGroup {
   type: "activities";
@@ -44,6 +57,7 @@ const toolTitles: Record<string, string> = {
   PowerShell: "执行命令",
   WebSearch: "搜索网页",
   WebFetch: "读取网页",
+  KnowledgeBaseSearch: "检索知识库",
   Skill: "使用技能",
   CreateSkill: "创建技能",
   InstallSkillPackage: "安装技能",
@@ -106,6 +120,33 @@ function readableOutput(result?: ToolResultBlock) {
       )
       .join("\n"),
   );
+}
+function knowledgeSearchResult(
+  result?: ToolResultBlock,
+): KnowledgeSearchResult | undefined {
+  if (result?.name !== "KnowledgeBaseSearch" || result.state !== "success")
+    return;
+  const data = result.metadata?.knowledge_search as
+    Partial<KnowledgeSearchResult> | undefined;
+  const answers = Array.isArray(data?.answers)
+    ? data.answers.filter(
+        (answer) =>
+          (answer?.source === "doc" || answer?.source === "wiki") &&
+          typeof answer.answer === "string",
+      )
+    : [];
+  const references = Array.isArray(data?.references)
+    ? data.references.filter(
+        (ref) =>
+          (ref?.source === "doc" || ref?.source === "wiki") &&
+          Number.isSafeInteger(ref.index) &&
+          ref.index > 0 &&
+          typeof ref.title === "string" &&
+          (ref.kb === undefined || typeof ref.kb === "string") &&
+          typeof ref.snippet === "string",
+      )
+    : [];
+  if (answers.length || references.length) return { answers, references };
 }
 function toolStatus(
   message: Msg,
@@ -227,15 +268,17 @@ export function presentTurn(
     } else if (block.type === "tool_call" && !seenCalls.has(block.id)) {
       seenCalls.add(block.id);
       const summary = toolSummary(block, skillNames);
+      const result = results.get(block.id);
       appendActivity({
         id: `tool:${block.id}`,
         kind: "tool",
         rawName: block.name,
         title: toolTitle(block.name),
         summary,
-        ...toolStatus(message, block, results.get(block.id)),
+        ...toolStatus(message, block, result),
         input: block.name === "Skill" ? summary : formattedInput(block.input),
-        output: readableOutput(results.get(block.id)),
+        output: readableOutput(result),
+        knowledgeSearch: knowledgeSearchResult(result),
       });
     }
   }

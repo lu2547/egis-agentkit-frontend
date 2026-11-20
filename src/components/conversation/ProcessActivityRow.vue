@@ -67,17 +67,50 @@ const statusIcon = computed(
       <template v-if="activity.kind === 'tool'">
         <h5>输入参数</h5>
         <pre>{{ activity.input || "无参数" }}</pre>
-        <template v-if="activity.output"
-          ><h5>执行结果</h5>
+        <template v-if="activity.knowledgeSearch?.answers.length">
+          <h5>执行结果</h5>
+          <div
+            v-for="answer in activity.knowledgeSearch.answers"
+            :key="answer.source"
+            class="knowledge-answer"
+          >
+            <strong>{{ answer.source === "doc" ? "文档" : "Wiki" }}</strong>
+            <pre>{{ answer.answer }}</pre>
+          </div>
+        </template>
+        <template v-else-if="activity.output">
+          <h5>执行结果</h5>
           <pre>{{ activity.output }}</pre>
         </template>
-        <p v-else class="activity-empty">
+        <p
+          v-else-if="!activity.knowledgeSearch?.references.length"
+          class="activity-empty"
+        >
           {{
             activity.status === "success"
               ? "工具执行成功，无文本结果。"
               : activity.statusLabel
           }}
         </p>
+        <template v-if="activity.knowledgeSearch?.references.length">
+          <h5>参考来源</h5>
+          <ol class="knowledge-references">
+            <li
+              v-for="ref in activity.knowledgeSearch.references"
+              :key="ref.index"
+            >
+              <span class="knowledge-reference-index">[{{ ref.index }}]</span>
+              <div>
+                <strong>{{ ref.title }}</strong>
+                <small
+                  >{{ ref.source === "doc" ? "文档" : "Wiki"
+                  }}<template v-if="ref.kb"> · {{ ref.kb }}</template></small
+                >
+                <p v-if="ref.snippet">{{ ref.snippet }}</p>
+              </div>
+            </li>
+          </ol>
+        </template>
       </template>
       <MarkdownContent
         v-else-if="activity.output"
