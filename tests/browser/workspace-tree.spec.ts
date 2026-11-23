@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("files tab restores the workspace root after opening its artifacts folder", async ({
+test("workspace breadcrumb restores the root after opening its artifacts folder", async ({
   page,
   request,
 }) => {
@@ -36,8 +36,8 @@ test("files tab restores the workspace root after opening its artifacts folder",
   await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/产物");
   await expect(panel.getByText("暂无文件", { exact: true })).toBeVisible();
   await panel
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "文件", exact: true })
+    .locator(".breadcrumb")
+    .getByRole("button", { name: "工作空间", exact: true })
     .click();
   await expect(panel.locator(".breadcrumb")).toHaveText("工作空间");
   await expect(
@@ -126,7 +126,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(panel.locator(".file-preview:visible")).toContainText(
       "uploads:需求.md",
     );
-    await panel.getByRole("button", { name: "文件", exact: true }).click();
+    await panel.getByRole("tab", { name: "工作空间", exact: true }).click();
     await panel.getByRole("button", { name: "资料", exact: true }).click();
     await expect(panel.locator(".breadcrumb")).toHaveText("工作空间/资料");
     await panel
@@ -136,7 +136,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(panel.locator(".file-preview:visible")).toContainText(
       "uploads:资料/背景.md",
     );
-    await panel.getByRole("button", { name: "文件", exact: true }).click();
+    await panel.getByRole("tab", { name: "工作空间", exact: true }).click();
     await panel
       .locator(".breadcrumb")
       .getByRole("button", { name: "工作空间", exact: true })
@@ -150,7 +150,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(panel.locator(".file-preview:visible")).toContainText(
       "work:generate.py",
     );
-    await panel.getByRole("button", { name: "文件", exact: true }).click();
+    await panel.getByRole("tab", { name: "工作空间", exact: true }).click();
     await panel
       .locator(".breadcrumb")
       .getByRole("button", { name: "工作空间", exact: true })
@@ -163,7 +163,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(panel.locator(".file-preview:visible")).toContainText(
       "artifacts:report.md",
     );
-    await panel.getByRole("button", { name: "文件", exact: true }).click();
+    await panel.getByRole("tab", { name: "工作空间", exact: true }).click();
     await panel.locator(".list-toolbar input[type=file]").setInputFiles({
       name: "新增资料.txt",
       mimeType: "text/plain",

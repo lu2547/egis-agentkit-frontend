@@ -256,18 +256,18 @@ test("stale save keeps edits and leaving dirty workbook asks before discarding",
   await expect(editor.getByRole("status")).toHaveText("未保存");
   await editor.getByRole("button", { name: "退出宽屏" }).click();
   await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "文件", exact: true })
+    .locator(".workspace-tab-strip")
+    .getByRole("tab", { name: "工作空间", exact: true })
     .click();
   await expect(editor).toHaveCount(0);
   await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "预览", exact: true })
+    .locator(".workspace-tab-strip")
+    .getByRole("tab", { name: "editor.xlsx", exact: true })
     .click();
   await expect(editor.getByRole("status")).toHaveText("未保存");
   page.once("dialog", (dialog) => dialog.dismiss());
   await page
-    .getByRole("button", { name: "关闭预览 editor.xlsx", exact: true })
+    .getByRole("button", { name: "关闭标签 editor.xlsx", exact: true })
     .click();
   await expect(editor).toBeVisible();
 });
@@ -297,8 +297,8 @@ test("switching file tabs preserves unsaved native Excel edits", async ({
       : r.fallback(),
   );
   await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "文件", exact: true })
+    .locator(".workspace-tab-strip")
+    .getByRole("tab", { name: "工作空间", exact: true })
     .click();
   await page
     .locator("button.file-open")

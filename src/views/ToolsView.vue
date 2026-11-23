@@ -12,11 +12,11 @@ import type { Resource } from "../types/api";
 
 const search = ref("");
 const category = ref("全部");
-const categories = ["系统默认", "专家工具"];
+const categories = ["系统默认", "可选工具", "专家工具"];
 const detail = ref<Resource | null>(null);
 const {
   scrollRoot, items: tools, loading, error, hasMore, loadingMore, moreError,
-  onScroll, onWheel, loadMore, retry,
+  onScroll, onWheel, loadMore, refresh, retry,
 } = useCatalogScroll(
   (query, signal) => manager.resourceCatalog("tools", query, signal),
   (tool) => `${tool.resource_id}-${tool.resource_version}`,
@@ -49,6 +49,7 @@ const {
             :key="`${tool.resource_id}-${tool.resource_version}`"
             :resource="tool"
             kind="tools"
+            @changed="refresh"
             @detail="detail = tool"
           />
         </div>
@@ -65,6 +66,7 @@ const {
       kind="tools"
       :resource="detail"
       :resources="tools"
+      @changed="refresh"
       @close="detail = null"
     />
   </section>

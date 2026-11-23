@@ -4,7 +4,7 @@ import {
   type TextAnnotation,
 } from "../domain/textAnnotations";
 import { ref, shallowRef, onScopeDispose, watch } from "vue";
-import { type ToolCallBlock } from "@agentscope-ai/agentscope/message";
+import { type Msg, type ToolCallBlock } from "@agentscope-ai/agentscope/message";
 import {
   EventType,
   type AgentEvent,
@@ -14,8 +14,14 @@ import {
   ConversationEvents,
   SessionScope,
   type SessionLease,
+  type ChatHistoryRewrite,
 } from "../domain/agentEventReducer";
 import { sessionApprovalRules } from "../domain/permissionApproval";
+import {
+  canSendUserMessage,
+  editedUserMessage,
+  userMessageText,
+} from "../domain/userMessageEditing";
 import { runtime } from "../api/runtime";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
@@ -27,7 +33,7 @@ import type {
   TaskSettings,
   ReplyFeedbackState,
 } from "../types/api";
-import type { Msg } from "@agentscope-ai/agentscope/message";
+import { observeChatQueue } from "./useSteeringQueue";
 import { useTaskActivity } from "./useTaskActivity";
 export function useConversation() {
   const activity = useTaskActivity();
@@ -52,7 +58,23 @@ export function useConversation() {
     hasMore = ref(false),
     submitting = ref(false),
     settingsPending = ref(false);
-  const steeringPending = ref(false);
+  function forgetCollaborator(workerId: string) {
+    removedCollaborators.add(workerId);
+    const progress = new Map(collaboratorProgress.value);
+    progress.delete(workerId);
+    collaboratorProgress.value = progress;
+    if (task.value) {
+      ++metadataGeneration;
+      task.value = {
+        ...task.value,
+        collaborators: task.value.collaborators?.filter(
+          (member) =>
+            !member.worker_session_id ||
+            !removedCollaborators.has(member.worker_session_id),
+        ),
+      };
+    }
+  }
   const scope = new SessionScope(),
     stream = useChatStream();
   const { refreshTasks, tasks } = useIdentity();
@@ -77,6 +99,8 @@ export function useConversation() {
   let metadataGeneration = 0;
   let eventGeneration = 0;
   let pendingInputId: string | null = null;
+  let rewriteGeneration = 0;
+  let rewrittenInput: Msg | null = null;
   let statusRequest: SessionLease | null = null;
   async function refreshRunState() {
     const current = lease,
@@ -172,16 +196,29 @@ export function useConversation() {
         if (!scope.owns(current)) return;
         ++eventGeneration;
         if (!state.value.apply(event)) return;
+        observeChatQueue(current.key, event);
         if (event.type === EventType.CUSTOM) {
-          if (event.name === "collaborator_progress") {
+          if (event.name === "chat_history_rewritten") {
+            const rewrite = event.value as unknown as ChatHistoryRewrite;
+            ++rewriteGeneration;
+            rewrittenInput = rewrite.input;
+            const loaded = new Set(
+              state.value.messages.map((message) => message.id),
+            );
+            hasMore.value = rewrite.retained_message_ids.some(
+              (id) => !loaded.has(id),
+            );
+            pendingInputId = rewrite.input.id;
+            collaboratorProgress.value = new Map();
+            error.value = "";
+          } else if (["chat_input_failed", "chat_input_steer_failed"].includes(event.name)) {
+            error.value = typeof event.value.message === "string" ? event.value.message : "队列消息处理失败，请重试";
+          } else if (event.name === "collaborator_progress") {
             mergeCollaboratorProgress([event.value as unknown as CollaboratorProgress]);
           } else if (event.name === "collaborator_progress_removed") {
             const id = event.value.worker_session_id;
             if (typeof id === "string") {
-              removedCollaborators.add(id);
-              const progress = new Map(collaboratorProgress.value);
-              progress.delete(id);
-              collaboratorProgress.value = progress;
+              forgetCollaborator(id);
             }
           }
         }
@@ -192,7 +229,7 @@ export function useConversation() {
         publish(replyEnded);
         if (
           event.type === EventType.CUSTOM &&
-          ["session_updated", "state_updated"].includes(event.name)
+          ["session_updated", "state_updated", "chat_history_rewritten"].includes(event.name)
         ) {
           void refreshMetadata(current);
           void refreshTasks();
@@ -254,13 +291,14 @@ export function useConversation() {
     state.value = new ConversationEvents();
     submitting.value = false;
     settingsPending.value = false;
-    steeringPending.value = false;
     pendingInputId = null;
+    rewrittenInput = null;
     ++eventGeneration;
     ++metadataGeneration;
   }
-  async function open(sid: string) {
+  async function open(sid: string, initialTask?: Task) {
     clear();
+    if (initialTask?.session_id === sid) task.value = initialTask;
     lease = scope.enter(sid);
     const current = lease;
     loading.value = true;
@@ -306,6 +344,9 @@ export function useConversation() {
     references: ChatReference[] = [],
     annotations: TextAnnotation[] = [],
   ) {
+    return sendMessage(createAnnotatedMessage(text, references, annotations));
+  }
+  async function sendMessage(message: Msg) {
     if (
       !task.value ||
       !lease ||
@@ -316,7 +357,6 @@ export function useConversation() {
       return false;
     const current = lease,
       selected = task.value;
-    const message = createAnnotatedMessage(text, references, annotations);
     submitting.value = true;
     error.value = "";
     try {
@@ -355,50 +395,67 @@ export function useConversation() {
       if (scope.owns(current)) submitting.value = false;
     }
   }
-  async function steer(
-    messages: Msg[],
-    targetSessionId = task.value?.session_id,
-  ) {
+  async function resend(message: Msg, text: string): Promise<boolean> {
+    const current = lease,
+      selected = task.value;
+    const original = state.value.messages.find((item) => item.id === message.id);
     if (
-      !task.value ||
-      !lease ||
-      task.value.session_id !== targetSessionId ||
-      steeringPending.value ||
-      state.value.phase === "interrupting"
+      !current ||
+      !selected ||
+      !original ||
+      original.role !== "user" ||
+      loading.value ||
+      submitting.value ||
+      settingsPending.value ||
+      state.value.phase !== "idle" ||
+      stream.connection.value !== "connected" ||
+      [...collaboratorProgress.value.values()].some((entry) =>
+        ["running", "waiting"].includes(entry.status),
+      ) ||
+      !canSendUserMessage(original, text)
     )
       return false;
-    const current = lease,
-      selected = task.value,
-      wasIdle = state.value.phase === "idle";
-    steeringPending.value = true;
+    const previous = state.value;
+    const previousInputId = pendingInputId;
+    const previousProgress = collaboratorProgress.value;
+    const previousRewrite = rewriteGeneration;
+    submitting.value = true;
     error.value = "";
-    if (wasIdle) {
-      state.value.phase = "streaming";
-      publish();
-    }
+    ++eventGeneration;
+    ++metadataGeneration;
+    collaboratorProgress.value = new Map();
+    state.value = previous.replaceUserMessage(editedUserMessage(original, text));
+    pendingInputId = original.id;
+    publish();
     try {
-      await stream.waitReady();
-      if (!scope.owns(current)) return false;
-      await runtime.steer(
+      await runtime.trigger(
         selected.session_id,
         selected.agent_id,
-        messages,
+        state.value.messages.at(-1)!,
         current.signal,
+        original.id,
       );
-      if (scope.owns(current)) {
-        state.value.addSteeringMessages(messages);
-        publish();
-      }
-      return true;
+      return scope.owns(current);
     } catch (e) {
       if (scope.owns(current)) {
+        if (rewriteGeneration !== previousRewrite) {
+          if (
+            rewrittenInput?.id === original.id &&
+            userMessageText(rewrittenInput) === text
+          )
+            return true;
+          error.value = errorText(e);
+          return false;
+        }
         error.value = errorText(e);
-        if (wasIdle && state.value.isPreparing) state.value.phase = "idle";
+        state.value = previous;
+        collaboratorProgress.value = previousProgress;
+        pendingInputId = previousInputId;
         publish();
       }
       return false;
     } finally {
-      if (scope.owns(current)) steeringPending.value = false;
+      if (scope.owns(current)) submitting.value = false;
     }
   }
   async function confirm(
@@ -484,6 +541,7 @@ export function useConversation() {
   onScopeDispose(clear);
   return {
     collaboratorProgress,
+    forgetCollaborator,
     replyFeedback,
     task,
     state,
@@ -494,11 +552,11 @@ export function useConversation() {
     hasMore,
     submitting,
     settingsPending,
-    steeringPending,
-    steer,
     updateSettings,
     open,
     send,
+    sendMessage,
+    resend,
     stop,
     confirm,
     older,

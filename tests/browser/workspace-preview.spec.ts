@@ -106,19 +106,19 @@ test("local DOCX and XLSX previews survive refresh and stay scoped to their proj
 
   await page.reload();
   await expect(panel).toBeVisible();
-  await panel.getByRole("button", { name: "预览", exact: true }).click();
   await expect(panel.locator(".office-document")).toContainText(
     "养老险业务文档预览",
   );
   await page.locator('.sidebar a[href="/tasks/s2"]').click();
   await expect(page.locator(".task-header h1")).toHaveText("另一个对话");
-  await panel.getByRole("button", { name: "预览", exact: true }).click();
   await expect(panel.locator(".office-document")).toHaveCount(0);
-  await expect(panel.getByRole("heading", { name: "暂无预览" })).toBeVisible();
+  await expect(
+    panel.getByRole("tab", { name: "preview.docx", exact: true }),
+  ).toHaveCount(0);
 
   await panel
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "文件", exact: true })
+    .locator(".workspace-tab-strip")
+    .getByRole("tab", { name: "工作空间", exact: true })
     .click();
   await panel
     .locator(".breadcrumb")
@@ -148,14 +148,16 @@ test("plan panel shows canonical task DTO for the current conversation", async (
 }) => {
   await page.goto("/tasks/s1");
   const panel = page.locator(".workspace-panel");
-  await panel.getByRole("button", { name: "计划", exact: true }).click();
+  await panel.getByRole("button", { name: "新标签页", exact: true }).click();
+  await panel.getByRole("button", { name: /^查看计划/ }).click();
   await expect(panel.locator(".plan")).toContainText("核对业务资料");
   await expect(panel.locator(".plan")).toContainText("进行中");
   await expect(panel.locator(".plan")).toContainText("整理结论");
   await expect(panel.locator(".plan")).toContainText("已完成");
   await page.locator('.sidebar a[href="/tasks/s2"]').click();
   await expect(page.locator(".task-header h1")).toHaveText("另一个对话");
-  await panel.getByRole("button", { name: "计划", exact: true }).click();
+  await panel.getByRole("button", { name: "新标签页", exact: true }).click();
+  await panel.getByRole("button", { name: /^查看计划/ }).click();
   await expect(panel.locator(".plan")).toContainText("暂无计划");
   await expect(panel.locator(".plan")).not.toContainText("核对业务资料");
 });

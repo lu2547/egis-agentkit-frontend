@@ -105,6 +105,20 @@
 .loading-chat {
   flex: 1;
 }
+.reply-sources-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 24px;
+  cursor: pointer;
+}
+.reply-sources-entry:hover { color: var(--text); }
 .subagent-confirmations {
   max-width: 820px;
   width: 100%;

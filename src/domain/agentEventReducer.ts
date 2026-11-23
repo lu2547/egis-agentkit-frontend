@@ -12,7 +12,12 @@ import {
   ReplyFinishedReason,
   type AgentEvent,
 } from "@agentscope-ai/agentscope/event";
-import { STEERING_SOURCE, steeringState, withSteeringState } from "./steering";
+import {
+  STEERING_SOURCE,
+  steeringState,
+  withSteeringState,
+  messageFromSteeringHint,
+} from "./steering";
 export type ReplyPhase = "idle" | "streaming" | "waiting" | "interrupting";
 export interface SubagentConfirmation {
   worker_session_id: string;
@@ -23,6 +28,11 @@ export interface SubagentConfirmation {
   event: { tool_calls?: ToolCallBlock[] };
   created_at: string;
 }
+export interface ChatHistoryRewrite {
+  message_id: string;
+  input: Msg;
+  retained_message_ids: string[];
+}
 export class ConversationEvents {
   plan?: { id: string; subject: string; state: string }[];
   subagentConfirmations: SubagentConfirmation[] = [];
@@ -31,6 +41,8 @@ export class ConversationEvents {
   private seen = new Set<string>();
   private active = new Set<string>();
   private receivedSteering = new Set<string>();
+  private discarded = new Set<string>();
+  private rewriteCandidates = new Map<string, Msg>();
   /** 请求已进入处理，但尚未收到原生回复开始事件；只用于页面占位。 */
   get isPreparing() {
     return this.phase === "streaming" && this.active.size === 0;
@@ -80,18 +92,90 @@ export class ConversationEvents {
       : isRunning
         ? "streaming"
         : "idle";
-    for (const message of this.messages)
-      for (const block of message.content)
-        if (block.type === "hint" && block.source === STEERING_SOURCE)
-          this.receivedSteering.add(block.id);
-    this.messages = this.messages.map((message) =>
-      this.receivedSteering.has(message.id) && steeringState(message)
-        ? withSteeringState(message, "received")
-        : message,
+    const known = new Set(this.messages.map((message) => message.id));
+    const presentedHints = new Set(
+      this.messages.flatMap((message) => {
+        const delivery = message.metadata?.agentkit_delivery;
+        return delivery &&
+          typeof delivery === "object" &&
+          !Array.isArray(delivery) &&
+          typeof delivery.hint_id === "string"
+          ? [delivery.hint_id]
+          : [];
+      }),
     );
+    this.messages = this.messages.flatMap((message) => [
+      message,
+      ...message.content.flatMap((block) => {
+        if (
+          block.type !== "hint" ||
+          block.source !== STEERING_SOURCE ||
+          known.has(block.id) ||
+          presentedHints.has(block.id)
+        )
+          return [];
+        known.add(block.id);
+        this.receivedSteering.add(block.id);
+        return [messageFromSteeringHint(block)];
+      }),
+    ]);
   }
+
+  replaceUserMessage(message: Msg, retainedMessageIds?: string[]) {
+    const index = this.messages.findIndex((item) => item.id === message.id);
+    const original = this.messages[index];
+    const delivery = original?.metadata.agentkit_delivery;
+    const hintId =
+      delivery &&
+      typeof delivery === "object" &&
+      !Array.isArray(delivery) &&
+      typeof delivery.hint_id === "string"
+        ? delivery.hint_id
+        : original?.id;
+    const containing = steeringState(original || message)
+      ? this.messages.findIndex(
+          (item) =>
+            item.role === "assistant" &&
+            item.content.some(
+              (block) =>
+                block.type === "hint" &&
+                block.source === STEERING_SOURCE &&
+                block.id === hintId,
+            ),
+        )
+      : -1;
+    const boundary = containing >= 0 ? Math.min(index, containing) : index;
+    const loaded = new Map([
+      ...this.rewriteCandidates,
+      ...this.messages.map((item) => [item.id, item] as const),
+    ]);
+    const prefix = retainedMessageIds
+      ? retainedMessageIds.flatMap((id) =>
+          loaded.has(id) ? [loaded.get(id)!] : [],
+        )
+      : this.messages.slice(0, Math.max(0, boundary));
+    const retained = new Set(prefix.map((item) => item.id));
+    const next = new ConversationEvents();
+    // Do not restore hint projections from the containing reply during a rewrite.
+    next.messages = [...prefix, message];
+    next.phase = "streaming";
+    next.seen = new Set(this.seen);
+    // The canonical prefix may retain earlier injected users beyond the live boundary.
+    if (!retainedMessageIds) next.rewriteCandidates = loaded;
+    next.discarded = new Set([
+      ...[...this.discarded].filter(
+        (id) => id !== message.id && !retained.has(id),
+      ),
+      ...this.messages
+        .filter((item) => item.id !== message.id && !retained.has(item.id))
+        .map((item) => item.id),
+    ]);
+    return next;
+  }
+
   addSteeringMessages(messages: Msg[]) {
     for (const message of messages) {
+      if (this.discarded.has(message.id)) continue;
       const previous = this.messages.find((item) => item.id === message.id);
       const received =
         this.receivedSteering.has(message.id) ||
@@ -111,27 +195,58 @@ export class ConversationEvents {
   apply(event: AgentEvent) {
     if (event.id && this.seen.has(event.id)) return false;
     if (event.id) this.seen.add(event.id);
+    if ("reply_id" in event && this.discarded.has(event.reply_id)) return false;
     if (
       event.type === EventType.HINT_BLOCK &&
       event.source === STEERING_SOURCE
     ) {
       this.receivedSteering.add(event.block_id);
-      this.messages = this.messages.map((message) =>
-        message.id === event.block_id && steeringState(message)
-          ? withSteeringState(message, "received")
-          : message,
-      );
+      const original = (event as unknown as { user_message?: Msg })
+        .user_message;
+      this.addSteeringMessages([
+        original ||
+          messageFromSteeringHint({
+            id: event.block_id,
+            hint: event.hint,
+            created_at: event.created_at,
+          }),
+      ]);
     }
+
     if (event.type === EventType.CUSTOM) {
-      if (event.name === STEERING_SOURCE) {
-        const inputs = (event.value as unknown as { messages?: Msg[] })
-          .messages;
-        if (Array.isArray(inputs))
-          this.addSteeringMessages(
-            inputs.filter(
-              (message) => message.role === "user" && !!steeringState(message),
-            ),
-          );
+      if (event.name === "chat_history_rewritten") {
+        const rewrite = event.value as unknown as ChatHistoryRewrite;
+        if (
+          rewrite.input?.role !== "user" ||
+          rewrite.input.id !== rewrite.message_id ||
+          !Array.isArray(rewrite.retained_message_ids) ||
+          !rewrite.retained_message_ids.every((id) => typeof id === "string")
+        )
+          return false;
+        Object.assign(
+          this,
+          this.replaceUserMessage(rewrite.input, rewrite.retained_message_ids),
+        );
+      } else if (event.name === "chat_input_started") {
+        const queued = (
+          event.value as unknown as { queue_item?: { input?: Msg | Msg[] } }
+        ).queue_item?.input;
+        if (queued) {
+          const inputs = Array.isArray(queued) ? queued : [queued];
+          if (inputs.every((message) => this.discarded.has(message.id)))
+            return false;
+          for (const message of inputs)
+            if (
+              !this.discarded.has(message.id) &&
+              !this.messages.some((saved) => saved.id === message.id)
+            )
+              this.messages.push(message);
+        }
+        this.phase = "streaming";
+      } else if (
+        ["chat_input_failed", "chat_input_cancelled"].includes(event.name)
+      ) {
+        if (!this.active.size) this.phase = "idle";
       } else if (event.name === "state_updated") {
         const context = (event.value as { tasks_context?: { tasks?: unknown } })
           .tasks_context;

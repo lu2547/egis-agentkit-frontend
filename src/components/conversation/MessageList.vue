@@ -7,6 +7,9 @@ import type { Msg, ToolCallBlock } from "@agentscope-ai/agentscope/message";
 import { ArrowDown } from "lucide-vue-next";
 import UserMessage from "./UserMessage.vue";
 import AssistantMessage from "./AssistantMessage.vue";
+import CollaboratorWorkEntry from "./CollaboratorWorkEntry.vue";
+import type { CollaboratorProgress } from "../../types/api";
+import { conversationTimeline } from "../../domain/conversationTimeline";
 import {
   replyAnnotations,
   type TextAnnotation,
@@ -16,9 +19,16 @@ const props = defineProps<{
   displayNames?: Record<string, string>;
   defaultDisplayName?: string;
   personal?: boolean;
+  collaborators?: CollaboratorProgress[];
+  expandedWorkers?: ReadonlySet<string>;
   preparing?: boolean;
+  preparingText?: string;
   sessionId?: string;
+  replyId?: string;
   branchDisabled?: boolean;
+  editDisabled?: boolean;
+  resendError?: string;
+  resend?: (message: Msg, text: string) => Promise<boolean>;
   replyFeedback?: Record<string, import("../../types/api").ReplyFeedbackState>;
   loading: boolean;
   hasMore: boolean;
@@ -29,15 +39,19 @@ const props = defineProps<{
     rememberForSession?: boolean,
   ) => Promise<void>;
 }>();
-defineEmits<{
+const emit = defineEmits<{
   older: [];
   file: [path: string];
   reference: [value: import("../../domain/previewReferences").ChatReference];
   annotation: [value: TextAnnotation];
   branched: [task: import("../../types/api").Task];
+  collaborator: [workerId: string];
 }>();
 const viewport = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
+const timeline = computed(() =>
+  conversationTimeline(props.messages, props.collaborators),
+);
 const { sticky, onScroll, follow, scrollToBottom } = useScrollFollower(
   viewport,
   content,
@@ -82,11 +96,41 @@ watch(
   },
 );
 watch(
-  () => props.messages,
+  timeline,
   async () => {
     await nextTick();
     follow();
   },
+);
+
+let trackedReply: string | undefined;
+let loadedBefore: string | undefined;
+let revealed = false;
+watch(
+  () => [props.replyId, props.messages, props.loading, props.hasMore] as const,
+  async ([replyId, messages, loading, hasMore]) => {
+    if (trackedReply !== replyId) {
+      trackedReply = replyId;
+      loadedBefore = undefined;
+      revealed = false;
+    }
+    if (!replyId || loading || revealed) return;
+    if (messages.some((message) => message.id === replyId)) {
+      // Wait for the usual conversation scroll setup before moving to the reply.
+      await nextTick();
+      if (props.replyId !== replyId || revealed) return;
+      const target = content.value?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(replyId)}"]`);
+      if (!target) return;
+      revealed = true;
+      sticky.value = false;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "start" });
+    } else if (hasMore && messages[0] && loadedBefore !== messages[0].id) {
+      loadedBefore = messages[0].id;
+      emit("older");
+    }
+  },
+  { immediate: true, flush: "post" },
 );
 </script>
 <template>
@@ -109,47 +153,64 @@ watch(
           >
         </div>
         <div
-          v-for="message in messages"
-          :key="message.id"
-          :data-message-id="message.id"
+          v-for="item in timeline"
+          :key="`${item.kind}:${item.id}`"
+          :data-message-id="item.kind === 'message' ? item.id : undefined"
+          :tabindex="item.id === replyId ? -1 : undefined"
           class="message-entry"
-          :class="{ 'message-arriving': arriving.has(message.id) }"
+          :class="{
+            'message-arriving': arriving.has(item.id),
+            'collaborator-work-log': item.kind === 'collaborator',
+          }"
         >
-          <UserMessage
-            v-if="message.role === 'user'"
-            :message="message"
-            @reference="$emit('reference', $event)"
-            @annotation="$emit('annotation', $event)"
-          /><AssistantMessage
-            v-else-if="message.role === 'assistant'"
-            :message="message"
-            :skill-names="skillNames"
-            :confirm="confirm"
-            :session-id="sessionId"
-            :branch-disabled="branchDisabled"
-            :feedback="replyFeedback?.[message.id]"
-            @branched="$emit('branched', $event)"
-            :display-name="displayNames?.[message.name] || defaultDisplayName"
-            :personal="personal"
-            :annotations="replyAnnotations(messages, message.id)"
-            @file="$emit('file', $event)"
-            @annotation="$emit('annotation', $event)"
+          <CollaboratorWorkEntry
+            v-if="item.kind === 'collaborator'"
+            :progress="item.progress"
+            :stage="item.stage"
+            :expanded="expandedWorkers?.has(item.progress.worker_session_id)"
+            @open="$emit('collaborator', $event)"
           />
-          <slot
-            v-if="message.role === 'assistant'"
-            name="message-artifacts"
-            :message="message"
-          />
+          <template v-else>
+            <UserMessage
+              v-if="item.message.role === 'user'"
+              :message="item.message"
+              :edit-disabled="editDisabled"
+              :resend="resend"
+              :resend-error="resendError"
+              @reference="$emit('reference', $event)"
+              @annotation="$emit('annotation', $event)"
+            /><AssistantMessage
+              v-else-if="item.message.role === 'assistant'"
+              :message="item.message"
+              :skill-names="skillNames"
+              :confirm="confirm"
+              :session-id="sessionId"
+              :branch-disabled="branchDisabled"
+              :feedback="replyFeedback?.[item.message.id]"
+              @branched="$emit('branched', $event)"
+              :display-name="displayNames?.[item.message.name] || defaultDisplayName"
+              :personal="personal"
+              :annotations="replyAnnotations(messages, item.message.id)"
+              @file="$emit('file', $event)"
+              @annotation="$emit('annotation', $event)"
+            />
+            <slot
+              v-if="item.message.role === 'assistant'"
+              name="message-artifacts"
+              :message="item.message"
+            />
+          </template>
         </div>
         <AssistantMessage
           v-if="preparing"
           class="assistant-preparing"
           preparing
+          :preparing-text="preparingText"
           :display-name="defaultDisplayName"
           :personal="personal"
           :confirm="confirm"
         />
-        <div v-if="!messages.length && !loading && !preparing" class="empty">
+        <div v-if="!messages.length && !loading && !preparing && !collaborators?.length" class="empty">
           <h3>从一个问题开始</h3>
           <p>输入目标、背景与交付要求，养老险GPT 会在这里记录工作过程。</p>
         </div>

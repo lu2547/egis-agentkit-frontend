@@ -1,0 +1,68 @@
+.knowledge-sources-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text);
+}
+.sources-header {
+  flex: none;
+  padding: 20px 24px 0;
+}
+.sources-header h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.sources-header h2 span {
+  font-weight: 500;
+}
+.sources-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 24px 40px;
+  scrollbar-width: thin;
+}
+.sources-scroll:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+.source-item + .source-item {
+  margin-top: 28px;
+}
+.source-origin {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.source-origin svg {
+  flex: none;
+}
+.source-item h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 23px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.source-snippet {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 23px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sources-empty {
+  padding: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-const api = "http://127.0.0.1:38194";
+const api = process.env.AGENTKIT_TEST_API_URL || "http://127.0.0.1:38194";
 test.beforeEach(async ({ page, request }) => {
   await request.post(api + "/__test/reset");
   await page.addInitScript(() =>
@@ -203,6 +203,69 @@ test("removes a joined expert without sending another message", async ({ page })
   await removed;
   await expect(page.getByRole("region", { name: "协作专家" })).toHaveCount(0);
   expect(attempt).toBe(2);
+});
+
+test("removing a completed expert during leader cleanup keeps the composer usable and clears its window", async ({
+  page,
+}) => {
+  await personal(page);
+  let leaderBusy = true;
+  let removed = false;
+  const member = {
+    definition_id: "expert-1", resource_view_type: "system",
+    display_name: "产品策略顾问", status: "joined",
+    worker_session_id: "worker-1",
+  };
+  await page.route("**/api/manager/tasks/s1", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: {
+      ...(await response.json()),
+      definition_id: "personal", definition_display_name: "个人助理",
+      collaboration_allowed: true,
+      collaborators: removed ? [] : [member],
+      collaborator_progress: removed ? [] : [{
+        worker_session_id: "worker-1", worker_agent_id: "worker-agent-1",
+        display_name: "产品策略顾问", status: "completed",
+        reply_id: "worker-reply", revision: 1, activities: [],
+      }],
+    } });
+  });
+  await page.route("**/api/manager/tasks/s1/collaborators/worker-1", (route) => {
+    if (leaderBusy)
+      return route.fulfill({ status: 409, json: {
+        code: "collaboration_session_busy", detail: "对话正在运行",
+        session_id: "s1", agent_id: "a1",
+      } });
+    removed = true;
+    return route.fulfill({ json: { session_id: "s1", collaborators: [] } });
+  });
+  await page.route("**/api/sessions/s1/status?**", (route) =>
+    route.fulfill({ json: {
+      session_id: "s1", status: leaderBusy ? "running" : "idle",
+    } }),
+  );
+  await page.goto("/tasks/s1");
+  const window = page.getByRole("region", { name: "产品策略顾问", exact: true });
+  await page.getByRole("button", { name: /产品策略顾问开始工作/ }).click();
+  await expect(window.getByText("已完成")).toBeVisible();
+  await page.locator(".composer textarea").fill("长任务：汇总专家成果");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.getByRole("button", { name: "停止生成", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "移除协作专家 产品策略顾问" }).click();
+  const chips = page.getByRole("region", { name: "协作专家", exact: true });
+  await expect(chips.getByRole("status")).toHaveText("正在移除");
+  await page.request.post(api + "/__test/events", { data: {
+    session_id: "s1",
+    events: [{
+      type: "REPLY_END", finished_reason: "completed",
+    }],
+  } });
+  await page.locator(".composer textarea").fill("保留这条下一步要求");
+  await expect(page.getByRole("button", { name: "发送消息", exact: true })).toBeEnabled();
+  leaderBusy = false;
+  await expect(chips).toHaveCount(0);
+  await expect(window).toHaveCount(0);
+  await expect(page.locator(".composer textarea")).toHaveValue("保留这条下一步要求");
 });
 
 test("retrying a rejected native send keeps the same invitation request identity", async ({

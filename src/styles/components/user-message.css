@@ -1,9 +1,11 @@
 .user-message {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   margin-bottom: 44px;
 }
-.user-message > div {
+.user-message-bubble {
   max-width: calc(100% - 32px);
   padding: 12px;
   border-radius: 16px 16px 0 16px;
@@ -11,6 +13,98 @@
   color: var(--text);
   font-size: 16px;
   line-height: 1.8;
+}
+.user-message-actions {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.user-message:hover .user-message-actions,
+.user-message:focus-within .user-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.user-message-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.user-message-actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text), transparent 94%);
+  color: var(--text);
+}
+.user-message button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.user-message.is-editing .user-message-bubble {
+  width: 680px;
+}
+.user-message-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+}
+.user-message-editor .user-message-edit-note,
+.user-message-error {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.user-message .user-message-error {
+  color: var(--danger, #b74942);
+}
+.user-message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.user-message-edit-actions button {
+  padding: 5px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.user-message-edit-actions .user-message-send {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+@media (hover: none) {
+  .user-message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .user-message p {
   white-space: pre-wrap;
@@ -26,7 +120,7 @@
   margin-bottom: 4px;
 }
 @media (max-width: 540px) {
-  .user-message > div {
+  .user-message-bubble {
     max-width: calc(100% - 16px);
   }
 }

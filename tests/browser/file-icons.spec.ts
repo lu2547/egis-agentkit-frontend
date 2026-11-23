@@ -71,8 +71,8 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.locator(".artifact-card .file-type-icon")).toHaveCount(6);
     const panel = page.locator(".workspace-panel");
     await panel
-      .getByRole("navigation", { name: "工作空间面板" })
-      .getByRole("button", { name: "文件", exact: true })
+      .getByRole("tablist", { name: "工作区标签" })
+      .getByRole("tab", { name: "工作空间", exact: true })
       .click();
     await panel.locator("button.file-open").filter({ hasText: "产物" }).click();
     for (const type of [

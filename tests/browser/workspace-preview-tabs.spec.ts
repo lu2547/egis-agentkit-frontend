@@ -30,19 +30,19 @@ test("preview tabs keep multiple files, deduplicate and restore after reload", a
 }) => {
   await page.goto("/tasks/s1");
   const panel = page.locator(".workspace-panel");
-  const nav = panel.getByRole("navigation", { name: "工作空间面板" });
-  await expect(
-    nav.getByRole("button", { name: "产物", exact: true }),
-  ).toHaveCount(0);
+  const nav = panel.getByRole("tablist", { name: "工作区标签" });
+  await expect(nav.getByRole("tab", { name: "产物", exact: true })).toHaveCount(
+    0,
+  );
   await panel.locator(".file-open").filter({ hasText: "first.txt" }).click();
   await expect(
     panel.getByRole("tab", { name: "first.txt", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(panel.getByRole("button", { name: /返回/ })).toHaveCount(0);
   await expect(panel.locator(".file-preview > header")).toHaveCount(0);
-  await nav.getByRole("button", { name: "文件", exact: true }).click();
+  await nav.getByRole("tab", { name: "工作空间", exact: true }).click();
   await panel.locator(".file-open").filter({ hasText: "second.txt" }).click();
-  await expect(panel.getByRole("tab")).toHaveCount(2);
+  await expect(panel.getByRole("tab")).toHaveCount(3);
   await expect(panel.locator(".file-preview:visible .text-preview")).toHaveText(
     "second.txt content",
   );
@@ -50,16 +50,16 @@ test("preview tabs keep multiple files, deduplicate and restore after reload", a
   await expect(panel.locator(".file-preview:visible .text-preview")).toHaveText(
     "first.txt content",
   );
-  await nav.getByRole("button", { name: "文件", exact: true }).click();
+  await nav.getByRole("tab", { name: "工作空间", exact: true }).click();
   await panel.locator(".file-open").filter({ hasText: "first.txt" }).click();
-  await expect(panel.getByRole("tab")).toHaveCount(2);
+  await expect(panel.getByRole("tab")).toHaveCount(3);
   await page.reload();
-  await expect(panel.getByRole("tab")).toHaveCount(2);
+  await expect(panel.getByRole("tab")).toHaveCount(3);
   await expect(
     panel.getByRole("tab", { name: "first.txt", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await panel
-    .getByRole("button", { name: "关闭预览 first.txt", exact: true })
+    .getByRole("button", { name: "关闭标签 first.txt", exact: true })
     .click();
   await expect(
     panel.getByRole("tab", { name: "second.txt", exact: true }),
@@ -86,8 +86,8 @@ test("file-tab keyboard navigation and close are scoped to the current conversat
   const panel = page.locator(".workspace-panel");
   await panel.locator(".file-open").filter({ hasText: "first.txt" }).click();
   await panel
-    .getByRole("navigation", { name: "工作空间面板" })
-    .getByRole("button", { name: "文件", exact: true })
+    .getByRole("tablist", { name: "工作区标签" })
+    .getByRole("tab", { name: "工作空间", exact: true })
     .click();
   await panel.locator(".file-open").filter({ hasText: "second.txt" }).click();
   const second = panel.getByRole("tab", { name: "second.txt", exact: true });
@@ -100,9 +100,9 @@ test("file-tab keyboard navigation and close are scoped to the current conversat
     panel.getByRole("tab", { name: "first.txt", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await page.locator('.sidebar a[href="/tasks/s2"]').click();
-  await expect(panel.getByRole("tab")).toHaveCount(0);
+  await expect(panel.getByRole("tab")).toHaveCount(1);
   await page.locator('.sidebar a[href="/tasks/s1"]').click();
-  await expect(panel.getByRole("tab")).toHaveCount(2);
+  await expect(panel.getByRole("tab")).toHaveCount(3);
   await expect(
     panel.getByRole("tab", { name: "first.txt", exact: true }),
   ).toHaveAttribute("aria-selected", "true");

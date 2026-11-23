@@ -130,7 +130,7 @@ async function download() {
             />
           </template
           ><template v-else>
-            <p class="muted">{{ detail.value.is_system_default ? "系统默认工具" : "由专家配置使用的工具" }}</p>
+            <p class="muted">{{ detail.value.is_optional_tool ? "在工具目录勾选后供个人助理使用" : detail.value.is_system_default ? "系统默认工具" : "由专家配置使用的工具" }}</p>
             <details v-if="detail.value.payload.input_schema">
               <summary>输入参数</summary>
               <pre>{{ JSON.stringify(detail.value.payload.input_schema, null, 2) }}</pre>

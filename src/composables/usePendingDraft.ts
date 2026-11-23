@@ -1,14 +1,29 @@
-import type { ChatReference } from "../domain/previewReferences";
+import { createReferenceMessage, type ChatReference } from "../domain/previewReferences";
+import type { Msg } from "@agentscope-ai/agentscope/message";
+import type { Task } from "../types/api";
 const pending = new Map<
   string,
-  { text: string; references: ChatReference[] }
+  {
+    task: Task;
+    text: string;
+    references: ChatReference[];
+    message: Msg;
+    workspaceOpen: boolean;
+  }
 >();
 export function queueDraft(
-  sessionId: string,
+  task: Task,
   text: string,
-  references: ChatReference[] = [],
+  references: ChatReference[],
+  workspaceOpen: boolean,
 ) {
-  pending.set(sessionId, { text, references });
+  pending.set(task.session_id, {
+    task,
+    text,
+    references,
+    message: createReferenceMessage(text, references),
+    workspaceOpen,
+  });
 }
 export function peekDraft(sessionId: string) {
   return pending.get(sessionId);

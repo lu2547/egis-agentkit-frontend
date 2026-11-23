@@ -11,5 +11,6 @@
 
 .older { text-align: center; margin: 5px 0 20px; }
 .message-entry { scroll-margin: 24px; }
+.collaborator-work-log { margin: 4px 0 8px; }
 
 .message-entry.search-match { outline: 2px solid color-mix(in srgb, var(--accent), transparent 70%); outline-offset: 9px; border-radius: 8px; }

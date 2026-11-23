@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, LoaderCircle } from "lucide-vue-next";
+import { ChevronDown, ChevronUp, LoaderCircle, X } from "lucide-vue-next";
 import { computed, ref, useId, watch } from "vue";
 import { errorText } from "../../api/http";
 import { runtime } from "../../api/runtime";
@@ -7,8 +7,15 @@ import { toolTitle } from "../../domain/turnPresentation";
 import type { CollaboratorProgress } from "../../types/api";
 import MarkdownContent from "./MarkdownContent.vue";
 
-const props = defineProps<{ progress: CollaboratorProgress }>();
-defineEmits<{ file: [path: string] }>();
+const props = defineProps<{
+  progress: CollaboratorProgress;
+  minimized: boolean;
+}>();
+defineEmits<{
+  file: [path: string];
+  "update:minimized": [value: boolean];
+  close: [];
+}>();
 const labels: Record<CollaboratorProgress["status"], string> = {
   queued: "已派单",
   running: "正在处理",
@@ -24,7 +31,7 @@ const running = computed(() => props.progress.status === "running");
 const hasRunningTool = computed(() =>
   props.progress.activities.some((activity) => activity.state === "running"),
 );
-const minimized = ref(terminal.value);
+const minimized = computed(() => props.minimized);
 const answer = ref("");
 const readError = ref("");
 const id = useId();
@@ -64,7 +71,11 @@ watch(
 </script>
 
 <template>
-  <section class="collaborator-window" :aria-labelledby="`${id}-name`">
+  <section
+    class="collaborator-window"
+    :aria-labelledby="`${id}-name`"
+    tabindex="-1"
+  >
     <header>
       <strong :id="`${id}-name`" :title="progress.display_name">
         <span
@@ -96,10 +107,18 @@ watch(
         :title="minimized ? '展开专家窗口' : '缩小专家窗口'"
         :aria-expanded="!minimized"
         :aria-controls="`${id}-body`"
-        @click="minimized = !minimized"
+        @click="$emit('update:minimized', !minimized)"
       >
         <ChevronDown v-if="minimized" :size="13" aria-hidden="true" />
         <ChevronUp v-else :size="13" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        :aria-label="`关闭专家窗口 ${progress.display_name}`"
+        title="关闭窗口"
+        @click="$emit('close')"
+      >
+        <X :size="13" aria-hidden="true" />
       </button>
     </header>
     <div v-show="!minimized" :id="`${id}-body`" class="worker-body">

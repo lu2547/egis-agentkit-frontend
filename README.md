@@ -1,5 +1,7 @@
 # Egis AgentKit 前端
 
+当前配套版本与变更见 [CHANGELOG](CHANGELOG.md)。
+
 Vue 3 + TypeScript + TDesign + Vite。三栏工作台包含任务/原生聊天、专家与专家团、Skill/MCP、个人助理设置、共享申请与管理员页面。
 
 ```sh

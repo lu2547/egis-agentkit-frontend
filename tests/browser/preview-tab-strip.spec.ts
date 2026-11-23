@@ -16,10 +16,16 @@ async function openTabs(page: Page, files: string[]) {
     sessionStorage.setItem("egis_access_token", "test-only");
     const scopeId = "project:project-1:session:s1";
     sessionStorage.setItem(
-      `egis_workspace_preview:demo:${scopeId}`,
+      `egis_workspace_tabs:demo:${scopeId}`,
       JSON.stringify({
-        active: `${scopeId}:uploads:${paths[0]}`,
-        items: paths.map((path) => ({ scopeId, area: "uploads", path })),
+        active: `file:${scopeId}:uploads:${paths[0]}`,
+        tabs: paths.map((path) => ({
+          kind: "file",
+          id: `file:${scopeId}:uploads:${path}`,
+          scopeId,
+          area: "uploads",
+          path,
+        })),
       }),
     );
   }, files);
@@ -27,9 +33,7 @@ async function openTabs(page: Page, files: string[]) {
     route.fulfill({ contentType: "text/plain", body: "Preview tab test" }),
   );
   await page.goto("/tasks/s1");
-  await expect(
-    page.getByRole("tablist", { name: "文件预览标签" }),
-  ).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "工作区标签" })).toBeVisible();
 }
 
 test.beforeEach(async ({ request }) => {
@@ -47,7 +51,7 @@ for (const theme of ["light", "dark"]) {
     await openTabs(page, names.slice(0, 3));
     const panel = page.locator(".workspace-panel");
     const resize = panel.getByRole("separator", { name: "调整工作区宽度" });
-    const first = panel.locator(".preview-file-tab").first();
+    const first = panel.locator(".workspace-tab").first();
     const wide = (await first.boundingBox())!.width;
     await resize.focus();
     for (let i = 0; i < 4; i++) await resize.press("ArrowRight");
@@ -55,10 +59,10 @@ for (const theme of ["light", "dark"]) {
       .poll(async () => (await first.boundingBox())!.width)
       .toBeLessThan(wide - 10);
     const layout = await panel
-      .locator(".preview-file-tabs")
+      .locator(".workspace-tab-strip")
       .evaluate((element) => {
         const tabs = [
-          ...element.querySelectorAll<HTMLElement>(".preview-file-tab"),
+          ...element.querySelectorAll<HTMLElement>(".workspace-tab"),
         ];
         return {
           width: element.clientWidth,
@@ -67,7 +71,7 @@ for (const theme of ["light", "dark"]) {
             const text = tab.querySelector("span")!;
             const icon = tab.querySelector("img")!.getBoundingClientRect();
             const close = tab
-              .querySelector(".preview-tab-close")!
+              .querySelector(".workspace-tab-close")!
               .getBoundingClientRect();
             return {
               width: tab.getBoundingClientRect().width,
@@ -96,7 +100,7 @@ test("wheel over a file tab scrolls overflow horizontally without scrolling the 
   page,
 }) => {
   await openTabs(page, names);
-  const strip = page.getByRole("tablist", { name: "文件预览标签" });
+  const strip = page.getByRole("tablist", { name: "工作区标签" });
   await expect
     .poll(() =>
       strip.evaluate((element) => element.scrollWidth - element.clientWidth),

@@ -27,6 +27,8 @@ const installation = reactive(
   deleting = ref(false),
   authorizing = ref(false);
 const selectionLabel = computed(() => {
+  if (props.resource.is_optional_tool)
+    return (installation.enabled ? "停用" : props.resource.is_installed ? "启用" : "选用") + props.resource.display_name;
   const action = !props.resource.is_installed
     ? "安装"
     : installation.enabled
@@ -40,12 +42,12 @@ watch(
 );
 async function toggle() {
   const kind = props.kind;
-  if (kind === "tools") return;
+  if (kind === "tools" && !props.resource.is_optional_tool) return;
   error.value = "";
   try {
     const enabled = !installation.enabled;
     await installation.change(enabled, () =>
-      props.resource.is_installed
+      props.resource.is_installed || installation.enabled
         ? manager.toggle(kind, props.resource.resource_id, enabled)
         : manager.install(kind, props.resource.resource_id),
     );
@@ -208,6 +210,20 @@ function confirmSkillDeletion() {
         :disabled="!resource.is_usable || installation.pending || deleting"
         :aria-label="selectionLabel"
         :title="selectionLabel"
+        @click="toggle"
+      >
+        <AppIcon :name="installation.enabled ? 'check' : 'plus'" :size="15" />
+      </button>
+    </div>
+    <div v-else-if="resource.is_optional_tool" class="sm-card-stats">
+      <span>个人助理可选工具</span>
+      <button
+        type="button"
+        :class="installation.enabled ? 'sm-card-installed-check' : 'sm-add-btn'"
+        :disabled="(!resource.is_usable && !installation.enabled) || installation.pending"
+        :aria-label="selectionLabel"
+        :title="selectionLabel"
+        :aria-pressed="installation.enabled"
         @click="toggle"
       >
         <AppIcon :name="installation.enabled ? 'check' : 'plus'" :size="15" />

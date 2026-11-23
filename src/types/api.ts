@@ -95,6 +95,8 @@ export interface CollaboratorProgress {
   worker_agent_id: string;
   display_name: string;
   reply_id?: string;
+  started_at?: string;
+  finished_at?: string;
   revision: number;
   status: "queued" | "running" | "waiting" | "completed" | "failed" | "interrupted";
   activities: { id: string; name: string; state: string }[];
@@ -132,7 +134,7 @@ export interface CatalogPage<T> {
   has_shareable?: boolean;
 }
 export type ResourceCatalog = "skills" | "connectors" | "tools";
-export type InstallableCatalog = Exclude<ResourceCatalog, "tools">;
+export type InstallableCatalog = ResourceCatalog;
 export type CatalogKind = "skill" | "mcp";
 export type ShareableKind = CatalogKind | "agent" | "team";
 export type ConnectorAuthType = "none" | "api_key" | "oauth";
@@ -156,6 +158,7 @@ export interface Resource {
   is_installed: boolean;
   is_enabled: boolean;
   is_system_default?: boolean;
+  is_optional_tool?: boolean;
   is_agent_tool?: boolean;
   is_available?: boolean;
   auth_type?: ConnectorAuthType | null;

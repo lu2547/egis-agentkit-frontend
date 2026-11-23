@@ -330,7 +330,7 @@ test("changed source is displayed with a warning instead of restoring obsolete r
   await openPreview(page, "chart.svg", svg, "image/svg+xml");
   await draw(page);
   await page.getByRole("button", { name: "加入对话", exact: true }).click();
-  await page.getByRole("button", { name: "文件", exact: true }).click();
+  await page.getByRole("tab", { name: "工作空间", exact: true }).click();
   await page.route("**/api/manager/projects/project-1/file?**", (r) =>
     r.fulfill({
       body: svg.replace("SVG preview test", "Changed source"),

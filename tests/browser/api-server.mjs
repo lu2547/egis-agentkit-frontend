@@ -1,5 +1,6 @@
 // Deterministic HTTP fixtures used only by Playwright, never imported by production.
 import { createServer } from "node:http";
+import { AssistantMsg, appendEvent } from "@agentscope-ai/agentscope/message";
 const date = "2026-11-03T01:00:00Z";
 const descriptions = [
   "将零散资料整理成清晰结论，形成可追溯的研究报告。",
@@ -298,6 +299,12 @@ const replyEvents = (sid, replyId, confirmed = false) => {
     ...e,
   }));
 };
+const chatQueues = new Map();
+function queueSnapshot(sid) {
+  const value = { items: chatQueues.get(sid) || [] };
+  emit(sid, { type: "CUSTOM", id: crypto.randomUUID(), created_at: new Date().toISOString(), name: "chat_queue_changed", value });
+  return value;
+}
 function emit(sid, event) {
   for (const stream of streams.get(sid) || [])
     stream.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -317,6 +324,7 @@ createServer(async (req, res) => {
   if (p === "/__test/health") return json(res, { ok: true });
   if (p === "/__test/reset") {
     reset();
+    chatQueues.clear();
     return json(res, {});
   }
   if(p === '/__test/messages' && req.method === 'POST') {
@@ -730,7 +738,7 @@ createServer(async (req, res) => {
     return json(res, {
       messages: messages[p.split("/")[2]] || [],
       event_cursor: null,
-      is_running: false,
+      is_running: !!tasks.find(task => task.session_id === p.split("/")[2])?.is_running,
       has_more: false,
     });
   if (p.endsWith("/stream")) {
@@ -748,16 +756,68 @@ createServer(async (req, res) => {
     req.on("close", () => set.delete(res));
     return;
   }
+  if (p.startsWith("/chat/queue")) {
+    const input = ["GET", "DELETE"].includes(req.method) ? Object.fromEntries(url.searchParams) : await body(req);
+    const sid = input.session_id;
+    const items = chatQueues.get(sid) || [];
+    if (p === "/chat/queue" && req.method === "GET") return json(res, { items });
+    if (p === "/chat/queue/order") {
+      if (input.item_ids.length !== items.length || new Set(input.item_ids).size !== items.length || input.item_ids.some(id => !items.some(i => i.id === id)))
+        return json(res, { detail: "队列已变化，请刷新" }, 409);
+      chatQueues.set(sid, input.item_ids.map(id => items.find(i => i.id === id)));
+      return json(res, queueSnapshot(sid));
+    }
+    const identifier = p.split("/")[3], item = items.find(i => i.id === identifier);
+    if (!item) return json(res, { detail: "消息已不在队列" }, 409);
+    if (p.endsWith("/steer")) {
+      const task = tasks.find(t => t.session_id === sid);
+      if (!task?.is_running || task.activeReply !== input.reply_id) return json(res, { detail: "回复已结束" }, 409);
+      item.state = "steering";
+      json(res, queueSnapshot(sid));
+      setTimeout(() => {
+        chatQueues.set(sid, (chatQueues.get(sid) || []).filter(i => i.id !== identifier));
+        queueSnapshot(sid);
+        const inputs = Array.isArray(item.input) ? item.input : [item.input];
+        emit(sid, { type: "CUSTOM", id: crypto.randomUUID(), created_at: new Date().toISOString(), name: "chat_input_injected", value: { queue_item_id: identifier, message_ids: inputs.map(m => m.id) } });
+        inputs.forEach((m, index) => emit(sid, { type: "HINT_BLOCK", id: crypto.randomUUID(), reply_id: task.activeReply, created_at: new Date().toISOString(), block_id: `${identifier}:${index}`, source: "chat_input_steering", hint: m.content }));
+      }, 40);
+      return;
+    }
+    if (item.state === "steering") return json(res, { detail: "正在注入" }, 409);
+    if (req.method === "PATCH") { item.input = input.input; item.state = "queued"; }
+    if (req.method === "DELETE") chatQueues.set(sid, items.filter(i => i.id !== identifier));
+    return json(res, queueSnapshot(sid));
+  }
   if (p === "/chat/") {
     const input = await body(req);
     const sid = input.session_id;
-    if (input.delivery === "steer") {
-      const inputs = Array.isArray(input.input) ? input.input : [input.input];
-      const saved = inputs.map(message => ({...message, metadata:{...message.metadata,agentkit_delivery:{kind:"steer",state:"queued"}}}));
-      messages[sid] ||= [];
-      for(const message of saved) if(!messages[sid].some(existing=>existing.id===message.id)) messages[sid].push(message);
-      emit(sid,{type:"CUSTOM",id:crypto.randomUUID(),created_at:new Date().toISOString(),name:"user_steering",value:{messages:saved}});
-      return json(res,{status:"queued",session_id:sid,message_ids:saved.map(message=>message.id)});
+    const task = tasks.find(t => t.session_id === sid);
+    if (input.replace_message_id) {
+      const history = messages[sid] || [];
+      const index = history.findIndex(message => message.id === input.replace_message_id);
+      if (index < 0 || history[index].role !== "user" ||
+          input.input?.id !== input.replace_message_id || input.input?.role !== "user")
+        return json(res, { detail: "无法编辑这条消息" }, 400);
+      if (task?.is_running || (chatQueues.get(sid) || []).length)
+        return json(res, { detail: "对话正在运行" }, 409);
+      const replyId = crypto.randomUUID();
+      const events = replyEvents(sid, replyId);
+      const reply = AssistantMsg({ id: replyId, name: "研究分析专家", content: [] });
+      for (const event of events) appendEvent(reply, event);
+      messages[sid] = [...history.slice(0, index), input.input, reply];
+      emit(sid, {
+        type: "CUSTOM", id: crypto.randomUUID(), created_at: new Date().toISOString(),
+        name: "chat_history_rewritten",
+        value: { message_id: input.input.id, input: input.input, retained_message_ids: history.slice(0, index).map(message => message.id) },
+      });
+      for (const event of events) emit(sid, event);
+      return json(res, { status: "queued", session_id: sid });
+    }
+    if (task?.is_running && input.input?.type !== "USER_CONFIRM_RESULT") {
+      const item = { id: crypto.randomUUID(), created_at: new Date().toISOString(), input: input.input, state: "queued" };
+      chatQueues.set(sid, [...(chatQueues.get(sid) || []), item]);
+      queueSnapshot(sid);
+      return json(res, { status: "queued", session_id: sid, queue_item_id: item.id });
     }
     if (input.input?.type === "USER_CONFIRM_RESULT") {
       for (const e of replyEvents(sid, input.input.reply_id, true))
@@ -776,7 +836,11 @@ createServer(async (req, res) => {
         name: "研究分析专家",
         role: "assistant",
       });
-      messages[sid] = [input.input];
+      messages[sid] = [input.input, {
+        id: replyId, name: "研究分析专家", role: "assistant", content: [],
+        metadata: {}, created_at: new Date().toISOString(), finished_at: null,
+        finished_reason: null, error: null,
+      }];
       tasks.find((t) => t.session_id === sid).activeReply = replyId;
       tasks.find((t) => t.session_id === sid).is_running = true;
     } else if (text.includes("测试确认")) {

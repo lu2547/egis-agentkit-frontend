@@ -4,6 +4,7 @@ import type {
   ToolCallBlock,
   ToolResultBlock,
 } from "@agentscope-ai/agentscope/message";
+import { marked } from "marked";
 
 export type ActivityStatus =
   | "pending"
@@ -28,15 +29,23 @@ export interface ProcessActivity {
 }
 
 type KnowledgeSource = "doc" | "wiki";
+export interface KnowledgeReference {
+  index: number;
+  source: KnowledgeSource;
+  title: string;
+  kb?: string;
+  snippet: string;
+  kb_id?: string;
+  doc_id?: string;
+  node_id?: string;
+  parent_id?: string;
+  ver?: string;
+  cpath?: string;
+  chunk?: string;
+}
 interface KnowledgeSearchResult {
   answers: { source: KnowledgeSource; answer: string }[];
-  references: {
-    index: number;
-    source: KnowledgeSource;
-    title: string;
-    kb?: string;
-    snippet: string;
-  }[];
+  references: KnowledgeReference[];
 }
 export interface ActivityGroup {
   type: "activities";
@@ -61,6 +70,9 @@ const toolTitles: Record<string, string> = {
   Skill: "使用技能",
   CreateSkill: "创建技能",
   InstallSkillPackage: "安装技能",
+  CreateScheduledTask: "创建定时任务",
+  RunScheduledTask: "测试运行定时任务",
+  DeleteScheduledTask: "删除定时任务",
   TeamSay: "联系团队成员",
 };
 export function toolTitle(name: string) {
@@ -148,6 +160,55 @@ function knowledgeSearchResult(
     : [];
   if (answers.length || references.length) return { answers, references };
 }
+
+/** 回答完成后只展示正文明确引用的来源，检索命中本身不算引用。 */
+export function replyKnowledgeReferences(message: Msg): KnowledgeReference[] {
+  if (!message.finished_at || (message.finished_reason && message.finished_reason !== "completed")) return [];
+  const answer = presentTurn(message).answer;
+  if (!answer.trim()) return [];
+  const indices = new Set<number>();
+  const titles = new Set<string>();
+  marked.walkTokens(marked.lexer(answer), (token) => {
+    if (token.type === "link") titles.add(token.text);
+    if (token.type !== "text" || token.tokens?.length) return;
+    for (const match of token.text.matchAll(/\[\^?\s*(\d+(?:\s*[,，、]\s*\d+)*)\s*\]|【\s*(\d+(?:\s*[,，、]\s*\d+)*)\s*】/g))
+      for (const value of (match[1] || match[2]!).split(/[,，、]/)) indices.add(Number(value.trim()));
+    for (const match of token.text.matchAll(/《([^》]+)》|「([^」]+)」|【([^】]+)】/g))
+      titles.add((match[1] || match[2] || match[3]!).trim());
+  });
+  const results = new Map(
+    message.content
+      .filter((block): block is ToolResultBlock => block.type === "tool_result")
+      .map((block) => [block.id, block]),
+  );
+  const references = new Map<string, KnowledgeReference>();
+  const numbered = new Map<number, Set<string>>();
+  for (const result of results.values()) {
+    for (const reference of knowledgeSearchResult(result)?.references ?? []) {
+      const key = JSON.stringify([
+        reference.source,
+        reference.kb_id ?? reference.kb,
+        reference.doc_id ?? reference.title,
+        reference.node_id,
+        reference.chunk,
+        reference.ver,
+        reference.cpath,
+        reference.snippet,
+      ]);
+      if (!references.has(key)) references.set(key, reference);
+      const candidates = numbered.get(reference.index) ?? new Set<string>();
+      candidates.add(key);
+      numbered.set(reference.index, candidates);
+    }
+  }
+  const cited = new Set<string>();
+  for (const index of indices) {
+    const candidates = numbered.get(index);
+    // 多次检索可能重用编号；没有唯一关联时不猜测引用的是哪一段。
+    if (candidates?.size === 1) cited.add([...candidates][0]!);
+  }
+  return [...references].filter(([key, reference]) => cited.has(key) || titles.has(reference.title)).map(([, reference]) => reference);
+}
 function toolStatus(
   message: Msg,
   call: ToolCallBlock,
@@ -183,7 +244,7 @@ function toolStatus(
   };
 }
 function hintText(block: Extract<ContentBlock, { type: "hint" }>) {
-  if (block.source === "user_steering") return "";
+  if (block.source === "chat_input_steering") return "";
   const value =
     typeof block.hint === "string"
       ? block.hint

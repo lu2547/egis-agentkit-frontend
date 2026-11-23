@@ -12,6 +12,21 @@ export interface History {
   is_running: boolean;
   has_more: boolean;
 }
+export interface ChatQueueItem {
+  id: string;
+  created_at: string;
+  input: Msg | Msg[];
+  state: "queued" | "steering" | "failed";
+  error?: string | null;
+}
+export interface ChatQueue {
+  items: ChatQueueItem[];
+}
+export interface ChatTrigger {
+  status: "queued" | "started";
+  session_id: string;
+  queue_item_id?: string | null;
+}
 export const runtime = {
   status: (sid: string, agentId: string, signal: AbortSignal) =>
     http<{ status: string }>(
@@ -19,13 +34,56 @@ export const runtime = {
       { signal },
       { agent_id: agentId },
     ),
-  steer: (sid: string, agentId: string, input: Msg[], signal?: AbortSignal) =>
-    http<{ status: "queued"; message_ids: string[] }>("/chat/", {
+  queue: (sid: string, agentId: string, signal?: AbortSignal) =>
+    http<ChatQueue>(
+      "/chat/queue",
+      { signal },
+      { session_id: sid, agent_id: agentId },
+    ),
+  updateQueued: (
+    sid: string,
+    agentId: string,
+    id: string,
+    input: Msg | Msg[],
+    signal?: AbortSignal,
+  ) =>
+    http<ChatQueue>(`/chat/queue/${encodeURIComponent(id)}`, {
+      ...json("PATCH", { session_id: sid, agent_id: agentId, input }),
+      signal,
+    }),
+  removeQueued: (
+    sid: string,
+    agentId: string,
+    id: string,
+    signal?: AbortSignal,
+  ) =>
+    http<ChatQueue>(
+      `/chat/queue/${encodeURIComponent(id)}`,
+      { method: "DELETE", signal },
+      { session_id: sid, agent_id: agentId },
+    ),
+  reorderQueued: (
+    sid: string,
+    agentId: string,
+    ids: string[],
+    signal?: AbortSignal,
+  ) =>
+    http<ChatQueue>("/chat/queue/order", {
+      ...json("PATCH", { session_id: sid, agent_id: agentId, item_ids: ids }),
+      signal,
+    }),
+  steerQueued: (
+    sid: string,
+    agentId: string,
+    id: string,
+    replyId: string,
+    signal?: AbortSignal,
+  ) =>
+    http<ChatQueue>(`/chat/queue/${encodeURIComponent(id)}/steer`, {
       ...json("POST", {
         session_id: sid,
         agent_id: agentId,
-        delivery: "steer",
-        input,
+        reply_id: replyId,
       }),
       signal,
     }),
@@ -43,11 +101,17 @@ export const runtime = {
   trigger: (
     sid: string,
     agentId: string,
-    input: Msg | UserConfirmResultEvent | null,
+    input: Msg | Msg[] | UserConfirmResultEvent | null,
     signal?: AbortSignal,
+    replaceMessageId?: string,
   ) =>
-    http<unknown>("/chat/", {
-      ...json("POST", { agent_id: agentId, session_id: sid, input }),
+    http<ChatTrigger>("/chat/", {
+      ...json("POST", {
+        agent_id: agentId,
+        session_id: sid,
+        input,
+        ...(replaceMessageId ? { replace_message_id: replaceMessageId } : {}),
+      }),
       signal,
     }),
   stop: (sid: string, agentId: string) =>

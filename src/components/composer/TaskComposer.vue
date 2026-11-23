@@ -74,7 +74,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const isMac =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-const sendShortcutLabel = isMac ? "⌘ + Enter" : "Alt + Enter";
+const sendShortcutLabel = isMac ? "⌘ + Enter" : "Alt + Enter / Ctrl + Enter";
 function textareaKeydown(_value: unknown, context: { e: KeyboardEvent }) {
   keydown(context.e);
 }
@@ -97,8 +97,13 @@ onMounted(async () => {
     picker.state.error = errorText(error);
   }
 });
-function focusComposer() {
-  nextTick(() => composerElement.value?.querySelector("textarea")?.focus());
+function focusComposer(atEnd = false) {
+  nextTick(() => {
+    const input = composerElement.value?.querySelector("textarea");
+    if (!input) return;
+    input.focus();
+    if (atEnd) input.setSelectionRange(input.value.length, input.value.length);
+  });
 }
 const composing = ref(false);
 const canManageResources = computed(() => !!props.isPersonal);
@@ -208,8 +213,9 @@ function keydown(e: KeyboardEvent) {
   const sendShortcut =
     e.key === "Enter" &&
     !e.shiftKey &&
-    !e.ctrlKey &&
-    (isMac ? e.metaKey && !e.altKey : e.altKey && !e.metaKey);
+    (isMac
+      ? e.metaKey && !e.altKey && !e.ctrlKey
+      : (e.altKey || e.ctrlKey) && !e.metaKey);
   if (sendShortcut) {
     e.preventDefault();
     send();

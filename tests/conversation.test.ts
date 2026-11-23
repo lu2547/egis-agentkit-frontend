@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   stream: vi.fn(),
   trigger: vi.fn(),
   stop: vi.fn(),
-  steer: vi.fn(),
   feedback: vi.fn(),
 }));
 vi.mock("../src/api/manager", () => ({
@@ -25,7 +24,6 @@ vi.mock("../src/api/runtime", () => ({
     stream: mocks.stream,
     trigger: mocks.trigger,
     stop: mocks.stop,
-    steer: mocks.steer,
   },
 }));
 let scope: ReturnType<typeof effectScope>;
@@ -66,38 +64,24 @@ beforeEach(() => {
   scope.run(() => (chat = useConversation()));
 });
 afterEach(() => scope.stop());
-it("sends an ordered steering batch without replacing the running reply", async () => {
-  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+it("shows native steering after injection without replacing the running reply", async () => {
   await chat.open("s1");
   receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
-  const inputs = [
-    UserMsg({ name: "user", content: "一" }),
-    UserMsg({ name: "user", content: "二" }),
-  ];
-  mocks.steer.mockResolvedValueOnce({
-    status: "queued",
-    message_ids: inputs.map((m) => m.id),
-  });
-  expect(await chat.steer(inputs)).toBe(true);
+  receive(
+    event(EventType.HINT_BLOCK, {
+      block_id: "queued:0",
+      source: "chat_input_steering",
+      hint: "预算优先",
+    }),
+  );
   expect(chat.state.value.phase).toBe("streaming");
   expect(
     chat.state.value.messages.filter((m) => m.role === "assistant"),
   ).toHaveLength(1);
-  receive(
-    event(EventType.HINT_BLOCK, {
-      block_id: inputs[1]!.id,
-      source: "user_steering",
-      hint: "二",
-    }),
-  );
   expect(
-    chat.state.value.messages.find((m) => m.id === inputs[1]!.id)?.metadata
+    chat.state.value.messages.find((m) => m.id === "queued:0")?.metadata
       .agentkit_delivery,
   ).toEqual({ kind: "steer", state: "received" });
-  expect(
-    chat.state.value.messages.find((m) => m.id === inputs[0]!.id)?.metadata
-      .agentkit_delivery,
-  ).toEqual({ kind: "steer", state: "queued" });
 });
 it("allows permission changes while waiting without resuming or changing the model", async () => {
   await chat.open("s1");
@@ -362,4 +346,671 @@ it("shows preparation when reopening a running session before its first reply ev
   expect(chat.state.value.isPreparing).toBe(true);
   receive(event(EventType.REPLY_START, { name: "Egis", role: "assistant" }));
   expect(chat.state.value.isPreparing).toBe(false);
+});
+
+it("restores original steering IDs and metadata once from history and replay", async () => {
+  const { ConversationEvents } =
+    await import("../src/domain/agentEventReducer");
+  const { AssistantMsg, UserMsg } =
+    await import("@agentscope-ai/agentscope/message");
+  const hintId = "queue:0";
+  const original = UserMsg({
+    id: "original-user",
+    name: "user",
+    content: "用户正文",
+    metadata: {
+      annotation_prompt: "",
+      text_annotations: [
+        {
+          id: "note",
+          messageId: "original",
+          start: 0,
+          end: 2,
+          text: "原文",
+          comment: "解释",
+        },
+      ],
+      agentkit_delivery: { kind: "steer", state: "received", hint_id: hintId },
+    },
+  });
+  const reply = AssistantMsg({
+    id: "reply",
+    name: "assistant",
+    content: [
+      {
+        type: "hint",
+        id: hintId,
+        source: "chat_input_steering",
+        hint: "用户正文",
+        created_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+      },
+    ],
+    finished_at: new Date().toISOString(),
+  });
+  const state = new ConversationEvents([reply, original], false);
+  expect(state.messages.filter((m) => m.role === "user")).toHaveLength(1);
+  state.apply(
+    event(EventType.HINT_BLOCK, {
+      block_id: hintId,
+      source: "chat_input_steering",
+      hint: "用户正文",
+      user_message: original,
+    }),
+  );
+  expect(state.messages.filter((m) => m.role === "user")).toHaveLength(1);
+  expect(
+    state.messages.find((m) => m.id === original.id)?.metadata.text_annotations,
+  ).toEqual(original.metadata.text_annotations);
+});
+
+it("replaces from an edited user message and blocks replay of discarded replies", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const earlier = UserMsg({ id: "earlier", name: "user", content: "earlier" });
+  const selected = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "original",
+  });
+  const discardedUser = UserMsg({
+    id: "later-user",
+    name: "user",
+    content: "old later prompt",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [earlier, selected, discardedUser],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  const oldStart = event(EventType.REPLY_START, {
+    reply_id: "discarded",
+    name: "Egis",
+    role: "assistant",
+  });
+  receive(oldStart);
+  receive(
+    event(EventType.REPLY_END, {
+      reply_id: "discarded",
+      finished_reason: "completed",
+    }),
+  );
+  const oldState = event(EventType.CUSTOM, {
+    name: "state_updated",
+    value: {
+      tasks_context: {
+        tasks: [{ id: "old-task", subject: "旧计划", state: "completed" }],
+      },
+    },
+  });
+  receive(oldState);
+  let accept!: (value: unknown) => void;
+  mocks.trigger.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+  );
+  const pending = chat.resend(selected, "edited");
+  await vi.waitFor(() =>
+    expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+      "earlier",
+      "selected",
+    ]),
+  );
+  expect(chat.state.value.isPreparing).toBe(true);
+  expect(chat.state.value.messages.at(-1)?.content[0]).toMatchObject({
+    text: "edited",
+  });
+  receive(oldStart);
+  receive(
+    event(EventType.REPLY_START, {
+      reply_id: "discarded",
+      name: "Egis",
+      role: "assistant",
+    }),
+  );
+  receive(oldState);
+  expect(chat.state.value.plan).toBeUndefined();
+  receive(
+    event(EventType.CUSTOM, {
+      name: "chat_input_started",
+      value: { queue_item: { input: discardedUser } },
+    }),
+  );
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "earlier",
+    "selected",
+  ]);
+  receive(
+    event(EventType.REPLY_START, {
+      reply_id: "new-reply",
+      name: "Egis",
+      role: "assistant",
+    }),
+  );
+  receive(
+    event(EventType.REPLY_END, {
+      reply_id: "new-reply",
+      finished_reason: "completed",
+    }),
+  );
+  accept({ status: "queued" });
+  expect(await pending).toBe(true);
+  expect(chat.state.value.phase).toBe("idle");
+  expect(chat.state.value.messages.at(-1)?.id).toBe("new-reply");
+  expect(mocks.trigger.mock.calls.at(-1)?.[4]).toBe("selected");
+});
+
+it("restores the original conversation when replacement is rejected", async () => {
+  const { UserMsg, AssistantMsg } =
+    await import("@agentscope-ai/agentscope/message");
+  const selected = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "original",
+  });
+  const later = AssistantMsg({
+    id: "old-reply",
+    name: "Egis",
+    content: "old answer",
+  });
+  later.finished_at = new Date().toISOString();
+  mocks.history.mockResolvedValueOnce({
+    messages: [selected, later],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  mocks.trigger.mockRejectedValueOnce(new Error("busy"));
+  expect(await chat.resend(selected, "edited")).toBe(false);
+  expect(chat.state.value.messages).toEqual([selected, later]);
+  expect(chat.state.value.phase).toBe("idle");
+  expect(chat.error.value).toBe("busy");
+});
+
+it.each(["streaming", "waiting", "interrupting"] as const)(
+  "refuses replacing a message during %s",
+  async (phase) => {
+    const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+    const selected = UserMsg({
+      id: "selected",
+      name: "user",
+      content: "original",
+    });
+    mocks.history.mockResolvedValueOnce({
+      messages: [selected],
+      has_more: false,
+      is_running: false,
+      event_cursor: "checkpoint",
+    });
+    await chat.open("s1");
+    chat.state.value.phase = phase;
+    expect(await chat.resend(selected, "edited")).toBe(false);
+    expect(chat.state.value.messages).toEqual([selected]);
+    expect(mocks.trigger).not.toHaveBeenCalled();
+  },
+);
+
+it("clears old collaborator windows on resend while retaining expert membership, and restores windows on rejection", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const selected = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "original",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [selected],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  const progress = {
+    worker_session_id: "worker",
+    worker_agent_id: "expert",
+    display_name: "专家",
+    revision: 1,
+    status: "completed" as const,
+    activities: [],
+  };
+  chat.collaboratorProgress.value = new Map([["worker", progress]]);
+  const members = [
+    {
+      definition_id: "expert",
+      resource_view_type: "system" as const,
+      resource_version: "1",
+      display_name: "专家",
+      status: "joined" as const,
+      worker_session_id: "worker",
+    },
+  ];
+  chat.task.value = { ...chat.task.value!, collaborators: members };
+  mocks.trigger.mockRejectedValueOnce(new Error("busy"));
+  expect(await chat.resend(selected, "first try")).toBe(false);
+  expect(chat.collaboratorProgress.value.get("worker")).toEqual(progress);
+  expect(await chat.resend(selected, "second try")).toBe(true);
+  expect(chat.collaboratorProgress.value.size).toBe(0);
+  expect(chat.task.value?.collaborators).toEqual(members);
+});
+
+it.each(["running", "waiting"] as const)(
+  "refuses replacing while an expert is %s",
+  async (status) => {
+    const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+    const selected = UserMsg({
+      id: "selected",
+      name: "user",
+      content: "original",
+    });
+    mocks.history.mockResolvedValueOnce({
+      messages: [selected],
+      has_more: false,
+      is_running: false,
+      event_cursor: "checkpoint",
+    });
+    await chat.open("s1");
+    chat.collaboratorProgress.value = new Map([
+      [
+        "worker",
+        {
+          worker_session_id: "worker",
+          worker_agent_id: "expert",
+          display_name: "专家",
+          revision: 1,
+          status,
+          activities: [],
+        },
+      ],
+    ]);
+    expect(await chat.resend(selected, "edited")).toBe(false);
+    expect(chat.state.value.messages).toEqual([selected]);
+  },
+);
+
+it("permits replacing while an idle root has only old queued expert progress", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const selected = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "original",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [selected],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  chat.collaboratorProgress.value = new Map([
+    [
+      "worker",
+      {
+        worker_session_id: "worker",
+        worker_agent_id: "expert",
+        display_name: "专家",
+        revision: 1,
+        status: "queued",
+        activities: [],
+      },
+    ],
+  ]);
+  expect(await chat.resend(selected, "edited")).toBe(true);
+  expect(chat.collaboratorProgress.value.size).toBe(0);
+});
+
+it("editing a live steering input discards its containing assistant without recreating the old hint", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const initial = UserMsg({ id: "initial", name: "user", content: "初始问题" });
+  const steering = UserMsg({
+    id: "steered-user",
+    name: "user",
+    content: "旧引导",
+    metadata: {
+      agentkit_delivery: {
+        kind: "steer",
+        state: "received",
+        hint_id: "steer-hint",
+      },
+    },
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [initial],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  receive(
+    event(EventType.REPLY_START, {
+      reply_id: "containing-reply",
+      name: "Egis",
+      role: "assistant",
+    }),
+  );
+  receive(
+    event(EventType.HINT_BLOCK, {
+      reply_id: "containing-reply",
+      block_id: "steer-hint",
+      source: "chat_input_steering",
+      hint: "旧引导",
+      user_message: steering,
+    }),
+  );
+  receive(
+    event(EventType.REPLY_END, {
+      reply_id: "containing-reply",
+      finished_reason: "completed",
+    }),
+  );
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "initial",
+    "containing-reply",
+    "steered-user",
+  ]);
+  let finish!: (value: unknown) => void;
+  mocks.trigger.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = chat.resend(steering, "新引导");
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "initial",
+    "steered-user",
+  ]);
+  expect(chat.state.value.messages.at(-1)?.content[0]).toMatchObject({
+    text: "新引导",
+  });
+  expect(chat.state.value.isPreparing).toBe(true);
+  finish({ status: "queued" });
+  expect(await pending).toBe(true);
+});
+
+it("applies a canonical rewrite marker to another tab and keeps unseen earlier history loadable", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const loadedPrefix = UserMsg({
+    id: "loaded-prefix",
+    name: "user",
+    content: "前文",
+  });
+  const laterPrefix = UserMsg({
+    id: "later-prefix",
+    name: "user",
+    content: "稍后的前文",
+  });
+  const wrongSuffix = UserMsg({
+    id: "wrong-suffix",
+    name: "user",
+    content: "旧后文",
+  });
+  const edited = UserMsg({
+    id: "unloaded-target",
+    name: "user",
+    content: "另一标签页修改的问题",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [wrongSuffix, laterPrefix, loadedPrefix],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  const oldPlan = event(EventType.CUSTOM, {
+    name: "state_updated",
+    value: {
+      tasks_context: {
+        tasks: [{ id: "old-plan", subject: "旧计划", state: "completed" }],
+      },
+    },
+  });
+  receive(oldPlan);
+  receive(
+    event(EventType.CUSTOM, {
+      name: "subagent_require_user_confirm",
+      value: {
+        worker_session_id: "old-worker",
+        worker_agent_id: "expert",
+        worker_agent_name: "专家",
+        reply_id: "old-worker-reply",
+        event_type: "require_user_confirm",
+        event: { tool_calls: [] },
+        created_at: new Date().toISOString(),
+      },
+    }),
+  );
+  chat.collaboratorProgress.value = new Map([
+    [
+      "worker",
+      {
+        worker_session_id: "worker",
+        worker_agent_id: "expert",
+        display_name: "专家",
+        revision: 1,
+        status: "completed",
+        activities: [],
+      },
+    ],
+  ]);
+  const marker = event(EventType.CUSTOM, {
+    name: "chat_history_rewritten",
+    value: {
+      message_id: edited.id,
+      input: edited,
+      retained_message_ids: [
+        "not-loaded-prefix",
+        "loaded-prefix",
+        "later-prefix",
+      ],
+    },
+  });
+  receive(marker);
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "loaded-prefix",
+    "later-prefix",
+    "unloaded-target",
+  ]);
+  expect(chat.state.value.messages.at(-1)?.content[0]).toMatchObject({
+    text: "另一标签页修改的问题",
+  });
+  expect(chat.state.value.isPreparing).toBe(true);
+  expect(chat.hasMore.value).toBe(true);
+  expect(chat.collaboratorProgress.value.size).toBe(0);
+  expect(chat.state.value.plan).toBeUndefined();
+  expect(chat.state.value.subagentConfirmations).toEqual([]);
+  receive(oldPlan);
+  expect(chat.state.value.plan).toBeUndefined();
+  expect(mocks.history).toHaveBeenCalledTimes(1);
+  const original = UserMsg({ id: edited.id, name: "user", content: "原问题" });
+  receive(
+    event(EventType.CUSTOM, {
+      name: "chat_input_started",
+      value: { queue_item: { input: original } },
+    }),
+  );
+  expect(chat.state.value.messages.at(-1)?.content[0]).toMatchObject({
+    text: "另一标签页修改的问题",
+  });
+  receive(
+    event(EventType.CUSTOM, {
+      name: "chat_input_started",
+      value: { queue_item: { input: wrongSuffix } },
+    }),
+  );
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "loaded-prefix",
+    "later-prefix",
+    "unloaded-target",
+  ]);
+  receive(
+    event(EventType.REPLY_START, {
+      reply_id: "new",
+      name: "Egis",
+      role: "assistant",
+    }),
+  );
+  receive(
+    event(EventType.REPLY_END, {
+      reply_id: "new",
+      finished_reason: "completed",
+    }),
+  );
+  receive(marker);
+  expect(chat.state.value.phase).toBe("idle");
+  expect(chat.state.value.messages.at(-1)?.id).toBe("new");
+});
+
+it("keeps an acknowledged rewrite if its POST response is lost", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const original = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "old prompt",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [original],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  mocks.trigger.mockImplementationOnce(async (_sid, _aid, input) => {
+    receive(
+      event(EventType.CUSTOM, {
+        name: "chat_history_rewritten",
+        value: { message_id: input.id, input, retained_message_ids: [] },
+      }),
+    );
+    throw new Error("connection lost after commit");
+  });
+  expect(await chat.resend(original, "new prompt")).toBe(true);
+  expect(chat.state.value.messages[0].content[0]).toMatchObject({
+    text: "new prompt",
+  });
+  expect(chat.state.value.isPreparing).toBe(true);
+  expect(chat.error.value).toBe("");
+});
+
+it("restores an earlier live steering input retained by the canonical marker", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const initial = UserMsg({ id: "initial", name: "user", content: "初始问题" });
+  const first = UserMsg({
+    id: "first-steer",
+    name: "user",
+    content: "保留的前一个引导",
+    metadata: {
+      agentkit_delivery: {
+        kind: "steer",
+        state: "received",
+        hint_id: "first-hint",
+      },
+    },
+  });
+  const target = UserMsg({
+    id: "target-steer",
+    name: "user",
+    content: "修改的引导",
+    metadata: {
+      agentkit_delivery: {
+        kind: "steer",
+        state: "received",
+        hint_id: "target-hint",
+      },
+    },
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [initial],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  receive(
+    event(EventType.REPLY_START, {
+      reply_id: "containing-reply",
+      name: "Egis",
+      role: "assistant",
+    }),
+  );
+  for (const [hintId, message] of [
+    ["first-hint", first],
+    ["target-hint", target],
+  ] as const)
+    receive(
+      event(EventType.HINT_BLOCK, {
+        reply_id: "containing-reply",
+        block_id: hintId,
+        source: "chat_input_steering",
+        hint: "引导",
+        user_message: message,
+      }),
+    );
+  receive(
+    event(EventType.REPLY_END, {
+      reply_id: "containing-reply",
+      finished_reason: "completed",
+    }),
+  );
+  mocks.trigger.mockImplementationOnce(async (_sid, _aid, input) => {
+    receive(
+      event(EventType.CUSTOM, {
+        name: "chat_history_rewritten",
+        value: {
+          message_id: input.id,
+          input,
+          retained_message_ids: ["initial", "first-steer"],
+        },
+      }),
+    );
+    return { status: "queued" };
+  });
+  expect(await chat.resend(target, "新的引导")).toBe(true);
+  expect(chat.state.value.messages.map((m) => m.id)).toEqual([
+    "initial",
+    "first-steer",
+    "target-steer",
+  ]);
+  expect(chat.hasMore.value).toBe(false);
+});
+
+it("retains a conflicting remote rewrite when the local resend is rejected", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const original = UserMsg({
+    id: "selected",
+    name: "user",
+    content: "old prompt",
+  });
+  mocks.history.mockResolvedValueOnce({
+    messages: [original],
+    has_more: false,
+    is_running: false,
+    event_cursor: "checkpoint",
+  });
+  await chat.open("s1");
+  mocks.trigger.mockImplementationOnce(async () => {
+    const remote = UserMsg({
+      id: original.id,
+      name: "user",
+      content: "remote prompt",
+    });
+    receive(
+      event(EventType.CUSTOM, {
+        name: "chat_history_rewritten",
+        value: {
+          message_id: remote.id,
+          input: remote,
+          retained_message_ids: [],
+        },
+      }),
+    );
+    throw new Error("another tab started this turn");
+  });
+  expect(await chat.resend(original, "local prompt")).toBe(false);
+  expect(chat.state.value.messages[0].content[0]).toMatchObject({
+    text: "remote prompt",
+  });
+  expect(chat.error.value).toBe("another tab started this turn");
 });

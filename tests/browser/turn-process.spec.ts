@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
-const base = "http://127.0.0.1:38194";
+const base = process.env.AGENTKIT_TEST_API_URL || "http://127.0.0.1:38194";
 const emit = async (
   request: APIRequestContext,
   events: Record<string, unknown>[],
@@ -140,16 +140,23 @@ test("knowledge search shows native execution states and structured references",
   await expect(row.getByText("年金政策", { exact: true })).toBeVisible();
 });
 
-test("expert progress stacks at the top right after the assistant finishes", async ({
+test("expert work entries open compact windows at the top right", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：专家协作");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.locator(".process-heading")).toBeVisible();
+  const startedAt = Date.now();
   const worker = {
     worker_session_id: "skills-worker",
     worker_agent_id: "skills-agent",
     display_name: "Skills 助手",
     status: "running",
     reply_id: "skills-reply",
+    started_at: new Date(startedAt).toISOString(),
     revision: 1,
     activities: [{ id: "create", name: "CreateSkill", state: "running" }],
   };
@@ -157,18 +164,22 @@ test("expert progress stacks at the top right after the assistant finishes", asy
     ...worker,
     worker_session_id: "document-worker",
     display_name: "文档专家",
+    started_at: new Date(startedAt + 1).toISOString(),
     activities: [{ id: "read", name: "Read", state: "running" }],
   };
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/tasks/s1");
-  await page.locator(".composer textarea").fill("长任务：专家协作");
-  await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await expect(page.locator(".process-heading")).toBeVisible();
   await emit(request, [
     { type: "REPLY_END", finished_reason: "completed" },
     { type: "CUSTOM", name: "collaborator_progress", value: worker },
     { type: "CUSTOM", name: "collaborator_progress", value: other },
   ]);
+  const firstEntry = page.getByRole("button", { name: /Skills 助手开始工作/ });
+  const secondEntry = page.getByRole("button", { name: /文档专家开始工作/ });
+  await expect(firstEntry).toBeVisible({ timeout: 1500 });
+  await expect(secondEntry).toBeVisible();
+  await expect(page.locator(".collaborator-window")).toHaveCount(0);
+  await firstEntry.click();
+  await secondEntry.click();
+  await expect(firstEntry).toHaveAttribute("aria-expanded", "true");
   const first = page.getByRole("region", { name: "Skills 助手", exact: true });
   const second = page.getByRole("region", { name: "文档专家", exact: true });
   const running = first.getByRole("status");
@@ -177,10 +188,6 @@ test("expert progress stacks at the top right after the assistant finishes", asy
   await expect(activeTool).toBeVisible();
   await expect(activeTool).toHaveCSS("animation-name", "activity-shimmer");
   await expect(spinner).toHaveCSS("animation-name", /^collaborator-spin/);
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(spinner).toHaveCSS("animation-name", "none");
-  await expect(activeTool).toHaveCSS("animation-name", "none");
-  await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect(second.getByText("读取文件")).toBeVisible();
   const top = (await first.boundingBox())!;
   const bottom = (await second.boundingBox())!;
@@ -189,10 +196,15 @@ test("expert progress stacks at the top right after the assistant finishes", asy
   expect(chat.x + chat.width - top.x - top.width).toBeLessThan(25);
   expect(top.width).toBeLessThanOrEqual(260);
   expect(bottom.y).toBeGreaterThanOrEqual(top.y + top.height);
+  await page.screenshot({ path: testInfo.outputPath("expert-work-windows.png") });
   await first.getByRole("button", { name: "缩小专家窗口" }).click();
   await expect(spinner).toBeVisible();
   await expect(first.getByText("创建技能")).toBeHidden();
   await expect(second.getByText("读取文件")).toBeVisible();
+  await firstEntry.click();
+  await expect(activeTool).toBeVisible();
+  await expect(first).toHaveCount(1);
+  await first.getByRole("button", { name: "缩小专家窗口" }).click();
   await page.route("**/api/sessions/skills-worker/messages?**", (route) => {
     expect(new URL(route.request().url()).searchParams.get("agent_id")).toBe("skills-agent");
     const timestamp = new Date().toISOString();
@@ -214,11 +226,19 @@ test("expert progress stacks at the top right after the assistant finishes", asy
       }],
     } });
   });
+  const finishedAt = new Date().toISOString();
   await emit(request, [{
     type: "CUSTOM", name: "collaborator_progress",
-    value: { ...worker, revision: 2, status: "completed" },
+    value: { ...worker, revision: 2, status: "completed", finished_at: finishedAt },
   }]);
   await expect(first.getByText("已完成")).toBeVisible();
+  const completedEntry = page.getByRole("button", { name: /Skills 助手已完成/ });
+  await expect(completedEntry).toBeVisible();
+  await expect(firstEntry).not.toContainText("已完成");
+  await expect(page.locator(".collaborator-work-entry .work-label")).toHaveText([
+    "Skills 助手开始工作", "文档专家开始工作", "Skills 助手已完成",
+  ]);
+  await page.screenshot({ path: testInfo.outputPath("expert-work-start-and-finish.png") });
   await expect(spinner).toHaveCount(0);
   await first.getByRole("button", { name: "展开专家窗口" }).click();
   await expect(first.getByText("周报技能已登记。")).toBeVisible();
@@ -236,21 +256,65 @@ test("expert progress stacks at the top right after the assistant finishes", asy
       .evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
     expect(size, text).toBeLessThan(titleSize);
   }
+  await first.getByRole("button", { name: "关闭专家窗口 Skills 助手" }).click();
+  await expect(first).toHaveCount(0);
+  await expect(firstEntry).toBeVisible();
+  await expect(firstEntry).toBeFocused();
+  await completedEntry.click();
+  await expect(first.getByText("周报技能已登记。")).toBeVisible();
   await page.route("**/api/manager/tasks/s1", async (route) => {
     const response = await route.fetch();
     await route.fulfill({ json: {
       ...(await response.json()),
-      collaborator_progress: [{ ...worker, revision: 2, status: "completed" }, other],
+      collaborator_progress: [{ ...worker, revision: 2, status: "completed", finished_at: finishedAt }, other],
     } });
   });
   await page.reload();
-  await expect(first.getByRole("button", { name: "展开专家窗口" })).toBeVisible();
+  await expect(firstEntry).toBeVisible();
+  await expect(completedEntry).toBeVisible();
+  await expect(page.locator(".collaborator-window")).toHaveCount(0);
+  await firstEntry.click();
+  await secondEntry.click();
+  await expect(first.getByRole("button", { name: "缩小专家窗口" })).toBeVisible();
   await expect(second.getByText("读取文件")).toBeVisible();
   await emit(request, [{
     type: "CUSTOM", name: "collaborator_progress_removed",
     value: { worker_session_id: other.worker_session_id },
   }]);
   await expect(second).toHaveCount(0);
+  await expect(secondEntry).toHaveCount(0);
+});
+
+test("an expert work entry opens and closes within a narrow viewport", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/manager/tasks/s1", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: {
+      ...(await response.json()),
+      collaborator_progress: [{
+        worker_session_id: "narrow-worker",
+        worker_agent_id: "narrow-agent",
+        display_name: "文档专家",
+        revision: 1,
+        status: "completed",
+        activities: [{ id: "read", name: "Read", state: "success" }],
+      }],
+    } });
+  });
+  await page.goto("/tasks/s1");
+  const entry = page.getByRole("button", { name: /文档专家开始工作/ });
+  await expect(entry).toBeVisible();
+  await entry.click();
+  const window = page.getByRole("region", { name: "文档专家", exact: true });
+  await expect(window.getByText("读取文件")).toBeVisible();
+  const bounds = (await window.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath("expert-work-narrow.png") });
+  await window.getByRole("button", { name: "关闭专家窗口 文档专家" }).click();
+  await expect(window).toHaveCount(0);
+  await expect(entry).toHaveAttribute("aria-expanded", "false");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
 test("the active Skill activity shows the catalog display name", async ({

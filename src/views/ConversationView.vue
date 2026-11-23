@@ -5,7 +5,7 @@ import type {
   PreviewReference,
   PreviewAcceptance,
 } from "../domain/previewReferences";
-import { ref, watch, computed, nextTick, onScopeDispose } from "vue";
+import { ref, shallowRef, watch, computed, nextTick, onScopeDispose } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import { runtime as chatRuntime } from "../api/runtime";
@@ -37,6 +37,8 @@ import ArtifactList from "../components/workspace/ArtifactList.vue";
 import WorkspacePanel from "../components/workspace/WorkspacePanel.vue";
 import MessageAnnotationLayer from "../components/conversation/MessageAnnotationLayer.vue";
 import type { TextAnnotation } from "../domain/textAnnotations";
+import { replyKnowledgeReferences } from "../domain/turnPresentation";
+import { ChevronRight } from "lucide-vue-next";
 const route = useRoute(),
   router = useRouter(),
   conversation = useConversation(),
@@ -45,7 +47,48 @@ const route = useRoute(),
 const runtime = useRuntimeOptions();
 void runtime.load();
 const settingsPending = conversation.settingsPending;
+const openedWorkerWindows = ref(new Set<string>());
+const minimizedWorkerWindows = ref(new Set<string>());
+const collaboratorEntries = computed(() =>
+  Array.from(conversation.collaboratorProgress.value.values()),
+);
+const visibleWorkerWindows = computed(() =>
+  collaboratorEntries.value.filter((worker) =>
+    openedWorkerWindows.value.has(worker.worker_session_id),
+  ),
+);
+const expandedWorkerWindows = computed(() =>
+  new Set(
+    [...openedWorkerWindows.value].filter(
+      (id) => !minimizedWorkerWindows.value.has(id),
+    ),
+  ),
+);
+function showWorkerWindow(id: string) {
+  if (!conversation.collaboratorProgress.value.has(id)) return;
+  openedWorkerWindows.value.add(id);
+  minimizedWorkerWindows.value.delete(id);
+  void nextTick(() =>
+    document.getElementById(`collaborator-window-${id}`)?.focus({ preventScroll: true }),
+  );
+}
+function minimizeWorkerWindow(id: string, minimized: boolean) {
+  if (minimized) minimizedWorkerWindows.value.add(id);
+  else minimizedWorkerWindows.value.delete(id);
+}
+function closeWorkerWindow(id: string) {
+  openedWorkerWindows.value.delete(id);
+  minimizedWorkerWindows.value.delete(id);
+  void nextTick(() =>
+    document.getElementById(`collaborator-entry-${id}`)?.focus({ preventScroll: true }),
+  );
+}
+watch(() => route.params.sessionId, () => {
+  openedWorkerWindows.value.clear();
+  minimizedWorkerWindows.value.clear();
+});
 const stagedExperts = ref<Collaborator[]>([]);
+const removingExperts = ref(new Set<string>());
 const invitationDirty = ref(false);
 let invitationRequestId = "";
 const pendingExperts = computed(() =>
@@ -119,28 +162,53 @@ async function removeExpert(member: Collaborator) {
     return;
   }
   const workerSid = member.worker_session_id;
-  if (!workerSid || uploading.value || conversation.submitting.value) return;
+  if (
+    !workerSid ||
+    removingExperts.value.has(workerSid) ||
+    uploading.value ||
+    conversation.submitting.value
+  )
+    return;
   const targetSid = sid.value;
   const signal = attachmentController.signal;
-  uploading.value = true;
+  removingExperts.value.add(workerSid);
   conversation.error.value = "";
   try {
     const updated = await withCollaborationReady(
       () => manager.removeCollaborator(targetSid, workerSid, signal),
       signal,
     );
-    if (!signal.aborted && conversation.task.value?.session_id === targetSid)
+    if (!signal.aborted && conversation.task.value?.session_id === targetSid) {
       conversation.task.value = { ...conversation.task.value, ...updated };
+      conversation.forgetCollaborator(workerSid);
+    }
   } catch (error) {
     if (!signal.aborted) conversation.error.value = errorText(error);
   } finally {
-    if (!signal.aborted) uploading.value = false;
+    if (!signal.aborted) removingExperts.value.delete(workerSid);
   }
 }
 const text = ref(""),
-  workspaceOpen = ref(window.innerWidth >= 1100),
+  workspaceOpen = ref(
+    peekDraft(String(route.params.sessionId || ""))?.workspaceOpen ??
+      window.innerWidth >= 1100,
+  ),
   workspace = ref<InstanceType<typeof WorkspacePanel> | null>(null);
 const sid = computed(() => String(route.params.sessionId || ""));
+const openingDraft = shallowRef<ReturnType<typeof peekDraft>>();
+// 首条消息在读取会话和建立连接期间留在原位，发送时沿用同一个消息 ID。
+const openingMessage = computed(() => {
+  const message = openingDraft.value?.message;
+  return message &&
+    !conversation.state.value.messages.some((item) => item.id === message.id)
+    ? message
+    : undefined;
+});
+const visibleMessages = computed(() =>
+  openingMessage.value
+    ? [...conversation.state.value.messages, openingMessage.value]
+    : conversation.state.value.messages,
+);
 const projectId = computed(
   () =>
     conversation.task.value?.project_id ||
@@ -154,7 +222,13 @@ const annotations = ref<TextAnnotation[]>([]);
 const steeringQueue = useSteeringQueue(
   sid,
   computed(() => runtime.steering.value?.max_batch_size || 0),
-  conversation.steer,
+  computed(() => {
+    const task = conversation.task.value;
+    return task?.session_id === sid.value ? task.agent_id : "";
+  }),
+  computed(() => [...conversation.state.value.messages].reverse().find(message => message.role === "assistant" && !message.finished_at)?.id || ""),
+  message => { conversation.error.value = message; },
+  computed(() => new Set(visibleMessages.value.map((message) => message.id))),
 );
 async function queueSteering() {
   const task = conversation.task.value;
@@ -175,7 +249,9 @@ async function queueSteering() {
       attachmentController.signal,
     );
     if (generation !== current || sid.value !== targetSid) return;
-    if (steeringQueue.add(message, selectedReferences, selectedAnnotations)) {
+    const accepted = await steeringQueue.add(message, selectedReferences, selectedAnnotations);
+    if (generation !== current || sid.value !== targetSid) return;
+    if (accepted) {
       if (text.value.trim() === value) text.value = "";
       attachments.removeUploaded(selectedFiles);
       for (const reference of selectedReferences)
@@ -183,7 +259,7 @@ async function queueSteering() {
       annotations.value = annotations.value.filter(
         (item) => !selectedAnnotations.some((sent) => sent.id === item.id),
       );
-      return steeringQueue.items.value.at(-1)?.message.id;
+      return accepted;
     }
   } catch (error) {
     if (generation === current && sid.value === targetSid)
@@ -246,6 +322,7 @@ const COLLABORATION_STATUS_INTERVAL = 1_000;
 async function withCollaborationReady<T>(
   operate: () => Promise<T>,
   signal: AbortSignal,
+  onWaiting?: (state: "session" | "expert" | null) => void,
 ): Promise<T> {
   try {
     while (true) {
@@ -260,7 +337,7 @@ async function withCollaborationReady<T>(
         )
           throw error;
         const { sessionId, agentId } = error.busySession;
-        collaborationWaiting.value = sessionId === sid.value ? "session" : "expert";
+        onWaiting?.(sessionId === sid.value ? "session" : "expert");
         let status: string;
         do {
           await new Promise((resolve) =>
@@ -270,11 +347,11 @@ async function withCollaborationReady<T>(
           ({ status } = await chatRuntime.status(sessionId, agentId, signal));
         } while (status === "running");
         signal.throwIfAborted();
-        collaborationWaiting.value = null;
+        onWaiting?.(null);
       }
     }
   } finally {
-    if (!signal.aborted) collaborationWaiting.value = null;
+    if (!signal.aborted) onWaiting?.(null);
   }
 }
 
@@ -288,6 +365,7 @@ watch(
     fileRevision.value = 0;
     text.value = "";
     stagedExperts.value = [];
+    removingExperts.value.clear();
     invitationDirty.value = false;
     invitationRequestId = "";
     attachments.clear();
@@ -295,21 +373,28 @@ watch(
     annotations.value = [];
     uploading.value = false;
     collaborationWaiting.value = null;
-    await conversation.open(value);
+    const draft = peekDraft(value);
+    openingDraft.value = draft;
+    if (draft) workspaceOpen.value = draft.workspaceOpen;
+    await conversation.open(value, draft?.task);
     if (
       generation !== current ||
       sid.value !== value ||
       conversation.task.value?.session_id !== value
     )
       return;
-    const draft = peekDraft(value);
     if (draft) {
-      if (await conversation.send(draft.text, draft.references))
+      if (
+        !conversation.error.value &&
+        await conversation.sendMessage(draft.message)
+      )
         takeDraft(value);
       else if (generation === current && sid.value === value && !text.value) {
         text.value = draft.text;
         references.items.value = draft.references;
       }
+      if (generation === current && sid.value === value)
+        openingDraft.value = undefined;
     }
   },
   { immediate: true },
@@ -386,6 +471,9 @@ async function send() {
       const prepared = await withCollaborationReady(
         () => manager.prepareCollaborators(targetSid, requestId, experts, signal),
         signal,
+        (state) => {
+          collaborationWaiting.value = state;
+        },
       );
       if (generation !== current || sid.value !== targetSid) return;
       conversation.task.value = { ...conversation.task.value!, ...prepared };
@@ -501,6 +589,16 @@ watch(
 const artifactsByReply = computed(() =>
   groupReplyArtifacts(replyArtifacts.value),
 );
+const sourcesByReply = computed(() => new Map(
+  conversation.state.value.messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => [message.id, replyKnowledgeReferences(message)]),
+));
+async function openSources(replyId: string) {
+  workspaceOpen.value = true;
+  await nextTick();
+  workspace.value?.openSources(replyId);
+}
 </script>
 <template>
   <section class="conversation-layout">
@@ -517,12 +615,16 @@ const artifactsByReply = computed(() =>
         @update:search-query="searchQuery = $event"
         @search-next="searchNext"
       />
-      <div v-if="conversation.collaboratorProgress.value.size" class="collaborator-windows-anchor">
+      <div v-if="visibleWorkerWindows.length" class="collaborator-windows-anchor">
         <div class="collaborator-windows" aria-label="专家运行进度">
           <CollaboratorWindow
-            v-for="[id, progress] in conversation.collaboratorProgress.value"
-            :key="`${sid}:${id}`"
+            v-for="progress in visibleWorkerWindows"
+            :id="`collaborator-window-${progress.worker_session_id}`"
+            :key="`${sid}:${progress.worker_session_id}`"
             :progress="progress"
+            :minimized="minimizedWorkerWindows.has(progress.worker_session_id)"
+            @update:minimized="minimizeWorkerWindow(progress.worker_session_id, $event)"
+            @close="closeWorkerWindow(progress.worker_session_id)"
             @file="openFile($event, 'work')"
           />
         </div>
@@ -546,7 +648,10 @@ const artifactsByReply = computed(() =>
         </button>
       </div>
       <div
-        v-else-if="conversation.connection.value !== 'connected'"
+        v-else-if="
+          conversation.connection.value !== 'connected' &&
+          (!openingDraft || conversation.connection.value !== 'connecting')
+        "
         class="connection-note"
       >
         {{
@@ -558,7 +663,7 @@ const artifactsByReply = computed(() =>
       <div
         v-if="
           conversation.loading.value &&
-          !conversation.state.value.messages.length
+          !visibleMessages.length
         "
         class="empty loading-chat"
       >
@@ -568,7 +673,7 @@ const artifactsByReply = computed(() =>
         v-else
         :key="sid"
         ref="annotationLayer"
-        :messages="conversation.state.value.messages"
+        :messages="visibleMessages"
         :drafts="annotations"
         :has-more="conversation.hasMore.value"
         :load-older="conversation.older"
@@ -577,7 +682,19 @@ const artifactsByReply = computed(() =>
       >
         <MessageList
           :reply-feedback="conversation.replyFeedback.value"
+          :reply-id="typeof route.query.reply_id === 'string' ? route.query.reply_id : undefined"
           :session-id="sid"
+          :resend="conversation.resend"
+          :resend-error="conversation.error.value"
+          :edit-disabled="
+            conversation.loading.value ||
+            conversation.submitting.value ||
+            conversation.state.value.phase !== 'idle' ||
+            conversation.connection.value !== 'connected' ||
+            uploading || runtime.loading.value || settingsPending || !!runtime.error.value ||
+            steeringQueue.items.value.length > 0 ||
+            [...conversation.collaboratorProgress.value.values()].some(entry => ['running', 'waiting'].includes(entry.status))
+          "
           :branch-disabled="
             conversation.loading.value ||
             conversation.state.value.phase !== 'idle'
@@ -588,8 +705,12 @@ const artifactsByReply = computed(() =>
               await router.push(`/tasks/${task.session_id}`);
             }
           "
-          :messages="conversation.state.value.messages"
-          :preparing="conversation.state.value.isPreparing"
+          :messages="visibleMessages"
+          :collaborators="collaboratorEntries"
+          :expanded-workers="expandedWorkerWindows"
+          @collaborator="showWorkerWindow"
+          :preparing="conversation.state.value.isPreparing || !!openingMessage"
+          :preparing-text="steeringQueue.waitingForExecution.value ? '排队等待执行' : undefined"
           :display-names="conversation.task.value?.agent_display_names"
           :default-display-name="
             conversation.task.value?.definition_display_name
@@ -610,6 +731,16 @@ const artifactsByReply = computed(() =>
               @open="openFile"
               @view-all="showArtifacts"
             />
+            <button
+              v-if="sourcesByReply.get(message.id)?.length"
+              :id="`reply-sources-${message.id}`"
+              type="button"
+              class="reply-sources-entry"
+              @click="openSources(message.id)"
+            >
+              引用来源 <span>({{ sourcesByReply.get(message.id)!.length }})</span>
+              <ChevronRight :size="15" aria-hidden="true" />
+            </button>
           </template>
         </MessageList>
       </MessageAnnotationLayer>
@@ -730,11 +861,8 @@ const artifactsByReply = computed(() =>
           <template #collaborators>
             <CollaboratorChips
               :members="collaborationChips"
-              :disabled="
-                uploading ||
-                conversation.submitting.value ||
-                !['idle', 'waiting'].includes(conversation.state.value.phase)
-              "
+              :removing="removingExperts"
+              :disabled="uploading || conversation.submitting.value"
               @remove="removeExpert"
             />
           </template>

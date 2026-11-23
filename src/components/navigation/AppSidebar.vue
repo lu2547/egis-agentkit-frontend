@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { CalendarClock } from "lucide-vue-next";
 import { useTaskActivity } from "../../composables/useTaskActivity";
 import { useRoute, useRouter } from "vue-router";
 import { useIdentity } from "../../composables/useIdentity";
@@ -194,7 +195,7 @@ async function save() {
           (item) => item.id !== project.id,
         );
         if (user.value) {
-          const prefix = `egis_workspace_preview:${user.value.user_id}:project:${project.id}:`;
+          const prefix = `egis_workspace_tabs:${user.value.user_id}:project:${project.id}:`;
           Object.keys(sessionStorage)
             .filter((key) => key.startsWith(prefix))
             .forEach((key) => sessionStorage.removeItem(key));
@@ -217,7 +218,7 @@ async function save() {
         await manager.deleteTask(task.session_id);
         if (user.value)
           sessionStorage.removeItem(
-            `egis_workspace_preview:${user.value.user_id}:${workspaceScopeId(task.project_id, task.session_id)}`,
+            `egis_workspace_tabs:${user.value.user_id}:${workspaceScopeId(task.project_id, task.session_id)}`,
           );
         taskActivity.forget(task.session_id);
         tasks.value = tasks.value.filter(
@@ -337,6 +338,14 @@ onBeforeUnmount(() => {
           >知识库<small>待规划</small></span
         >
       </button>
+      <RouterLink
+        class="nav-item"
+        active-class="active"
+        to="/schedules"
+        aria-label="定时任务"
+        :title="collapsed ? '定时任务' : undefined"
+        @click="$emit('navigate')"
+      ><CalendarClock :size="19" aria-hidden="true" /><span v-if="!collapsed">定时任务</span></RouterLink>
       <div class="more-wrap">
         <button
           class="nav-item"

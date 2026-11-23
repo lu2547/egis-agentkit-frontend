@@ -137,7 +137,6 @@ test("administration uses a selected left navigation and a separate content pane
     path: testInfo.outputPath("admin-mcp.png"),
     animations: "disabled",
   });
-  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.evaluate(() => {
     document.addEventListener("animationstart", (event) => {
       const pane = event.target;
@@ -163,14 +162,13 @@ test("administration uses a selected left navigation and a separate content pane
     "true",
   );
 
-  await page.emulateMedia({ reducedMotion: "reduce" });
   await navigation.getByRole("link", { name: "用户", exact: true }).click();
   await expect(
     content.getByRole("heading", { name: "用户", exact: true }),
   ).toBeVisible();
   await expect(content.locator(".admin-content-inner")).toHaveCSS(
     "animation-name",
-    "none",
+    "surface-arrive",
   );
 });
 

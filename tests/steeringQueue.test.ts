@@ -1,101 +1,312 @@
-import { expect, it, vi } from "vitest";
-import { ref } from "vue";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { ref, effectScope, nextTick } from "vue";
+import { ApiError } from "../src/api/http";
+import type { AgentEvent } from "@agentscope-ai/agentscope/event";
+import type { ChatQueueItem } from "../src/api/runtime";
 import {
   useSteeringQueue,
   clearSteeringQueues,
+  observeChatQueue,
 } from "../src/composables/useSteeringQueue";
-
-it("clears pending private drafts when the signed-in identity is cleared", () => {
-  const queue = useSteeringQueue(ref(crypto.randomUUID()), ref(20), vi.fn());
-  queue.add("私人项目的补充要求");
+const api = vi.hoisted(() => ({
+  queue: vi.fn(),
+  trigger: vi.fn(),
+  updateQueued: vi.fn(),
+  removeQueued: vi.fn(),
+  reorderQueued: vi.fn(),
+  steerQueued: vi.fn(),
+}));
+vi.mock("../src/api/runtime", () => ({ runtime: api }));
+let remote: Record<string, ChatQueueItem[]>;
+let scopes: ReturnType<typeof effectScope>[];
+const copy = (sid: string) => ({ items: structuredClone(remote[sid] || []) });
+function setup(
+  sid = ref(crypto.randomUUID()),
+  agentId = ref("agent"),
+  presented = ref(new Set<string>()),
+) {
+  const scope = effectScope();
+  scopes.push(scope);
+  const error = vi.fn();
+  return {
+    sid,
+    error,
+    queue: scope.run(() =>
+      useSteeringQueue(sid, ref(20), agentId, ref("reply"), error, presented),
+    )!,
+  };
+}
+beforeEach(() => {
   clearSteeringQueues();
-  expect(queue.items.value).toEqual([]);
+  vi.resetAllMocks();
+  remote = {};
+  scopes = [];
+  api.queue.mockImplementation(async (sid: string) => copy(sid));
+  api.trigger.mockImplementation(async (sid, _aid, input) => {
+    const id = crypto.randomUUID();
+    (remote[sid] ||= []).push({
+      id,
+      created_at: new Date().toISOString(),
+      state: "queued",
+      input,
+    });
+    return { status: "queued", session_id: sid, queue_item_id: id };
+  });
+  api.updateQueued.mockImplementation(async (sid, _aid, id, input) => {
+    Object.assign(
+      remote[sid]!.find((i) => i.id === id)!,
+      { input, state: "queued" },
+    );
+    return copy(sid);
+  });
+  api.removeQueued.mockImplementation(async (sid, _aid, id) => {
+    remote[sid] = remote[sid]!.filter((i) => i.id !== id);
+    return copy(sid);
+  });
+  api.reorderQueued.mockImplementation(async (sid, _aid, ids) => {
+    remote[sid] = ids.map((id: string) =>
+      remote[sid]!.find((i) => i.id === id)!,
+    );
+    return copy(sid);
+  });
+  api.steerQueued.mockImplementation(async (sid, _aid, id) => {
+    remote[sid]!.find((i) => i.id === id)!.state = "steering";
+    return copy(sid);
+  });
 });
 
-it("queues multiple messages, edits, deletes and reorders without mixing sessions", () => {
-  const sid = ref(crypto.randomUUID());
-  const original = sid.value;
-  const queue = useSteeringQueue(sid, ref(20), vi.fn());
-  queue.add("预算");
-  queue.add("配色");
-  queue.add("保留原文");
-  const [first, second, third] = queue.items.value;
-  queue.edit(second!.message.id, "配色改为蓝色");
-  queue.move(third!.message.id, 0);
-  queue.remove(first!.message.id);
+it("ignores a queue error from the previous agent after the current session is ready", async () => {
+  let rejectPrevious!: (reason: Error) => void;
+  api.queue.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPrevious = reject;
+      }),
+  );
+  const agentId = ref("previous-agent");
+  const { queue, error } = setup(ref("current-session"), agentId);
+  agentId.value = "current-agent";
+  await nextTick();
+  await queue.refresh();
+  rejectPrevious(new ApiError(403, "会话不存在或不可访问"));
+  await nextTick();
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("ignores an older queue error after a newer refresh succeeds", async () => {
+  let rejectPrevious!: (reason: Error) => void;
+  api.queue.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPrevious = reject;
+      }),
+  );
+  const { queue, error } = setup();
+  await queue.refresh();
+  rejectPrevious(new ApiError(403, "会话不存在或不可访问"));
+  await nextTick();
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("still reports a current queue authorization rejection", async () => {
+  const { queue, error } = setup();
+  await queue.refresh();
+  api.queue.mockRejectedValueOnce(new ApiError(403, "会话不存在或不可访问"));
+  await queue.refresh();
+  expect(error).toHaveBeenCalledWith("会话不存在或不可访问");
+});
+afterEach(() => scopes.forEach((scope) => scope.stop()));
+it("shows an ordinary pending send once while keeping supplements editable and ordered", async () => {
+  const presented = ref(new Set<string>());
+  const { sid, queue } = setup(undefined, undefined, presented);
+  await queue.add("查知识库啊");
+  const ordinary = remote[sid.value]![0]!;
+  const input =
+    ordinary.input as import("@agentscope-ai/agentscope/message").Msg;
+  presented.value = new Set([input.id]);
+  expect(queue.waitingForExecution.value).toBe(true);
+  await queue.add("先看方案");
+  await queue.add("再看清单");
   expect(queue.items.value.map((item) => item.text)).toEqual([
+    "先看方案",
+    "再看清单",
+  ]);
+  await queue.move(queue.items.value[1]!.id, 0);
+  expect(remote[sid.value]!.map((item) => item.id)).toEqual([
+    ordinary.id,
+    queue.items.value[0]!.id,
+    queue.items.value[1]!.id,
+  ]);
+  expect(queue.items.value.map((item) => item.text)).toEqual([
+    "再看清单",
+    "先看方案",
+  ]);
+  ordinary.state = "failed";
+  ordinary.error = "暂时不可用";
+  await queue.refresh();
+  expect(queue.items.value[0]).toMatchObject({
+    text: "查知识库啊",
+    status: "failed",
+  });
+  expect(queue.waitingForExecution.value).toBe(false);
+});
+
+it("persists multiple messages and restores a fresh view with edit, reorder and delete", async () => {
+  const { sid, queue } = setup();
+  await queue.add("预算");
+  await queue.add("配色");
+  await queue.add("保留原文");
+  const [first, second, third] = queue.items.value;
+  await queue.edit(second!.id, "配色改为蓝色");
+  await queue.move(third!.id, 0);
+  await queue.remove(first!.id);
+  const fresh = setup(sid).queue;
+  await fresh.refresh();
+  expect(fresh.items.value.map((item) => item.text)).toEqual([
     "保留原文",
     "配色改为蓝色",
   ]);
-  sid.value = crypto.randomUUID();
+  expect(api.trigger).toHaveBeenCalledTimes(3);
+  expect(api.steerQueued).not.toHaveBeenCalled();
+});
+it("retains reserved inputs until the native context injection is acknowledged", async () => {
+  const { sid, queue } = setup();
+  await queue.add("预算优先");
+  const id = queue.items.value[0]!.id;
+  expect(await queue.send([id])).toBe(true);
+  expect(queue.items.value[0]!.status).toBe("sending");
+  expect(api.steerQueued.mock.calls[0]!.slice(0, 4)).toEqual([
+    sid.value,
+    "agent",
+    id,
+    "reply",
+  ]);
+  observeChatQueue(sid.value, {
+    type: "CUSTOM",
+    name: "chat_queue_changed",
+    value: { items: [] },
+  } as unknown as AgentEvent);
   expect(queue.items.value).toEqual([]);
-  queue.add("另一个会话");
-  sid.value = original;
-  expect(queue.items.value).toHaveLength(2);
 });
-
-it("retains failed messages and their IDs, then removes only the acknowledged batch", async () => {
-  const send = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-  const queue = useSteeringQueue(ref(crypto.randomUUID()), ref(20), send);
-  queue.add("一");
-  queue.add("二");
-  queue.add("三");
-  const ids = queue.items.value.map((item) => item.message.id);
-  expect(await queue.send(ids)).toBe(false);
-  expect(queue.items.value.map((item) => item.message.id)).toEqual(ids);
-  expect(await queue.send(ids.slice(0, 2))).toBe(true);
-  expect(send.mock.calls[1]![0].map((m: { id: string }) => m.id)).toEqual(
-    ids.slice(0, 2),
-  );
-  expect(queue.items.value.map((item) => item.text)).toEqual(["三"]);
+it("keeps failures editable and retries the same server item", async () => {
+  const { queue } = setup();
+  await queue.add("预算优先");
+  const id = queue.items.value[0]!.id;
+  api.steerQueued.mockRejectedValueOnce(new Error("暂时不可用"));
+  expect(await queue.send([id])).toBe(false);
+  expect(queue.items.value[0]!.id).toBe(id);
+  expect(queue.items.value[0]!.error).toContain("暂时不可用");
+  await queue.edit(id, "先确认预算");
+  expect(await queue.send([id])).toBe(true);
+  expect(api.trigger).toHaveBeenCalledTimes(1);
 });
-
-it("keeps a completed send scoped to the original session", async () => {
-  let finish!: (accepted: boolean) => void;
-  const sid = ref(crypto.randomUUID());
-  const firstSession = sid.value;
-  const queue = useSteeringQueue(
-    sid,
-    ref(20),
+it("does not let a stale queue GET overwrite a newer SSE snapshot", async () => {
+  const { sid, queue } = setup();
+  await queue.add("原始要求");
+  let resolve!: (value: { items: ChatQueueItem[] }) => void;
+  const old = copy(sid.value);
+  api.queue.mockImplementationOnce(
     () =>
-      new Promise((resolve) => {
-        finish = resolve;
+      new Promise((done) => {
+        resolve = done;
       }),
   );
-  queue.add("第一会话");
-  const sending = queue.send(queue.items.value.map((item) => item.message.id));
-  sid.value = crypto.randomUUID();
-  queue.add("第二会话");
-  finish(true);
-  await sending;
-  expect(queue.items.value.map((item) => item.text)).toEqual(["第二会话"]);
-  sid.value = firstSession;
+  const loading = queue.refresh();
+  observeChatQueue(sid.value, {
+    type: "CUSTOM",
+    name: "chat_queue_changed",
+    value: { items: [] },
+  } as unknown as AgentEvent);
+  resolve(old);
+  await loading;
   expect(queue.items.value).toEqual([]);
 });
-
-it("serializes consecutive immediate sends instead of leaving the second unsent", async () => {
-  let finish!: (accepted: boolean) => void;
-  const sent: string[] = [];
-  const queue = useSteeringQueue(
-    ref(crypto.randomUUID()),
-    ref(20),
-    async (messages) => {
-      sent.push(messages[0]!.id);
-      if (sent.length === 1)
-        return new Promise<boolean>((resolve) => {
-          finish = resolve;
-        });
-      return true;
-    },
+it("keeps session changes and late logout responses isolated", async () => {
+  const { sid, queue } = setup();
+  const first = sid.value;
+  await queue.add("私人项目");
+  let resolve!: (value: { items: ChatQueueItem[] }) => void;
+  const old = copy(first);
+  api.queue.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
   );
-  queue.add("一");
-  const first = queue.send([queue.items.value[0]!.message.id]);
-  queue.add("二");
-  const second = queue.send([queue.items.value[1]!.message.id]);
-  await Promise.resolve();
-  finish(true);
-  expect(await first).toBe(true);
-  expect(await second).toBe(true);
-  expect(sent).toHaveLength(2);
+  const loading = queue.refresh();
+  sid.value = "another-session";
+  await queue.add("另一个项目");
+  expect(queue.items.value.map((item) => item.text)).toEqual(["另一个项目"]);
+  clearSteeringQueues();
+  resolve(old);
+  await loading;
+  sid.value = first;
   expect(queue.items.value).toEqual([]);
+});
+it("queues an empty-body annotation and preserves it while editing", async () => {
+  const { queue } = setup();
+  const annotations = [
+    {
+      id: "note",
+      messageId: "reply",
+      start: 0,
+      end: 2,
+      text: "原文",
+      comment: "解释",
+    },
+  ];
+  await queue.add("", [], annotations);
+  const id = queue.items.value[0]!.id;
+  await queue.edit(id, "补充要求");
+  expect(queue.items.value[0]!.annotations).toEqual(annotations);
+  expect(queue.items.value[0]!.text).toBe("补充要求");
+});
+
+it("editing keeps raw attachments and existing preview excerpts intact", async () => {
+  const { sid, queue } = setup();
+  await queue.add("原要求");
+  const message = remote[sid.value]![0]!
+    .input as import("@agentscope-ai/agentscope/message").Msg;
+  message.content.push({
+    type: "data",
+    id: "image",
+    name: "attachment.png",
+    source: { type: "base64", media_type: "image/png", data: "aW1hZ2U=" },
+    created_at: new Date().toISOString(),
+  });
+  message.metadata.preview_prompt = "原要求";
+  const text = message.content[0]!;
+  if (text.type === "text") text.text += "\n既有预览摘录：保留这段证据";
+  await queue.refresh();
+  await queue.edit(queue.items.value[0]!.id, "新要求");
+  const edited = remote[sid.value]![0]!
+    .input as import("@agentscope-ai/agentscope/message").Msg[];
+  expect(
+    edited[0]!.content.some(
+      (block) => block.type === "data" && block.id === "image",
+    ),
+  ).toBe(true);
+  expect(edited[0]!.content[0]).toMatchObject({
+    text: "新要求\n既有预览摘录：保留这段证据",
+  });
+});
+it("editing a batch changes its first message without duplicating its tail", async () => {
+  const { sid, queue } = setup();
+  await queue.add("第一条");
+  await queue.add("第二条");
+  const [first, second] = remote[sid.value]!;
+  first!.input = [
+    first!.input as import("@agentscope-ai/agentscope/message").Msg,
+    second!.input as import("@agentscope-ai/agentscope/message").Msg,
+  ];
+  remote[sid.value] = [first!];
+  await queue.refresh();
+  expect(queue.items.value[0]!.text).toBe("第一条");
+  await queue.edit(first!.id, "修改第一条");
+  const edited = remote[sid.value]![0]!
+    .input as import("@agentscope-ai/agentscope/message").Msg[];
+  expect(edited.map((m) => m.content[0])).toMatchObject([
+    { text: "修改第一条" },
+    { text: "第二条" },
+  ]);
 });

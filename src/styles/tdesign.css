@@ -82,8 +82,7 @@
 :where(input, textarea):not(.t-input__inner):not(
     .t-textarea__inner
   ):focus-visible {
-  outline: 1px solid var(--border-hover);
-  outline-offset: 0;
+  outline: none;
 }
 
 /* Loading text must not inherit the spinner's em-based icon size. */

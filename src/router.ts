@@ -21,6 +21,10 @@ export const router = createRouter({
           component: () => import("./views/ConversationView.vue"),
         },
         {
+          path: "schedules",
+          component: () => import("./views/SchedulesView.vue"),
+        },
+        {
           path: "experts",
           name: "expert-catalog",
           component: () => import("./views/ExpertCatalogView.vue"),

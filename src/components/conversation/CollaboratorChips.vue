@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { X } from "lucide-vue-next";
+import { LoaderCircle, X } from "lucide-vue-next";
 import type { Collaborator } from "../../types/api";
-defineProps<{ members: Collaborator[]; disabled?: boolean }>();
+defineProps<{
+  members: Collaborator[];
+  disabled?: boolean;
+  removing?: ReadonlySet<string>;
+}>();
 defineEmits<{ remove: [member: Collaborator] }>();
 </script>
 <template>
@@ -20,14 +24,26 @@ defineEmits<{ remove: [member: Collaborator] }>();
       :title="`${member.display_name} · ${member.status === 'pending' ? '待协作' : '已加入协作'}`"
     >
       <span class="collaborator-name">{{ member.display_name }}</span>
+      <span
+        v-if="removing?.has(member.worker_session_id || '')"
+        class="collaborator-removing"
+        role="status"
+        >正在移除</span
+      >
       <button
         v-if="member.status === 'pending' || member.worker_session_id"
         type="button"
-        :disabled="disabled"
+        :disabled="disabled || removing?.has(member.worker_session_id || '')"
         :aria-label="`移除${member.status === 'pending' ? '待' : ''}协作专家 ${member.display_name}`"
         @click="$emit('remove', member)"
       >
-        <X :size="12" />
+        <LoaderCircle
+          v-if="removing?.has(member.worker_session_id || '')"
+          class="removing-spinner"
+          :size="12"
+          aria-hidden="true"
+        />
+        <X v-else :size="12" />
       </button>
     </span>
   </div>

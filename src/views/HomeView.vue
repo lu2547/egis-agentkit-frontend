@@ -49,9 +49,9 @@ const projectId = computed(
     projects.value.find((project) => project.is_default)?.id ||
     "",
 );
-const text = ref(
-    typeof route.query.prompt === "string" ? route.query.prompt : "",
-  ),
+const initialPrompt =
+  typeof route.query.prompt === "string" ? route.query.prompt : "";
+const text = ref(initialPrompt),
   definitions = ref<Definition[]>([]),
   invitedExperts = ref<Definition[]>([]),
   pending = ref(false),
@@ -133,6 +133,8 @@ function starter(value: string) {
 onMounted(async () => {
   void runtime.load().then(() => {
     permissionMode.value = runtime.defaultPermissionMode.value;
+    if (initialPrompt && text.value === initialPrompt)
+      composer.value?.focusComposer(true);
   });
   try {
     const agents = await manager.definitions("agents");
@@ -250,7 +252,7 @@ async function submit() {
           key: invitationKey,
           requestId: crypto.randomUUID(),
         };
-      await manager.prepareCollaborators(
+      preparation.task = await manager.prepareCollaborators(
         task.session_id,
         preparation.invitation.requestId,
         experts,
@@ -258,7 +260,12 @@ async function submit() {
       );
       signal.throwIfAborted();
     }
-    queueDraft(task.session_id, message, [...references.items.value]);
+    queueDraft(
+      preparation.task,
+      message,
+      [...references.items.value],
+      workspaceOpen.value,
+    );
     await router.push(`/tasks/${encodeURIComponent(task.session_id)}`);
     if (router.currentRoute.value.params.sessionId !== task.session_id)
       throw new Error("对话已创建，但页面未能打开，请重试。");
