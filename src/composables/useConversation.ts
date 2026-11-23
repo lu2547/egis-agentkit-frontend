@@ -240,10 +240,12 @@ export function useConversation() {
   async function refreshMetadata(current = lease) {
     if (!current || !scope.owns(current) || settingsPending.value) return;
     const request = ++metadataGeneration;
+    const observedRunId = activity.activity.value[current.key]?.latestScheduleRunId;
     try {
       const selected = await manager.task(current.key, current.signal);
       if (scope.owns(current) && request === metadataGeneration) {
         task.value = selected;
+        activity.acknowledge(selected, observedRunId);
         mergeCollaboratorProgress(selected.collaborator_progress ?? []);
       }
     } catch (e) {
@@ -303,6 +305,7 @@ export function useConversation() {
     const current = lease;
     loading.value = true;
     error.value = "";
+    const observedRunId = activity.activity.value[sid]?.latestScheduleRunId;
     try {
       const selected = await manager.task(sid, current.signal);
       if (!scope.owns(current)) return;
@@ -329,6 +332,7 @@ export function useConversation() {
         history.messages,
         history.is_running,
       );
+      activity.acknowledge(selected, observedRunId);
       startStream(current, selected, history.event_cursor);
     } catch (e) {
       if (scope.owns(current)) {

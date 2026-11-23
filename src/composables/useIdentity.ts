@@ -36,11 +36,14 @@ export function useIdentity() {
   }
   async function refreshTasks() {
     const request = ++taskGeneration;
+    const observedRunIds = new Map(
+      Object.entries(activity.activity.value).map(([id, item]) => [id, item.latestScheduleRunId]),
+    );
     try {
       const items = (await manager.tasks()).items;
       if (request !== taskGeneration || !user.value) return;
       tasks.value = items;
-      activity.update(items);
+      activity.update(items, observedRunIds);
     } catch (e) {
       error.value = errorText(e);
     }

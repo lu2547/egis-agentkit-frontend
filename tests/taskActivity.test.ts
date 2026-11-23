@@ -4,6 +4,7 @@ import {
   type TaskActivity,
 } from "../src/domain/taskActivity";
 import type { Task } from "../src/types/api";
+import { useTaskActivity } from "../src/composables/useTaskActivity";
 const task = (values: Partial<Task>): Task => ({
   session_id: "s1",
   project_id: "p1",
@@ -73,5 +74,72 @@ describe("task run and unread indicators", () => {
     expect(
       reconcileActivity(undefined, task({ is_running: false }), false).unread,
     ).toBe(false);
+  });
+  it("marks a completed scheduled run unread even when polling never saw it running", () => {
+    const completed = task({
+      source: "schedule",
+      latest_schedule_run_id: "run-1",
+    });
+    expect(reconcileActivity(undefined, completed, false).unread).toBe(true);
+    expect(reconcileActivity(undefined, completed, true).unread).toBe(false);
+  });
+  it("keeps a read scheduled run read, then marks the next run in the same conversation unread", () => {
+    const first = task({ source: "schedule", latest_schedule_run_id: "run-1" });
+    const read = reconcileActivity(undefined, first, true);
+    expect(reconcileActivity(read, first, false).unread).toBe(false);
+    const next = task({ ...first, latest_schedule_run_id: "run-2" });
+    expect(reconcileActivity(read, next, false).unread).toBe(true);
+    expect(reconcileActivity(read, next, true).unread).toBe(false);
+  });
+  it("does not mark a scheduled conversation unread before its first run finishes", () => {
+    expect(reconcileActivity(undefined, task({
+      source: "schedule",
+      latest_schedule_run_id: null,
+    }), false).unread).toBe(false);
+  });
+  it("does not let an older list response overwrite a newer completion already read from detail", () => {
+    const first = task({ source: "schedule", latest_schedule_run_id: "run-1" });
+    const second = task({ ...first, latest_schedule_run_id: "run-2" });
+    const read = reconcileActivity(undefined, second, true);
+    const stale = reconcileActivity(read, first, false, { runId: "run-1" });
+    expect(stale.latestScheduleRunId).toBe("run-2");
+    expect(stale.unread).toBe(false);
+    expect(reconcileActivity(stale, second, false).unread).toBe(false);
+    expect(reconcileActivity(stale, task({ ...second, latest_schedule_run_id: "run-3" }), false).unread).toBe(true);
+  });
+  it("does not let an older detail response overwrite a newer completion already seen by polling", () => {
+    const activity = useTaskActivity();
+    activity.reset();
+    try {
+      const first = task({ source: "schedule", latest_schedule_run_id: "run-1" });
+      const second = task({ ...first, latest_schedule_run_id: "run-2" });
+      activity.update([first]);
+      activity.activate("s1");
+      const startedWith = activity.activity.value.s1?.latestScheduleRunId;
+      activity.update([second]);
+      activity.acknowledge(first, startedWith);
+      activity.activate("");
+      activity.update([second]);
+      expect(activity.activity.value.s1?.unread).toBe(false);
+      expect(activity.activity.value.s1?.latestScheduleRunId).toBe("run-2");
+    } finally {
+      activity.reset();
+    }
+  });
+  it("keeps a just-read scheduled conversation when an older list response did not contain it", () => {
+    const activity = useTaskActivity();
+    activity.reset();
+    try {
+      const completed = task({ source: "schedule", latest_schedule_run_id: "run-1" });
+      const beforeNewConversation = new Map<string, string | undefined>();
+      activity.activate("s1");
+      activity.acknowledge(completed, undefined);
+      activity.activate("");
+      activity.update([], beforeNewConversation);
+      activity.update([completed]);
+      expect(activity.activity.value.s1?.unread).toBe(false);
+    } finally {
+      activity.reset();
+    }
   });
 });

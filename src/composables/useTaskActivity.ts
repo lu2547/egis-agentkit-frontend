@@ -40,23 +40,35 @@ export function useTaskActivity() {
               waiting: item.waiting,
               unread: item.unread,
               updatedAt: item.updatedAt,
+              latestScheduleRunId:
+                typeof item.latestScheduleRunId === "string"
+                  ? item.latestScheduleRunId
+                  : undefined,
             };
         }
       } catch {
         /* Invalid local state does not affect tasks. */
       }
     },
-    update(tasks: Task[]) {
-      activity.value = Object.fromEntries(
+    update(tasks: Task[], observedRunIds?: ReadonlyMap<string, string | undefined>) {
+      const next = Object.fromEntries(
         tasks.map((task) => [
           task.session_id,
           reconcileActivity(
             activity.value[task.session_id],
             task,
             active === task.session_id,
+            observedRunIds ? { runId: observedRunIds.get(task.session_id) } : undefined,
           ),
         ]),
       );
+      if (observedRunIds) {
+        for (const [id, item] of Object.entries(activity.value)) {
+          if (!(id in next) && item.latestScheduleRunId !== observedRunIds.get(id))
+            next[id] = item;
+        }
+      }
+      activity.value = next;
       persist();
     },
     activate(sessionId: string) {
@@ -67,6 +79,20 @@ export function useTaskActivity() {
       active = sessionId;
       const item = activity.value[sessionId];
       if (item) item.unread = false;
+      persist();
+    },
+    acknowledge(task: Task, observedRunId: string | undefined) {
+      if (active !== task.session_id) return;
+      const previous = activity.value[task.session_id] ??
+        reconcileActivity(undefined, task, true);
+      activity.value[task.session_id] = {
+        ...previous,
+        unread: false,
+        latestScheduleRunId:
+          previous.latestScheduleRunId === observedRunId
+            ? task.latest_schedule_run_id || previous.latestScheduleRunId
+            : previous.latestScheduleRunId,
+      };
       persist();
     },
     mark(task: Task, phase: string, replyEnded = false) {
@@ -80,6 +106,8 @@ export function useTaskActivity() {
           !running && !waiting && (replyEnded || !!previous?.replyEnded),
         optimistic: running,
         updatedAt: task.updated_at,
+        latestScheduleRunId:
+          previous?.latestScheduleRunId || task.latest_schedule_run_id || undefined,
         unread:
           active !== task.session_id &&
           !!(

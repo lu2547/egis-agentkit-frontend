@@ -40,7 +40,7 @@ const modes = {
     icon: Eye,
   },
   bypass: {
-    label: "完全访问权限",
+    label: "完全访问",
     description: "跳过大部分工具权限检查，仍受资源授权限制",
     icon: ShieldAlert,
   },
@@ -274,7 +274,7 @@ onBeforeUnmount(removeListeners);
               权限模式只决定何时请求批准，仍受你已获授权的技能、连接器和资源范围限制。
             </p>
             <p>
-              “完全访问权限”跳过大部分工具操作确认，仍受资源授权与项目范围限制。
+              “完全访问”跳过大部分工具操作确认，仍受资源授权与项目范围限制。
             </p>
           </div>
           <div

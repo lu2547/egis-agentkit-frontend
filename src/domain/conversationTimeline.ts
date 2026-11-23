@@ -37,14 +37,33 @@ export function conversationTimeline(
   const time = (item: { created_at?: string }) =>
     item.created_at ? Date.parse(item.created_at) : Infinity;
   work.sort((a, b) => time(a) - time(b));
+  const beforeReply = new Map<string, ConversationTimelineItem[]>();
+  const betweenMessages: ConversationTimelineItem[] = [];
+  for (const item of work) {
+    const stamp = time(item);
+    // Keep work occurring during a reply above it, away from its growing text.
+    const reply = Number.isFinite(stamp)
+      ? messages.find(message =>
+          message.role === "assistant" &&
+          time(message) <= stamp &&
+          (!message.finished_at || stamp <= Date.parse(message.finished_at)),
+        )
+      : undefined;
+    if (reply) {
+      const entries = beforeReply.get(reply.id) ?? [];
+      entries.push(item);
+      beforeReply.set(reply.id, entries);
+    } else betweenMessages.push(item);
+  }
   const items: ConversationTimelineItem[] = [];
   let cursor = 0;
   // Native history includes steering messages in injection order; preserve it.
   for (const message of messages) {
-    while (cursor < work.length && time(work[cursor]!) < time(message)) {
-      items.push(work[cursor++]!);
+    while (cursor < betweenMessages.length && time(betweenMessages[cursor]!) < time(message)) {
+      items.push(betweenMessages[cursor++]!);
     }
+    items.push(...(beforeReply.get(message.id) ?? []));
     items.push({ kind: "message", id: message.id, message });
   }
-  return [...items, ...work.slice(cursor)];
+  return [...items, ...betweenMessages.slice(cursor)];
 }

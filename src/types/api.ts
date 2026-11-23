@@ -102,6 +102,8 @@ export interface CollaboratorProgress {
   activities: { id: string; name: string; state: string }[];
 }
 export interface Task {
+  source?: "user" | "schedule";
+  latest_schedule_run_id?: string | null;
   collaborator_progress?: CollaboratorProgress[];
   collaboration_allowed?: boolean;
   pending_collaboration_request_id?: string | null;

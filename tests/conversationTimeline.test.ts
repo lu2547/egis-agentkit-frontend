@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { UserMsg } from "@agentscope-ai/agentscope/message";
+import { AssistantMsg, UserMsg } from "@agentscope-ai/agentscope/message";
 import { conversationTimeline } from "../src/domain/conversationTimeline";
 import type { CollaboratorProgress } from "../src/types/api";
 
@@ -64,4 +64,35 @@ it("adds an ending record for a failed or stopped expert but none for a waiting 
       status === "waiting" ? ["one:started"] : ["one:started", "one:finished"],
     );
   }
+});
+
+it("keeps expert work above the reply that is still growing instead of below its streaming text", () => {
+  const user = message("user", "2026-11-23T01:00:00Z");
+  const reply = AssistantMsg({
+    id: "reply",
+    created_at: "2026-11-23T01:01:00Z",
+    content: "正在整理需求",
+  });
+  const progress = worker("skills", "2026-11-23T01:02:00Z");
+  expect(conversationTimeline([user, reply], [progress]).map(item => item.id))
+    .toEqual(["user", "skills:started", "reply"]);
+  reply.content.push({ id: "more", type: "text", text: "继续输出任务说明" });
+  reply.finished_at = "2026-11-23T01:03:00Z";
+  expect(conversationTimeline([user, reply], [progress]).map(item => item.id))
+    .toEqual(["user", "skills:started", "reply"]);
+});
+
+it("groups overlapping expert updates above a live reply while keeping later completion after it", () => {
+  const reply = AssistantMsg({
+    id: "reply",
+    created_at: "2026-11-23T01:01:00Z",
+    content: "整理中",
+  });
+  const one = worker("one", "2026-11-23T01:02:00Z", "2026-11-23T01:04:00Z");
+  const two = worker("two", "2026-11-23T01:03:00Z", "2026-11-23T01:05:00Z");
+  expect(conversationTimeline([reply], [one, two]).map(item => item.id))
+    .toEqual(["one:started", "two:started", "one:finished", "two:finished", "reply"]);
+  reply.finished_at = "2026-11-23T01:04:30Z";
+  expect(conversationTimeline([reply], [one, two]).map(item => item.id))
+    .toEqual(["one:started", "two:started", "one:finished", "reply", "two:finished"]);
 });

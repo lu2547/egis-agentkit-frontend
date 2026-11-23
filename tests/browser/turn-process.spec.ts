@@ -29,6 +29,51 @@ const done = (
   { type: "TOOL_RESULT_TEXT_DELTA", tool_call_id: id, delta: output },
   { type: "TOOL_RESULT_END", tool_call_id: id, state },
 ];
+
+test("expert work stays above the growing assistant answer and still opens its window", async ({
+  page, request,
+}, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("pension-gpt-theme", "dark"));
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：创建周报技能");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.locator(".process-heading")).toBeVisible();
+  const worker = {
+    worker_session_id: "skills-worker", worker_agent_id: "skills-agent",
+    display_name: "Skills 助手", status: "running", revision: 1,
+    started_at: new Date().toISOString(), activities: [],
+  };
+  await emit(request, [
+    { type: "TEXT_BLOCK_START", block_id: "answer" },
+    { type: "TEXT_BLOCK_DELTA", block_id: "answer", delta: "周报技能需求已确认。\n\n" },
+    { type: "CUSTOM", name: "collaborator_progress", value: worker },
+  ]);
+  const entry = page.getByRole("button", { name: /Skills 助手开始工作/ });
+  const reply = page.locator(".assistant-message").last();
+  await expect(entry).toBeVisible();
+  await expect(reply).toContainText("周报技能需求已确认");
+  expect(await entry.evaluate((element) => !!(
+    element.compareDocumentPosition(document.querySelectorAll(".assistant-message").item(
+      document.querySelectorAll(".assistant-message").length - 1,
+    )) & Node.DOCUMENT_POSITION_FOLLOWING
+  ))).toBe(true);
+  const top = await entry.evaluate(element => (element as HTMLElement).offsetTop);
+  await emit(request, [{
+    type: "TEXT_BLOCK_DELTA", block_id: "answer",
+    delta: "- 输入：本周工作记录\n- 输出：Markdown 周报\n- 结构：本周完成与下周计划\n\n继续整理创建要求。",
+  }]);
+  await expect(reply).toContainText("继续整理创建要求");
+  expect(await entry.evaluate(element => (element as HTMLElement).offsetTop)).toBe(top);
+  await entry.click();
+  await expect(page.getByRole("region", { name: "Skills 助手", exact: true })).toBeVisible();
+  await emit(request, [
+    { type: "TEXT_BLOCK_END", block_id: "answer" },
+    { type: "REPLY_END", finished_reason: "completed" },
+  ]);
+  await expect(page.getByRole("button", { name: "停止生成", exact: true })).toHaveCount(0);
+  expect(await entry.evaluate(element => (element as HTMLElement).offsetTop)).toBe(top);
+  await page.screenshot({ path: testInfo.outputPath("expert-work-above-answer.png") });
+});
 test.beforeEach(async ({ page, request }) => {
   await request.post(base + "/__test/reset");
   await page.addInitScript(() =>

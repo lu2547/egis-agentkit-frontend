@@ -1,5 +1,65 @@
 import { test, expect } from "@playwright/test";
 import type { Task } from "../../src/types/api";
+
+test("completed scheduled conversations appear in their project with persistent unread dots and notify again on the next run", async ({
+  page, request,
+}, testInfo) => {
+  await request.post("http://127.0.0.1:38194/__test/reset");
+  await page.addInitScript(() => {
+    sessionStorage.setItem("egis_access_token", "test-only");
+    localStorage.setItem("pension-gpt-theme", "dark");
+  });
+  for (const path of ["schedules", "schedule-runs"]) {
+    await page.route(`**/api/manager/${path}`, route => route.fulfill({ json: { items: [] } }));
+  }
+  let latestRun = "scheduled-run-1";
+  let detailRun = latestRun;
+  let title = "每日项目总结会提醒";
+  const decorate = (task: Task, runId: string) => task.session_id === "s1" ? {
+    ...task, name: title, source: "schedule",
+    latest_schedule_run_id: runId, is_running: false,
+  } : task;
+  await page.route("**/api/manager/tasks", async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({ json: { ...data, items: data.items.map((task: Task) => decorate(task, latestRun)) } });
+  });
+  await page.route("**/api/manager/tasks/s1", async route => {
+    const response = await route.fetch();
+    await route.fulfill({ json: decorate(await response.json(), detailRun) });
+  });
+  await page.goto("/schedules");
+  const row = page.locator('.project-sessions a[href="/tasks/s1"]');
+  const dot = row.getByLabel("已完成，待读", { exact: true });
+  await expect(row).toContainText("每日项目总结会提醒");
+  await expect(dot).toBeVisible();
+  await expect(row.getByLabel("正在运行", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(dot).toBeVisible();
+  await row.click();
+  await expect(page).toHaveURL(/\/tasks\/s1$/);
+  await expect(dot).toHaveCount(0);
+  await page.reload();
+  await expect(dot).toHaveCount(0);
+  await page.getByRole("link", { name: "定时任务", exact: true }).click();
+  await expect(dot).toHaveCount(0);
+  // Open a newer result before the sidebar has polled that completion.
+  detailRun = "scheduled-run-2";
+  const history = page.waitForResponse(response => response.url().includes("/sessions/s1/messages?") && response.ok());
+  await row.click();
+  await history;
+  await page.getByRole("link", { name: "定时任务", exact: true }).click();
+  latestRun = detailRun;
+  title = "每日项目总结会提醒（新结果已读）";
+  await expect(row).toContainText("新结果已读", { timeout: 10_000 });
+  await expect(dot).toHaveCount(0);
+  latestRun = detailRun = "scheduled-run-3";
+  await expect(dot).toBeVisible({ timeout: 10_000 });
+  await page.screenshot({ path: testInfo.outputPath("scheduled-conversation-unread.png") });
+  await row.click();
+  await expect(dot).toHaveCount(0);
+});
+
 test("running tasks show a spinner, latest activity shimmers and background completion becomes unread", async ({
   page,
   request,
