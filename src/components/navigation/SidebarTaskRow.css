@@ -91,11 +91,6 @@
     transform: rotate(360deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .task-running {
-    animation: none;
-  }
-}
 .conversation-actions {
   display: grid;
   min-width: 160px;

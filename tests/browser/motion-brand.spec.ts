@@ -81,29 +81,52 @@ test("workspace and sidebar use layout transitions, rapid toggles release hidden
   await expect(panel).not.toHaveAttribute("inert", "");
 });
 
-test("reduced motion removes animation while menus remain accessible on a narrow screen", async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await page.getByTestId("permission-mode-trigger").click();
-  const popup = page.locator(".permission-mode-popover");
-  await expect(popup).toBeVisible();
-  expect(
-    await popup.evaluate((el) => getComputedStyle(el).transitionDuration),
-  ).toBe("0s");
-  const bounds = (await popup.boundingBox())!;
-  expect(bounds.x).toBeGreaterThanOrEqual(0);
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
-  await page.keyboard.press("Escape");
-  await expect(popup).not.toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
-});
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`app animations stay active with ${reducedMotion} on a narrow screen`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await page.getByTestId("permission-mode-trigger").click();
+    const popup = page.locator(".permission-mode-popover");
+    await expect(popup).toBeVisible();
+    const motion = await page.evaluate(() => {
+      const label = document.createElement("span");
+      label.className = "running-shimmer";
+      label.textContent = "正在处理";
+      const route = document.createElement("div");
+      route.className = "page-enter-active";
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:-9999px";
+      probe.setAttribute("aria-hidden", "true");
+      probe.append(label, route);
+      document.body.append(probe);
+      const result = {
+        animation: getComputedStyle(label).animationName,
+        duration: getComputedStyle(label).animationDuration,
+        transition: getComputedStyle(route).transitionDuration,
+      };
+      probe.remove();
+      return result;
+    });
+    expect(motion.animation).toBe("activity-shimmer");
+    expect(motion.duration).toBe("2.1s");
+    expect(
+      motion.transition.split(",").every((value) => parseFloat(value) > 0),
+    ).toBe(true);
+    const bounds = (await popup.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+    await page.keyboard.press("Escape");
+    await expect(popup).not.toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+  });
+}
 
 for (const theme of ["light", "dark"] as const) {
   test(`login centers the themed brand above the form without extra copy in ${theme}`, async ({

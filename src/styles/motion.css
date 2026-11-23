@@ -42,13 +42,6 @@
     background-position: -20% 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .running-shimmer {
-    animation: none;
-    background: none;
-    -webkit-text-fill-color: currentColor;
-  }
-}
 .page-enter-active {
   transition:
     opacity var(--motion-normal) var(--ease-out),
@@ -224,20 +217,5 @@ button:not(.resize-handle):not(.panel-mask):not(:disabled):active {
   .sm-card:hover,
   .artifact-card:hover {
     transform: translateY(-2px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
-  .page-enter-from,
-  .nav-drawer-enter-from,
-  .dialog-enter-from .dialog-panel,
-  .workspace-enter-from .workspace-content {
-    transform: none;
   }
 }

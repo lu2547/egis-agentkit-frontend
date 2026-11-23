@@ -182,16 +182,6 @@
   pointer-events: none;
   transition-duration: var(--motion-fast, 120ms);
 }
-@media (prefers-reduced-motion: reduce) {
-  .permission-mode-popup-enter-active,
-  .permission-mode-popup-leave-active {
-    transition: none;
-  }
-  .permission-mode-popup-enter-from,
-  .permission-mode-popup-leave-to {
-    transform: none;
-  }
-}
 @media (max-width: 540px) {
   .permission-mode-trigger {
     max-width: 143px;

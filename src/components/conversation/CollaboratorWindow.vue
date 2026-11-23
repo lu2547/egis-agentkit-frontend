@@ -189,11 +189,6 @@ header strong {
     transform: rotate(360deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .worker-spinner {
-    animation: none;
-  }
-}
 header button {
   display: grid;
   place-items: center;

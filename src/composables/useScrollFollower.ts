@@ -26,10 +26,7 @@ export function useScrollFollower(
   function follow(animate = true) {
     const el = viewport.value;
     if (!el || !sticky.value) return;
-    if (
-      !animate ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
+    if (!animate) {
       stop();
       el.scrollTop = el.scrollHeight;
       return;

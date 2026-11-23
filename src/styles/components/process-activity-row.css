@@ -156,8 +156,3 @@
 .spinning {
   animation: activity-spin 1s linear infinite;
 }
-@media (prefers-reduced-motion: reduce) {
-  .spinning {
-    animation: none;
-  }
-}

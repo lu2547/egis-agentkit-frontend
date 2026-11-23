@@ -268,11 +268,4 @@ button.plain:hover {
     display: inline-flex;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
-    scroll-behavior: auto !important;
-  }
-}
 

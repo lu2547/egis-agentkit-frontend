@@ -130,12 +130,6 @@
     transform: translateX(110%);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .stop-button::after {
-    animation: none !important;
-    display: none;
-  }
-}
 .selected {
   display: inline-flex;
   align-items: center;

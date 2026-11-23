@@ -118,9 +118,3 @@
     padding: 16px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .document-tabs button,
-  .document-editor {
-    transition: none;
-  }
-}

@@ -266,11 +266,5 @@
   border-radius: 4px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sm-card,
-  .sm-add-btn {
-    transition: none;
-  }
-}
 
 .sm-card-stats{color:var(--muted);font-size:12px}.sm-card-stats .edit{margin-left:auto;border:0;background:transparent;color:var(--text);cursor:pointer}.error{color:var(--danger);font-size:12px}

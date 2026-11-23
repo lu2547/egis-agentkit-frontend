@@ -20,14 +20,11 @@ let resize: () => void;
 let disconnected: boolean;
 let frames: Map<number, FrameRequestCallback>;
 let frameId: number;
-let reduced: boolean;
 const scopes: ReturnType<typeof effectScope>[] = [];
 beforeEach(() => {
   frames = new Map();
   frameId = 0;
-  reduced = false;
   disconnected = false;
-  vi.stubGlobal("window", { matchMedia: () => ({ matches: reduced }) });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     frames.set(++frameId, callback);
     return frameId;
@@ -102,14 +99,18 @@ describe("stream scroll following", () => {
     for (let time = 16; time < 1000; time += 16) tick(time);
     expect(el.scrollTop).toBe(1800);
   });
-  it("honors reduced motion and releases observers and pending animation on disposal", async () => {
+  it("supports immediate jumps and disposes observers and animation cleanly", async () => {
     const { el, follow, scope } = await mount();
-    reduced = true;
     el.scrollHeight = 1800;
     follow();
+    expect(el.scrollTop).toBe(600);
+    expect(frames.size).toBe(1);
+    tick();
+    expect(el.scrollTop).toBeGreaterThan(600);
+    expect(el.scrollTop).toBeLessThan(1400);
+    follow(false);
     expect(el.scrollTop).toBe(1400);
     expect(frames.size).toBe(0);
-    reduced = false;
     el.scrollHeight = 2200;
     follow();
     expect(frames.size).toBe(1);
