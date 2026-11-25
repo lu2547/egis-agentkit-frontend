@@ -2,6 +2,8 @@
 import { computed } from "vue";
 import { Lightbulb, ListFilter, MessageCircleMore, X } from "lucide-vue-next";
 import type { Definition } from "../../types/api";
+import { useIdentity } from "../../composables/useIdentity";
+import OwnerShareManagement from "../catalog/OwnerShareManagement.vue";
 import { definitionName, sourceName } from "../../types/api";
 import DialogShell from "../common/DialogShell.vue";
 import IconButton from "../common/IconButton.vue";
@@ -18,8 +20,12 @@ const emit = defineEmits<{
   summon: [prompt?: string];
   edit: [];
   share: [update: boolean];
+  delete: [];
+  changed: [];
 }>();
 
+const { user } = useIdentity();
+const canDelete = computed(() => props.definition?.is_deletable && props.definition.owner_type === "user" && props.definition.owner_id === user.value?.user_id);
 const members = computed(() =>
   (props.definition?.payload.members || []).map((ref) => {
     const member = props.definitions.find(
@@ -134,7 +140,7 @@ const members = computed(() =>
         <h3><ListFilter :size="17" aria-hidden="true" />更多</h3>
         <div class="detail-more">
           <span class="detail-id">ID {{ definition.id }}</span>
-          <div v-if="definition.is_editable || definition.can_share || definition.can_share_update" class="detail-actions">
+          <div v-if="definition.is_editable || definition.can_share || definition.can_share_update || canDelete" class="detail-actions">
             <t-button
               v-if="definition.is_editable"
               variant="text"
@@ -149,10 +155,19 @@ const members = computed(() =>
               @click="$emit('share', false)"
               >申请共享</t-button
             >
-            <t-button v-if="definition.can_share_update" variant="text" @click="$emit('share', true)">共享新版本</t-button>
+            <t-button v-if="definition.can_share_update" variant="text" :disabled="pending" @click="$emit('share', true)">共享新版本</t-button>
+            <t-popconfirm v-if="canDelete" content="删除此专家？" @confirm="$emit('delete')">
+              <t-button variant="text" theme="danger" :disabled="pending">删除专家</t-button>
+            </t-popconfirm>
           </div>
         </div>
       </section>
+      <OwnerShareManagement
+        :key="`${definition.id}:${definition.owner_id}`"
+        :resource-type="definition.definition_type" :resource-id="definition.id"
+        :owner-type="definition.owner_type" :owner-id="definition.owner_id"
+        @changed="$emit('changed')"
+      />
     </article>
   </DialogShell>
 </template>

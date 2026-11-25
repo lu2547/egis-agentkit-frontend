@@ -43,8 +43,19 @@ export function useConversation() {
     const progress = new Map(collaboratorProgress.value);
     for (const entry of entries) {
       const id = entry.worker_session_id;
-      if (!removedCollaborators.has(id) &&
-          (progress.get(id)?.revision ?? 0) < entry.revision) {
+      const previous = progress.get(id);
+      const terminal =
+        previous &&
+        ["completed", "failed", "interrupted"].includes(previous.status);
+      const reopensFinishedReply =
+        terminal &&
+        previous.reply_id === entry.reply_id &&
+        !["completed", "failed", "interrupted"].includes(entry.status);
+      if (
+        !removedCollaborators.has(id) &&
+        !reopensFinishedReply &&
+        (previous?.revision ?? 0) < entry.revision
+      ) {
         progress.set(id, entry);
       }
     }
@@ -282,6 +293,11 @@ export function useConversation() {
       Object.create(Object.getPrototypeOf(state.value)),
       state.value,
     );
+  }
+  function syncQueuedMessages(sid: string, messages: Msg[]) {
+    if (task.value?.session_id !== sid || loading.value) return;
+    state.value.syncQueuedMessages(messages);
+    publish();
   }
   function clear() {
     replyFeedback.value = {};
@@ -545,6 +561,7 @@ export function useConversation() {
   onScopeDispose(clear);
   return {
     collaboratorProgress,
+    syncQueuedMessages,
     forgetCollaborator,
     replyFeedback,
     task,

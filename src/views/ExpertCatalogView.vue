@@ -104,6 +104,19 @@ async function openDetail(d: Definition) {
     if (!signal.aborted) detailPending.value = false;
   }
 }
+async function deleteExpert() {
+  const selected = detail.value;
+  if (!selected?.is_deletable || detailPending.value) return;
+  detailPending.value = true;
+  detailError.value = "";
+  try {
+    await manager.deleteDefinition(selected.definition_type === "team" ? "teams" : "agents", selected.id);
+    closeDetail();
+    notice.value = "专家已删除。";
+    await refresh();
+  } catch (cause) { detailError.value = errorText(cause); }
+  finally { detailPending.value = false; }
+}
 function edit(d: Definition) {
   router.push({
     path: `/experts/${encodeURIComponent(d.id)}/edit`,
@@ -165,13 +178,15 @@ function edit(d: Definition) {
       @close="closeDetail"
       @summon="detail && summon(detail, $event)"
       @edit="detail && edit(detail)"
+      @delete="deleteExpert"
+      @changed="refresh"
       @share="shareUpdate = $event; shareSource = detail; closeDetail()"
     />
     <ShareRequestDialog
       :visible="!!shareSource"
       :resource-type="shareSource?.definition_type"
       :resource-id="shareSource?.id || ''"
-      :version="shareSource?.version_label || shareSource?.resource_version || ''"
+      :version="(!shareUpdate && (shareSource?.share_version_label || shareSource?.share_version)) || shareSource?.version_label || shareSource?.resource_version || ''"
       :update="shareUpdate"
       @close="shareSource && openDetail(shareSource); shareSource = null"
       @submitted="shareSource = null; notice = '共享申请已提交。'; refresh()"

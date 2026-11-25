@@ -39,12 +39,12 @@ test("owners can submit private skills together and retry a failed item", async 
   );
   let optionsRequests = 0;
   await page.route(/\/manager\/skills(?:\?|$)/, (route) => {
-    const catalog = new URL(route.request().url()).searchParams.get("catalog") === "true";
-    if (!catalog) optionsRequests++;
+    const selecting = new URL(route.request().url()).searchParams.get("mine") === "true";
+    if (selecting) optionsRequests++;
     return route.fulfill({
-      json: catalog
-        ? { items: [report], next_cursor: "10", categories: [], has_shareable: true }
-        : { items: [report, research] },
+      json: selecting
+        ? { items: [report, research], next_cursor: null }
+        : { items: [report], next_cursor: null, categories: [], has_shareable: true },
     });
   });
   let attempts = 0;
@@ -178,12 +178,13 @@ test("administrators can grant selected system skills to a common recipient", as
   const system = {
     resource_type: "skill",
     resource_view_type: "system",
-    resource_owner_type: "system",
-    resource_owner_id: "engineering",
+    owner_type: "system",
+    owner_id: "engineering",
   };
-  await page.route("**/manager/admin/grant-resources", (route) =>
+  await page.route(/\/manager\/skills(?:\?|$)/, (route) =>
     route.fulfill({
       json: {
+        next_cursor: null,
         items: [
           { ...system, resource_id: "report", display_name: "报告技能" },
           { ...system, resource_id: "research", display_name: "研究技能" },
@@ -192,8 +193,8 @@ test("administrators can grant selected system skills to a common recipient", as
             resource_id: "private",
             display_name: "个人技能",
             resource_view_type: "shared",
-            resource_owner_type: "user",
-            resource_owner_id: "demo",
+            owner_type: "user",
+            owner_id: "demo",
           },
         ],
       },

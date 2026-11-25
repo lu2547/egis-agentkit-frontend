@@ -24,6 +24,7 @@ function setup(
   sid = ref(crypto.randomUUID()),
   agentId = ref("agent"),
   presented = ref(new Set<string>()),
+  replyId = ref("reply"),
 ) {
   const scope = effectScope();
   scopes.push(scope);
@@ -31,8 +32,9 @@ function setup(
   return {
     sid,
     error,
+    replyId,
     queue: scope.run(() =>
-      useSteeringQueue(sid, ref(20), agentId, ref("reply"), error, presented),
+      useSteeringQueue(sid, ref(20), agentId, replyId, error, presented),
     )!,
   };
 }
@@ -174,7 +176,8 @@ it("retains reserved inputs until the native context injection is acknowledged",
   await queue.add("预算优先");
   const id = queue.items.value[0]!.id;
   expect(await queue.send([id])).toBe(true);
-  expect(queue.items.value[0]!.status).toBe("sending");
+  expect(queue.items.value).toEqual([]);
+  expect(queue.messages.value[0]?.metadata.agentkit_delivery).toMatchObject({ state: "steering" });
   expect(api.steerQueued.mock.calls[0]!.slice(0, 4)).toEqual([
     sid.value,
     "agent",
@@ -309,4 +312,136 @@ it("editing a batch changes its first message without duplicating its tail", asy
     { text: "修改第一条" },
     { text: "第二条" },
   ]);
+});
+
+it("keeps an accepted draft only in the queue until steering is explicitly requested", async () => {
+  const { queue } = setup();
+  await queue.refresh();
+  api.queue.mockImplementationOnce(() => new Promise(() => {}));
+  const accepted = await queue.add("橙蓝配色");
+  expect(accepted).toBeTruthy();
+  expect(queue.messages.value).toEqual([]);
+  expect(queue.items.value).toHaveLength(1);
+  await queue.send([queue.items.value[0]!.id]);
+  expect(queue.items.value).toEqual([]);
+  expect(queue.messages.value).toHaveLength(1);
+  expect(queue.messages.value[0]?.content[0]).toMatchObject({
+    text: "橙蓝配色",
+  });
+  expect(queue.messages.value[0]?.metadata.agentkit_delivery).toMatchObject({
+    state: "steering",
+  });
+});
+
+it("keeps the steering bubble until HintBlock and never restores an acknowledged item from late readback", async () => {
+  const { sid, queue } = setup();
+  await queue.add("蓝色优先");
+  const id = queue.items.value[0]!.id;
+  await queue.send([id]);
+  observeChatQueue(sid.value, {
+    type: "CUSTOM",
+    name: "chat_queue_changed",
+    value: { items: [] },
+  } as unknown as AgentEvent);
+  expect(queue.messages.value[0]?.metadata.agentkit_delivery).toMatchObject({
+    state: "steering",
+  });
+  observeChatQueue(sid.value, {
+    type: "HINT_BLOCK",
+    source: "chat_input_steering",
+    block_id: `${id}:0`,
+  } as unknown as AgentEvent);
+  expect(queue.messages.value).toEqual([]);
+  await queue.refresh();
+  expect(queue.items.value).toEqual([]);
+});
+
+it("keeps accepted input in the draft queue when unrelated queue changes arrive during the POST", async () => {
+  const { sid, queue } = setup();
+  await queue.refresh();
+  api.trigger.mockImplementationOnce(async (_sid, _aid, input) => {
+    observeChatQueue(sid.value, {
+      type: "CUSTOM",
+      name: "chat_queue_changed",
+      value: { items: [] },
+    } as unknown as AgentEvent);
+    return {
+      status: "queued",
+      session_id: sid.value,
+      queue_item_id: "late-accepted",
+    };
+  });
+  api.queue.mockImplementationOnce(() => new Promise(() => {}));
+  await queue.add("橙蓝配色");
+  expect(queue.messages.value).toEqual([]);
+  expect(queue.items.value[0]?.id).toBe("late-accepted");
+});
+
+it("clears the next-round notice when execution starts instead of keeping it as a global error", async () => {
+  const { queue, error, replyId } = setup(undefined, undefined, undefined, ref(""));
+  await queue.add("不过是嫌长");
+  await queue.send([queue.items.value[0]!.id]);
+  expect(error).not.toHaveBeenCalled();
+  expect(queue.notice.value).toContain("下一轮执行");
+  replyId.value = "next-reply";
+  await nextTick();
+  expect(queue.notice.value).toBe("");
+  replyId.value = "";
+  await nextTick();
+  expect(queue.notice.value).toBe("");
+});
+
+it("clears the next-round notice when the server queue becomes empty", async () => {
+  const { queue, sid, error } = setup(undefined, undefined, undefined, ref(""));
+  await queue.add("就是有点啰嗦");
+  await queue.send([queue.items.value[0]!.id]);
+  expect(error).not.toHaveBeenCalled();
+  expect(queue.notice.value).toContain("下一轮执行");
+  remote[sid.value] = [];
+  await queue.refresh();
+  expect(queue.notice.value).toBe("");
+});
+
+it("retains the target reply for an in-flight steering message when the reply ends", async () => {
+  const { queue, replyId } = setup();
+  await queue.add("不过是嫌长");
+  await queue.send([queue.items.value[0]!.id]);
+  replyId.value = "";
+  await nextTick();
+  expect(queue.messages.value[0]?.metadata.agentkit_delivery).toMatchObject({ reply_id: "reply" });
+});
+
+it("keeps the remaining messages of a batch visible until each native hint arrives", async () => {
+  const { UserMsg } = await import("@agentscope-ai/agentscope/message");
+  const { sid, queue } = setup();
+  await queue.refresh();
+  remote[sid.value] = [
+    {
+      id: "batch",
+      created_at: new Date().toISOString(),
+      state: "steering",
+      input: [
+        UserMsg({ id: "first", content: "第一项" }),
+        UserMsg({ id: "second", content: "第二项" }),
+      ],
+    },
+  ];
+  await queue.refresh();
+  observeChatQueue(sid.value, {
+    type: "CUSTOM",
+    name: "chat_queue_changed",
+    value: { items: [] },
+  } as unknown as AgentEvent);
+  observeChatQueue(sid.value, {
+    type: "HINT_BLOCK",
+    source: "chat_input_steering",
+    block_id: "batch:0",
+  } as unknown as AgentEvent);
+  expect(queue.messages.value.map((message) => message.id)).toEqual(["second"]);
+  observeChatQueue(sid.value, {
+    type: "HINT_BLOCK",
+    source: "chat_input_steering",
+    block_id: "batch:1",
+  } as unknown as AgentEvent);
+  expect(queue.messages.value).toEqual([]);
 });

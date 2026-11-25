@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
+import { useIdentity } from "../composables/useIdentity";
 import { useSkillImports } from "../composables/useSkillImports";
 import { manager } from "../api/manager";
 import { useCatalogScroll } from "../composables/useCatalogScroll";
-import { useAsyncData } from "../composables/useAsyncData";
 import CatalogHeader from "../components/catalog/CatalogHeader.vue";
 import CatalogLoadMore from "../components/catalog/CatalogLoadMore.vue";
 import AsyncState from "../components/common/AsyncState.vue";
@@ -28,23 +28,13 @@ const {
   (resource) => `${resource.resource_id}-${resource.resource_version}`,
   { search, category, mine },
 );
-const imports = useSkillImports(refresh);
-const {
-  data: shareableSkills,
-  loading: batchShareLoading,
-  error: batchShareError,
-  load: loadBatchShareOptions,
-} = useAsyncData(async () => {
-  const { items } = await manager.resources("skills");
-  return items.filter((resource) => resource.can_share);
-});
+const { user } = useIdentity();
+const imports = useSkillImports(refresh, computed(() => user.value?.user_id));
 function openBatchShare() {
   batchShareOpen.value = true;
-  void loadBatchShareOptions();
 }
 function onBatchShareChanged() {
   void refresh();
-  void loadBatchShareOptions();
 }
 function edit(r: Resource) {
   detail.value = null;
@@ -70,11 +60,13 @@ function edit(r: Resource) {
     >
       <SkillImportList
         :jobs="imports.jobs.value"
+        :success="imports.success.value"
         :error="imports.error.value"
         :loading="imports.loading.value"
         :retrying="imports.retrying.value"
         @refresh="imports.refresh"
         @retry="imports.retry"
+        @dismiss="imports.dismiss"
       />
       <div class="sm-segment-bar">
         <span class="sm-segment-item sm-segment-item--active">推荐</span>
@@ -120,15 +112,12 @@ function edit(r: Resource) {
       :resources="resources"
       @close="detail = null"
       @edit="edit"
+      @changed="refresh"
     />
     <BatchSkillShareDialog
       :visible="batchShareOpen"
       title="批量申请共享"
       submit-label="提交共享申请"
-      :resources="shareableSkills || []"
-      :resources-loading="batchShareLoading"
-      :resources-error="batchShareError"
-      @retry-resources="loadBatchShareOptions"
       :submit-batch="manager.shareSkills"
       @close="batchShareOpen = false"
       @changed="onBatchShareChanged"

@@ -2,6 +2,7 @@
 import { computed, reactive, watch, onScopeDispose, type Ref } from "vue";
 import type { Msg } from "@agentscope-ai/agentscope/message";
 import type { AgentEvent } from "@agentscope-ai/agentscope/event";
+import { STEERING_SOURCE, withSteeringState } from "../domain/steering";
 import { runtime, type ChatQueueItem, type ChatQueue } from "../api/runtime";
 import { errorText } from "../api/http";
 import {
@@ -30,6 +31,12 @@ const errors = reactive(new Map<string, string>());
 const pending = reactive(new Set<string>());
 const notices = reactive(new Map<string, string>());
 const revisions = new Map<string, number>();
+const awaitingHints = reactive(new Map<string, ChatQueueItem[]>());
+const acknowledged = new Map<string, Set<string>>();
+const observedItems = new Map<string, Set<string>>();
+const receivedHints = new Map<string, Set<string>>();
+const steeringReplyIds = reactive(new Map<string, string>());
+const waitingForNextReply = reactive(new Set<string>());
 let identityGeneration = 0;
 export function clearSteeringQueues() {
   ++identityGeneration;
@@ -38,9 +45,44 @@ export function clearSteeringQueues() {
   pending.clear();
   notices.clear();
   revisions.clear();
+  awaitingHints.clear();
+  acknowledged.clear();
+  observedItems.clear();
+  receivedHints.clear();
+  steeringReplyIds.clear();
+  waitingForNextReply.clear();
 }
 function snapshot(sid: string, items: ChatQueueItem[]) {
   const previous = queues.get(sid) || [];
+  const observed = observedItems.get(sid) || new Set<string>();
+  items.forEach((item) => observed.add(item.id));
+  observedItems.set(sid, observed);
+  const completed = acknowledged.get(sid) || new Set<string>();
+  for (const item of [...items, ...previous, ...(awaitingHints.get(sid) || [])])
+    if (
+      messages(item).every((_message, index) =>
+        receivedHints.get(sid)?.has(`${item.id}:${index}`),
+      )
+    )
+      completed.add(item.id);
+  acknowledged.set(sid, completed);
+  items = items.filter((item) => !completed.has(item.id));
+  if (!items.length) waitingForNextReply.delete(sid);
+  const currentIds = new Set(items.map((item) => item.id));
+  awaitingHints.set(
+    sid,
+    [
+      ...(awaitingHints.get(sid) || []),
+      ...previous.filter(
+        (item) => item.state === "steering" && !currentIds.has(item.id),
+      ),
+    ].filter(
+      (item, index, all) =>
+        !acknowledged.get(sid)?.has(item.id) &&
+        !currentIds.has(item.id) &&
+        all.findIndex((other) => other.id === item.id) === index,
+    ),
+  );
   for (const item of items) {
     if (
       item.state === "queued" &&
@@ -53,6 +95,21 @@ function snapshot(sid: string, items: ChatQueueItem[]) {
   queues.set(sid, items);
 }
 export function observeChatQueue(sid: string, event: AgentEvent) {
+  if (event.type === "HINT_BLOCK" && event.source === STEERING_SOURCE) {
+    const hints = receivedHints.get(sid) || new Set<string>();
+    hints.add(event.block_id);
+    receivedHints.set(sid, hints);
+    snapshot(sid, queues.get(sid) || []);
+  } else if (
+    event.type === "CUSTOM" &&
+    event.name === "chat_input_started" &&
+    typeof event.value.queue_item_id === "string"
+  ) {
+    const seen = acknowledged.get(sid) || new Set<string>();
+    seen.add(event.value.queue_item_id);
+    acknowledged.set(sid, seen);
+    snapshot(sid, queues.get(sid) || []);
+  }
   if (event.type === "CUSTOM" && event.name === "chat_queue_changed") {
     const items = (event.value as unknown as ChatQueue).items;
     if (Array.isArray(items)) snapshot(sid, items);
@@ -103,6 +160,50 @@ export function useSteeringQueue(
     messages(item).every((message) =>
       presentedMessageIds?.value.has(message.id),
     );
+  watch(
+    [sessionId, replyId, () => queues.get(sessionId.value)],
+    ([sid, reply, items]) => {
+      if (!reply) return;
+      waitingForNextReply.delete(sid);
+      for (const item of items || []) {
+        const key = `${sid}\0${item.id}`;
+        if (item.state === "steering" && !steeringReplyIds.has(key))
+          steeringReplyIds.set(key, reply);
+      }
+    },
+    { immediate: true, flush: "sync" },
+  );
+  const notice = computed(() =>
+    waitingForNextReply.has(sessionId.value) && !replyId.value &&
+    (queues.get(sessionId.value) || []).some(item => item.state === "queued")
+      ? "当前回复已结束，队列消息将在下一轮执行" : "",
+  );
+  const projectedMessages = computed(() =>
+    [
+      ...(queues.get(sessionId.value) || []),
+      ...(awaitingHints.get(sessionId.value) || []),
+    ].filter((item) => item.state === "steering").flatMap((item) =>
+      messages(item).flatMap((message, index) => {
+        if (receivedHints.get(sessionId.value)?.has(`${item.id}:${index}`))
+          return [];
+        const state = errors.has(item.id) ? "failed" : item.state;
+        const projected = withSteeringState(message, state);
+        return {
+          ...projected,
+          metadata: {
+            ...projected.metadata,
+            agentkit_delivery: {
+              kind: "steer",
+              state,
+              queue_item_id: item.id,
+              hint_id: `${item.id}:${index}`,
+              reply_id: steeringReplyIds.get(`${sessionId.value}\0${item.id}`) || null,
+            },
+          },
+        };
+      }),
+    ),
+  );
   const waitingForExecution = computed(() =>
     (queues.get(sessionId.value) || []).some(
       (item) => item.state === "queued" && presented(item),
@@ -110,7 +211,7 @@ export function useSteeringQueue(
   );
   const items = computed(() =>
     (queues.get(sessionId.value) || [])
-      .filter((item) => item.state !== "queued" || !presented(item))
+      .filter((item) => item.state !== "steering" && (item.state !== "queued" || !presented(item)))
       .map(draft),
   );
   const sending = computed(() =>
@@ -191,16 +292,24 @@ export function useSteeringQueue(
       aid = agentId.value,
       generation = identityGeneration;
     if (!sid || !aid) return false;
-    const result = await runtime.trigger(
-      sid,
-      aid,
-      createAnnotatedMessage(text, references, annotations),
-      controller.signal,
-    );
+    const input = createAnnotatedMessage(text, references, annotations);
+    const result = await runtime.trigger(sid, aid, input, controller.signal);
     if (generation !== identityGeneration || controller.signal.aborted)
       return false;
-    await refresh(sid, aid);
-    return result.queue_item_id || false;
+    const id = result.queue_item_id;
+    // Queue acceptance shows a draft; only an explicit steer moves it into the timeline.
+    if (
+      id &&
+      !acknowledged.get(sid)?.has(id) &&
+      !observedItems.get(sid)?.has(id) &&
+      !queues.get(sid)?.some((item) => item.id === id)
+    )
+      snapshot(sid, [
+        ...(queues.get(sid) || []),
+        { id, input, state: "queued", created_at: input.created_at },
+      ]);
+    void refresh(sid, aid);
+    return id || false;
   }
   async function edit(id: string, text: string) {
     const item = items.value.find((item) => item.id === id);
@@ -258,7 +367,7 @@ export function useSteeringQueue(
       aid = agentId.value,
       reply = replyId.value;
     if (!reply) {
-      onError("当前回复已结束，队列消息将在下一轮执行");
+      if (items.value.length) waitingForNextReply.add(sid);
       return false;
     }
     let accepted = true;
@@ -266,6 +375,7 @@ export function useSteeringQueue(
       if (sessionId.value !== sid || agentId.value !== aid) break;
       const item = items.value.find((item) => item.id === id);
       if (!item || item.status === "sending") continue;
+      steeringReplyIds.set(`${sid}\0${id}`, reply);
       accepted =
         (await mutate(id, () =>
           runtime.steerQueued(sid, aid, id, reply, controller.signal),
@@ -288,7 +398,9 @@ export function useSteeringQueue(
     clearInterval(timer);
   });
   return {
+    notice,
     items,
+    messages: projectedMessages,
     waitingForExecution,
     sending,
     add,

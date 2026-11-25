@@ -173,22 +173,77 @@ export class ConversationEvents {
     return next;
   }
 
+  syncQueuedMessages(messages: Msg[]) {
+    const ids = new Set(messages.map((message) => message.id));
+    this.messages = this.messages.filter((message) => {
+      const delivery = message.metadata?.agentkit_delivery;
+      return (
+        !delivery ||
+        typeof delivery !== "object" ||
+        Array.isArray(delivery) ||
+        !delivery.queue_item_id ||
+        steeringState(message) === "received" ||
+        ids.has(message.id)
+      );
+    });
+    this.addSteeringMessages(
+      messages.filter((message) => {
+        const previous = this.messages.find((item) => item.id === message.id);
+        return !previous || !!steeringState(previous);
+      }),
+    );
+  }
   addSteeringMessages(messages: Msg[]) {
+    const delivery = (message: Msg) => {
+      const value = message.metadata?.agentkit_delivery;
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+    };
+    const hintId = (message: Msg) => {
+      const delivery = message.metadata?.agentkit_delivery;
+      return delivery &&
+        typeof delivery === "object" &&
+        !Array.isArray(delivery)
+        ? delivery.hint_id ||
+            (delivery.state === "received" ? message.id : undefined)
+        : undefined;
+    };
     for (const message of messages) {
       if (this.discarded.has(message.id)) continue;
-      const previous = this.messages.find((item) => item.id === message.id);
+      const hint = hintId(message);
+      const previous = this.messages.find(
+        (item) => item.id === message.id || (hint && hintId(item) === hint),
+      );
+      if (
+        previous?.id === message.id &&
+        steeringState(previous) === "received" &&
+        steeringState(message) !== "received"
+      )
+        continue;
       const received =
         this.receivedSteering.has(message.id) ||
-        (previous && steeringState(previous) === "received") ||
+        (typeof hint === "string" && this.receivedSteering.has(hint)) ||
+        steeringState(previous || message) === "received" ||
         steeringState(message) === "received";
+      const original = previous && previous.id !== hint ? previous : message;
       const incoming = withSteeringState(
-        message,
-        received ? "received" : "queued",
+        {
+          ...message,
+          id: original.id,
+          metadata: {
+            ...original.metadata,
+            ...message.metadata,
+            agentkit_delivery: {
+              ...delivery(original),
+              ...delivery(message),
+            },
+          },
+        },
+        received ? "received" : steeringState(message) || "queued",
       );
       this.messages = previous
-        ? this.messages.map((item) =>
-            item.id === message.id ? incoming : item,
-          )
+        ? this.messages.map((item) => (item === previous ? incoming : item))
         : [...this.messages, incoming];
     }
   }
@@ -235,12 +290,18 @@ export class ConversationEvents {
           const inputs = Array.isArray(queued) ? queued : [queued];
           if (inputs.every((message) => this.discarded.has(message.id)))
             return false;
-          for (const message of inputs)
-            if (
-              !this.discarded.has(message.id) &&
-              !this.messages.some((saved) => saved.id === message.id)
+          for (const message of inputs) {
+            if (this.discarded.has(message.id)) continue;
+            const saved = this.messages.findIndex(
+              (item) => item.id === message.id,
+            );
+            if (saved < 0) this.messages.push(message);
+            else if (
+              steeringState(this.messages[saved]!) &&
+              steeringState(this.messages[saved]!) !== "received"
             )
-              this.messages.push(message);
+              this.messages[saved] = message;
+          }
         }
         this.phase = "streaming";
       } else if (

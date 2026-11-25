@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ref } from "vue";
 import type { SkillImportJob } from "../src/types/api";
 const lifecycle = vi.hoisted(() => ({
   mounted: [] as (() => unknown)[],
@@ -28,6 +29,8 @@ const job = (status: SkillImportJob["status"]): SkillImportJob => ({
   ...(status === "failed" ? { error: "缺少 SKILL.md" } : {}),
 });
 beforeEach(() => {
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
   vi.useFakeTimers();
   vi.clearAllMocks();
   lifecycle.mounted.length = 0;
@@ -36,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   lifecycle.unmounted.forEach((callback) => callback());
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 describe("asynchronous skill imports", () => {
   it("polls active jobs and refreshes resources only when import completes", async () => {
@@ -95,5 +99,50 @@ describe("asynchronous skill imports", () => {
     expect(imports.error.value).toContain("网络中断");
     expect(imports.jobs.value[0].status).toBe("running");
     expect(vi.getTimerCount()).toBe(1);
+  });
+});
+
+
+describe("terminal import dismissal", () => {
+  it("persists failed or rejected dismissal per user and resurfaces a retried attempt", async () => {
+    const user = ref<string | undefined>("alice");
+    vi.mocked(manager.skillImports).mockResolvedValue({ items: [job("failed")] });
+    const imports = useSkillImports(undefined, user);
+    await imports.refresh();
+    imports.dismiss("import-1");
+    expect(imports.jobs.value).toEqual([]);
+    await imports.refresh();
+    expect(imports.jobs.value).toEqual([]);
+    const reloaded = useSkillImports(undefined, user);
+    await reloaded.refresh();
+    expect(reloaded.jobs.value).toEqual([]);
+    user.value = "bob";
+    await reloaded.refresh();
+    expect(reloaded.jobs.value[0].status).toBe("failed");
+    user.value = "alice";
+    vi.mocked(manager.skillImports).mockResolvedValue({ items: [{ ...job("failed"), attempts: 2 }] });
+    await reloaded.refresh();
+    expect(reloaded.jobs.value[0].attempts).toBe(2);
+  });
+  it("never dismisses an active import and clears dismissal for an explicit retry", async () => {
+    const imports = useSkillImports(undefined, ref("alice"));
+    imports.track(job("running"));
+    imports.dismiss("import-1");
+    expect(imports.jobs.value).toHaveLength(1);
+    imports.track(job("rejected"));
+    imports.dismiss("import-1");
+    expect(imports.jobs.value).toEqual([]);
+    vi.mocked(manager.retrySkillImport).mockResolvedValue(job("queued"));
+    await imports.retry("import-1");
+    expect(imports.jobs.value[0].status).toBe("queued");
+    expect(imports.success.value).toContain("重新提交");
+  });
+  it("announces a completed import instead of silently removing its progress card", async () => {
+    const imports = useSkillImports();
+    imports.track(job("running"));
+    vi.mocked(manager.skillImports).mockResolvedValue({ items: [job("succeeded")] });
+    await imports.refresh();
+    expect(imports.success.value).toContain("skill.zip");
+    expect(imports.success.value).toContain("导入完成");
   });
 });

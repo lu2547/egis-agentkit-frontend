@@ -4,13 +4,14 @@ import type { SkillImportJob } from "../../types/api";
 const props = defineProps<{
   jobs: SkillImportJob[];
   error: string;
+  success?: string;
   loading: boolean;
   retrying: string;
 }>();
 const visibleJobs = computed(() =>
   props.jobs.filter((job) => job.status !== "succeeded"),
 );
-defineEmits<{ refresh: []; retry: [jobId: string] }>();
+defineEmits<{ refresh: []; retry: [jobId: string]; dismiss: [jobId: string] }>();
 const statuses = {
   queued: "等待处理",
   running: "处理中",
@@ -34,7 +35,7 @@ function progress(job: SkillImportJob) {
 </script>
 <template>
   <section
-    v-if="visibleJobs.length || error"
+    v-if="visibleJobs.length || error || success"
     class="skill-imports"
     aria-label="技能导入任务"
   >
@@ -55,6 +56,7 @@ function progress(job: SkillImportJob) {
         >重试获取状态</t-button
       >
     </div>
+    <p v-if="success" class="notice" role="status">{{ success }}</p>
     <ol class="import-list">
       <li v-for="job in visibleJobs" :key="job.job_id" :data-status="job.status">
         <div class="import-identity">
@@ -87,6 +89,9 @@ function progress(job: SkillImportJob) {
             >重试导入</t-button
           >
         </div>
+        <t-button v-if="job.status === 'failed' || job.status === 'rejected'"
+          variant="text" size="small" :aria-label="`关闭 ${job.filename} 导入任务`"
+          @click="$emit('dismiss', job.job_id)">关闭任务</t-button>
       </li>
     </ol>
   </section>

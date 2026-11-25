@@ -1014,3 +1014,40 @@ it("retains a conflicting remote rewrite when the local resend is rejected", asy
   });
   expect(chat.error.value).toBe("another tab started this turn");
 });
+
+it("preserves a real expert terminal status against later progress for the same reply", async () => {
+  await chat.open("s1");
+  const progress = {
+    worker_session_id: "worker",
+    worker_agent_id: "expert",
+    display_name: "专家",
+    reply_id: "worker-reply",
+    status: "completed",
+    revision: 2,
+    activities: [],
+  };
+  receive(
+    event(EventType.CUSTOM, { name: "collaborator_progress", value: progress }),
+  );
+  receive(
+    event(EventType.CUSTOM, {
+      name: "collaborator_progress",
+      value: { ...progress, status: "running", revision: 3 },
+    }),
+  );
+  expect(chat.collaboratorProgress.value.get("worker")?.status).toBe(
+    "completed",
+  );
+  receive(
+    event(EventType.CUSTOM, {
+      name: "collaborator_progress",
+      value: {
+        ...progress,
+        reply_id: "next-reply",
+        status: "running",
+        revision: 4,
+      },
+    }),
+  );
+  expect(chat.collaboratorProgress.value.get("worker")?.status).toBe("running");
+});

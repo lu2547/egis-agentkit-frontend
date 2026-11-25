@@ -190,8 +190,8 @@ test("resource action uses installation API and refreshes its real state", async
     owner_id: "system",
     payload: {},
   };
-  await page.route("**/api/manager/skills", (route) =>
-    route.fulfill({ json: { items: [{ ...item, is_enabled: enabled }] } }),
+  await page.route(/\/api\/manager\/skills(?:\?|$)/, (route) =>
+    route.fulfill({ json: { items: [{ ...item, is_enabled: enabled }], next_cursor: null } }),
   );
   await page.route(
     "**/api/manager/skills/skill-1/installation**",
@@ -263,10 +263,11 @@ test("late resource response cannot replace the active category", async ({
   const waitForSkills = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/manager/skills", async (route) => {
+  await page.route(/\/api\/manager\/skills(?:\?|$)/, async (route) => {
     await waitForSkills;
     await route.fulfill({
       json: {
+        next_cursor: null,
         items: [
           {
             resource_id: "late",
@@ -368,5 +369,54 @@ for (const viewport of [
     await expect(
       page.getByRole("button", { name: "添加资源" }),
     ).toHaveAttribute("aria-expanded", "false");
+  });
+}
+
+for (const method of ["load", "search"] as const) {
+  test(`plus skill menu ${method === "load" ? "loads" : "searches"} the eleventh skill remotely and keeps its updated state`, async ({ page }) => {
+    let installed = false;
+    const requests: URLSearchParams[] = [];
+    const items = Array.from({ length: 11 }, (_, index) => ({
+      resource_id: `paged-${index + 1}`,
+      resource_version: "v1",
+      resource_view_type: "system",
+      display_name: `分页技能 ${index + 1}`,
+      description: `技能说明 ${index + 1}`,
+      owner_type: "system", owner_id: "system",
+      is_usable: true, is_installed: false, is_enabled: false, payload: {},
+    }));
+    await page.route(/\/api\/manager\/skills(?:\?|$)/, (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      requests.push(params);
+      const query = params.get("query");
+      const matches = query ? items.filter((item) => item.display_name.includes(query)) : params.get("cursor") ? items.slice(10) : items.slice(0, 10);
+      return route.fulfill({ json: {
+        items: matches.map((item) => item.resource_id === "paged-11" ? { ...item, is_installed: installed, is_enabled: installed } : item),
+        next_cursor: !query && !params.get("cursor") ? "after-10" : null,
+      } });
+    });
+    await page.route("**/api/manager/skills/paged-11/install", (route) => {
+      expect(route.request().method()).toBe("POST");
+      installed = true;
+      return route.fulfill({ json: {} });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "添加资源" }).click();
+    await page.getByRole("menuitem", { name: "技能", exact: true }).click();
+    const menu = page.getByRole("menu", { name: "技能", exact: true });
+    await expect(menu.getByRole("menuitemcheckbox")).toHaveCount(10);
+    await expect(menu.getByRole("menuitemcheckbox", { name: /分页技能 11/ })).toHaveCount(0);
+    if (method === "load") {
+      await menu.getByRole("button", { name: "加载更多技能", exact: true }).click();
+      await expect.poll(() => requests.some((params) => params.get("cursor") === "after-10")).toBe(true);
+    } else {
+      await menu.getByRole("textbox", { name: "搜索技能", exact: true }).fill("分页技能 11");
+      await expect.poll(() => requests.some((params) => params.get("query") === "分页技能 11")).toBe(true);
+    }
+    const eleventh = menu.getByRole("menuitemcheckbox", { name: /分页技能 11.*安装/ });
+    await expect(eleventh).toBeVisible();
+    await eleventh.click();
+    await expect(menu.getByRole("menuitemcheckbox", { name: /分页技能 11.*已启用/ })).toHaveAttribute("aria-checked", "true");
+    expect(installed).toBe(true);
   });
 }

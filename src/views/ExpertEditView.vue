@@ -30,12 +30,11 @@ const { data, loading, error, load } = useAsyncData(async () => {
   const definitionId = route.params.definitionId;
   const isTeam = team.value;
   const view = route.query.view === "system" ? "system" : "private";
-  const [definition, agents, skills, connectors, tools] = await Promise.all([
+  const [definition, agents, connectors, tools] = await Promise.all([
     typeof definitionId === "string"
       ? manager.definition(isTeam ? "teams" : "agents", definitionId, view)
       : undefined,
     isTeam ? manager.definitions("agents") : undefined,
-    manager.resources("skills"),
     manager.resources("connectors"),
     manager.resources("tools"),
   ]);
@@ -46,7 +45,6 @@ const { data, loading, error, load } = useAsyncData(async () => {
   return {
     definition,
     experts: agents?.items ?? [],
-    skills: skills.items,
     connectors: connectors.items,
     tools: tools.items,
   };
@@ -90,7 +88,6 @@ async function save(body: unknown) {
             :definition="data.definition"
             :team="team"
             :experts="data.experts"
-            :skills="data.skills"
             :connectors="data.connectors"
             :tools="data.tools"
             :models="models"

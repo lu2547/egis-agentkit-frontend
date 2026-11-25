@@ -335,6 +335,7 @@
   flex: 1;
 }
 .file-row {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 9px;

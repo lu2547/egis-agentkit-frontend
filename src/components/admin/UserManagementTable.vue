@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
 import type { User } from "../../types/api";
+import { useIdentity } from "../../composables/useIdentity";
+import { userWriteInput } from "../../domain/userEditing";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { useAdminPage } from "../../composables/useAdminPage";
@@ -10,6 +12,7 @@ import AsyncState from "../common/AsyncState.vue";
 import AdminSectionHeader from "./AdminSectionHeader.vue";
 import AdminStatusBadge from "./AdminStatusBadge.vue";
 import VirtualUserManagement from "./VirtualUserManagement.vue";
+const { user: currentUser, isAdmin } = useIdentity();
 const { data, loading, error, load, changePage } = useAdminPage((page) =>
   manager.adminPage<User>("users", page),
 );
@@ -27,7 +30,7 @@ const form = reactive<User>({
 onMounted(load);
 
 function edit(user: User) {
-  Object.assign(form, structuredClone(user));
+  Object.assign(form, userWriteInput(user));
   editing.value = true;
   saveError.value = "";
   if (groups.value) return;
@@ -40,9 +43,14 @@ async function save() {
   pending.value = true;
   saveError.value = "";
   try {
-    await manager.adminSave("users", form, form.user_id);
+    const input = userWriteInput(form);
+    await manager.adminSave("users", input, input.user_id);
     editing.value = false;
-    await load();
+    if (currentUser.value?.user_id === input.user_id) {
+      currentUser.value = { ...currentUser.value, ...input };
+      if (input.is_enabled) currentUser.value = await manager.me();
+    }
+    if (isAdmin.value) await load();
   } catch (e) {
     saveError.value = errorText(e);
   } finally {

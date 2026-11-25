@@ -51,6 +51,8 @@ export interface Definition {
   can_share?: boolean;
   can_share_update?: boolean;
   has_shared_version?: boolean;
+  share_version?: string | null;
+  share_version_label?: string | null;
   id: string;
   definition_type: "agent" | "team";
   agent_type?: "personal" | "expert" | "remote" | "orchestrator";
@@ -128,6 +130,10 @@ export interface CatalogQuery {
   category?: string;
   mine?: boolean;
   cursor?: string | null;
+  limit?: number;
+  purpose?: "grant";
+  resource_ids?: string[];
+  owner_type?: "system";
 }
 export interface CatalogPage<T> {
   items: T[];
@@ -146,6 +152,8 @@ export interface Resource {
   can_share?: boolean;
   can_share_update?: boolean;
   has_shared_version?: boolean;
+  share_version?: string | null;
+  share_version_label?: string | null;
   resource_view_type: ViewType;
   resource_id: string;
   resource_version?: string;

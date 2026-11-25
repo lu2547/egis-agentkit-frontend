@@ -1,40 +1,39 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { errorText } from "../../api/http";
 import {
   MAX_SKILL_BATCH_SIZE,
   type BatchAccessResponse,
   type BatchAccessResult,
   type ShareTarget,
+  type Resource,
 } from "../../types/api";
 import BatchAccessNotice from "../common/BatchAccessNotice.vue";
+import SkillPicker from "./SkillPicker.vue";
 import RecipientPicker from "../common/RecipientPicker.vue";
 
 const props = defineProps<{
   visible: boolean;
   title: string;
   submitLabel: string;
-  resources: { resource_id: string; display_name: string }[];
-  resourcesLoading?: boolean;
-  resourcesError?: string;
+  purpose?: "share" | "grant";
   submitBatch: (
     resourceIds: string[],
     target: ShareTarget,
   ) => Promise<BatchAccessResponse>;
 }>();
-const emit = defineEmits<{ close: []; changed: []; retryResources: [] }>();
+const emit = defineEmits<{ close: []; changed: []; resources: [resources: Resource[]] }>();
 const selectedResources = ref<string[]>([]);
 const selectedRecipient = ref<ShareTarget | null>(null);
 const pending = ref(false);
 const submitError = ref("");
 const results = ref<BatchAccessResult[]>([]);
 const labels = ref<Record<string, string>>({});
-const options = computed(() =>
-  props.resources.map(({ resource_id, display_name }) => ({
-    value: resource_id,
-    label: display_name,
-  })),
-);
+const availableResources = ref<Resource[]>([]);
+function remember(resources: Resource[]) {
+  availableResources.value = resources;
+  emit("resources", resources);
+}
 
 watch(
   () => props.visible,
@@ -51,8 +50,6 @@ async function submit() {
   const recipient = selectedRecipient.value;
   if (
     pending.value ||
-    props.resourcesLoading ||
-    props.resourcesError ||
     !selectedResources.value.length ||
     !recipient
   ) return;
@@ -60,7 +57,7 @@ async function submit() {
   submitError.value = "";
   results.value = [];
   labels.value = Object.fromEntries(
-    options.value.map(({ value, label }) => [value, label]),
+    availableResources.value.map((resource) => [resource.resource_id, resource.display_name]),
   );
   try {
     const response = await props.submitBatch(
@@ -95,21 +92,14 @@ async function submit() {
     <form class="form-stack" @submit.prevent="submit">
       <div v-field-label class="field">
         <label>技能</label>
-        <t-select
+        <SkillPicker
+          v-if="visible"
           v-model="selectedResources"
-          multiple
-          filterable
-          :max="MAX_SKILL_BATCH_SIZE"
-          :disabled="pending || resourcesLoading || !!resourcesError"
-          :loading="resourcesLoading"
-          :options="options"
-          :popup-props="{ placement: 'top-left' }"
+          :purpose="purpose || 'share'" key-mode="id"
+          :max="MAX_SKILL_BATCH_SIZE" :disabled="pending"
           placeholder="选择技能"
+          @resources="remember"
         />
-      </div>
-      <div v-if="resourcesError" class="error" role="alert">
-        {{ resourcesError }}
-        <t-button variant="text" @click="emit('retryResources')">重新加载</t-button>
       </div>
       <RecipientPicker
         v-if="visible"
@@ -129,7 +119,7 @@ async function submit() {
         <t-button
           theme="primary"
           type="submit"
-          :disabled="resourcesLoading || !!resourcesError || !selectedResources.length || !selectedRecipient"
+          :disabled="!selectedResources.length || !selectedRecipient"
           :loading="pending"
           >{{ submitLabel }}</t-button
         >

@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { ref } from "vue";
+import SkillPicker from "../skills/SkillPicker.vue";
 import type { Resource, ResourceBinding } from "../../types/api";
 const props = defineProps<{
   modelValue: ResourceBinding[];
-  skills: Resource[];
   connectors: Resource[];
   tools: Resource[];
 }>();
+const skills = ref<Resource[]>([]);
 const emit = defineEmits<{ "update:modelValue": [v: ResourceBinding[]] }>();
 function update(type: ResourceBinding["resource_type"], ids: unknown) {
-  const resources = { skill: props.skills, mcp: props.connectors, tool: props.tools }[type];
+  const resources = { skill: skills.value, mcp: props.connectors, tool: props.tools }[type];
   const keys = Array.isArray(ids) ? ids : [];
   if (type === "mcp") {
     const allowed = new Set([
@@ -48,25 +50,11 @@ function update(type: ResourceBinding["resource_type"], ids: unknown) {
   <div class="form-row">
     <div v-field-label class="field">
       <label>绑定技能</label
-      ><t-select
-        :value="
-          modelValue
-            .filter((b) => b.resource_type === 'skill')
-            .map((b) => `${b.resource_id}@${b.resource_version}`)
-        "
-        multiple
-        clearable
-        filterable
-        :options="
-          skills
-            .filter((r) => r.is_usable)
-            .map((r) => ({
-              label: `${r.display_name} · ${r.resource_version}`,
-              value: `${r.resource_id}@${r.resource_version}`,
-            }))
-        "
+      ><SkillPicker
+        :model-value="modelValue.filter((b) => b.resource_type === 'skill').map((b) => `${b.resource_id}@${b.resource_version}`)"
         placeholder="选择可使用的技能"
-        @change="update('skill', $event)"
+        @resources="skills = $event"
+        @update:model-value="update('skill', $event)"
       />
     </div>
     <div v-field-label class="field">

@@ -126,7 +126,10 @@ test("a duplicate upload requires confirmation and the delete dialog has padding
   });
   await page.goto("/tasks/s1");
   const input = page.locator('.composer input[type="file"]');
-  const select = () => input.setInputFiles({ name: file.name, mimeType: "text/plain", buffer: Buffer.from("new") });
+  const select = async () => {
+    await expect(input).toBeEnabled();
+    await input.setInputFiles({ name: file.name, mimeType: "text/plain", buffer: Buffer.from("new") });
+  };
   const overwrite = page.getByRole("dialog", { name: "覆盖同名文件" });
   await select();
   await overwrite.getByRole("button", { name: "取消", exact: true }).click();

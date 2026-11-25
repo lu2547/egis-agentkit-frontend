@@ -19,7 +19,6 @@ const props = defineProps<{
   definition?: Definition;
   team: boolean;
   experts: Definition[];
-  skills: Resource[];
   connectors: Resource[];
   tools?: Resource[];
   models: ModelOption[];
@@ -229,7 +228,6 @@ function submit() {
     /><AgentResourceBindings
       v-if="!isRemote"
       v-model="form.bindings"
-      :skills="skills"
       :connectors="connectors"
       :tools="tools || []"
     />

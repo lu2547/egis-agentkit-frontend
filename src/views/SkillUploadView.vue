@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { manager } from "../api/manager";
 import { errorText } from "../api/http";
 import { useAsyncData } from "../composables/useAsyncData";
+import { useIdentity } from "../composables/useIdentity";
 import { useSkillImports } from "../composables/useSkillImports";
 import SkillMetadataFields from "../components/skills/SkillMetadataFields.vue";
 import SkillImportList from "../components/skills/SkillImportList.vue";
@@ -17,16 +18,11 @@ const file = ref<File | null>(null),
   pending = ref(false),
   error = ref(""),
   fileInput = ref<HTMLInputElement>();
-const { data, load } = useAsyncData(() => manager.resources("skills"));
+const { data, load } = useAsyncData(() => manager.resourceCatalog("skills", { limit: 1 }, new AbortController().signal));
 void load();
-const categories = computed(() => [
-  ...new Set(
-    (data.value?.items || [])
-      .map((r) => String(r.payload.category || ""))
-      .filter(Boolean),
-  ),
-]);
-const imports = useSkillImports();
+const categories = computed(() => data.value?.categories || []);
+const { user } = useIdentity();
+const imports = useSkillImports(undefined, computed(() => user.value?.user_id));
 function choose(event: Event) {
   file.value = (event.target as HTMLInputElement).files?.[0] || null;
 }
@@ -90,11 +86,13 @@ async function upload() {
       </form>
       <SkillImportList
         :jobs="imports.jobs.value"
+        :success="imports.success.value"
         :error="imports.error.value"
         :loading="imports.loading.value"
         :retrying="imports.retrying.value"
         @refresh="imports.refresh"
         @retry="imports.retry"
+        @dismiss="imports.dismiss"
       />
     </div>
   </section>

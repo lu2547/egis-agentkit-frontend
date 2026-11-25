@@ -56,9 +56,22 @@ const { sticky, onScroll, follow, scrollToBottom } = useScrollFollower(
   viewport,
   content,
 );
-const { data: skills, load: loadSkills } = useAsyncData(() =>
-  manager.resources("skills"),
-);
+const calledSkills = computed(() => [...new Set(props.messages.flatMap((message) =>
+  message.content.flatMap((block) => {
+    if (block.type !== "tool_call" || block.name !== "Skill") return [];
+    try {
+      const input = JSON.parse(block.input) as { skill?: unknown };
+      return typeof input.skill === "string" ? [input.skill] : [];
+    } catch { return []; }
+  }),
+))]);
+const { data: skills, load: loadSkills } = useAsyncData(async () => {
+  const names = calledSkills.value;
+  const pages = await Promise.all(Array.from({ length: Math.ceil(names.length / 100) }, (_, index) =>
+    manager.skillNames(names.slice(index * 100, (index + 1) * 100)),
+  ));
+  return { items: pages.flatMap((page) => page.items) };
+});
 const skillNames = computed(() => {
   const names = new Map<string, string>();
   for (const skill of skills.value?.items ?? []) {
@@ -66,18 +79,7 @@ const skillNames = computed(() => {
   }
   return names;
 });
-watch(
-  () =>
-    props.messages.some((message) =>
-      message.content.some(
-        (block) => block.type === "tool_call" && block.name === "Skill",
-      ),
-    ),
-  (hasSkillCall) => {
-    if (hasSkillCall) void loadSkills();
-  },
-  { immediate: true },
-);
+watch(() => calledSkills.value.join("\0"), (names) => { if (names) void loadSkills(); }, { immediate: true });
 const arriving = ref(new Set<string>());
 watch(
   () => props.messages.map((message) => message.id),

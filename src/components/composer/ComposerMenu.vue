@@ -23,6 +23,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-vue-next";
+import { useSkillChoices } from "../../composables/useSkillChoices";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { definitionName } from "../../types/api";
@@ -64,6 +65,7 @@ const open = ref(false);
 const category = ref<Category | null>(null);
 const search = ref("");
 const resources = ref<Resource[]>([]);
+const skills = useSkillChoices(ref([]), "usable", "version");
 const loadingResources = ref(false);
 const resourceError = ref("");
 const changingResource = ref("");
@@ -85,11 +87,19 @@ const filteredDefinitions = computed(() =>
   ),
 );
 const filteredResources = computed(() =>
-  resources.value.filter((resource) =>
-    `${resource.display_name} ${resource.description}`
-      .toLocaleLowerCase()
-      .includes(search.value.toLocaleLowerCase()),
-  ),
+  category.value === "skills"
+    ? skills.items.value
+    : resources.value.filter((resource) =>
+        `${resource.display_name} ${resource.description}`
+          .toLocaleLowerCase()
+          .includes(search.value.toLocaleLowerCase()),
+      ),
+);
+const isLoadingResources = computed(() =>
+  category.value === "skills" ? skills.loading.value : loadingResources.value,
+);
+const displayedResourceError = computed(() =>
+  resourceError.value || (category.value === "skills" ? skills.error.value : ""),
 );
 
 function cancelHover() {
@@ -177,10 +187,7 @@ async function openCategory(value: Category) {
   resources.value = [];
   loadingResources.value = false;
   await positionPanel();
-  if (
-    (value === "skills" || value === "connectors") &&
-    props.canManageResources
-  )
+  if (value === "connectors" && props.canManageResources)
     await loadResources(value);
 }
 function hoverCategory(value: Category) {
@@ -202,12 +209,28 @@ function leaveCategory() {
   const previous = category.value;
   menu.value?.querySelector<HTMLElement>(`[data-menu="${previous}"]`)?.focus();
 }
-async function loadResources(kind: "skills" | "connectors") {
+async function loadResources(
+  kind: "skills" | "connectors",
+  preservePage = false,
+) {
   const request = ++resourceRequest;
+  resourceError.value = "";
+  if (kind === "skills") {
+    const previousCount = preservePage ? skills.items.value.length : 0;
+    await skills.search(search.value);
+    while (
+      request === resourceRequest && category.value === kind &&
+      skills.items.value.length < previousCount &&
+      skills.hasMore.value && !skills.error.value
+    ) {
+      await skills.loadMore();
+    }
+    return;
+  }
   loadingResources.value = true;
   resources.value = [];
   try {
-    const result = await manager.resources(kind);
+    const result = await manager.resources("connectors");
     if (request === resourceRequest && category.value === kind)
       resources.value = result.items;
   } catch (error) {
@@ -249,7 +272,7 @@ async function changeResource(resource: Resource) {
         resource.resource_id,
       );
     if (request === resourceRequest && category.value === kind)
-      await loadResources(kind);
+      await loadResources(kind, true);
   } catch (error) {
     if (request === resourceRequest && category.value === kind)
       resourceError.value = errorText(error);
@@ -291,7 +314,20 @@ function scrollOutside(event: Event) {
   if (anchor && (anchor.bottom < 0 || anchor.top > window.innerHeight)) close();
   else void positionMenu();
 }
-watch([loadingResources, () => resources.value.length, search], () => {
+watch(
+  [open, category, search, () => props.canManageResources],
+  ([visible, kind, , allowed], _, onCleanup) => {
+    if (!visible || kind !== "skills" || !allowed) {
+      skills.dispose();
+      return;
+    }
+    const timer = setTimeout(
+      () => void loadResources("skills"), search.value ? 180 : 0,
+    );
+    onCleanup(() => clearTimeout(timer));
+  },
+);
+watch([isLoadingResources, () => filteredResources.value.length, search], () => {
   void positionPanel();
 });
 watch(
@@ -306,6 +342,7 @@ onMounted(() => {
   document.addEventListener("scroll", scrollOutside, true);
 });
 onBeforeUnmount(() => {
+  skills.dispose();
   cancelHover();
   resourceRequest++;
   document.removeEventListener("pointerdown", clickOutside);
@@ -467,9 +504,9 @@ onBeforeUnmount(() => {
               <p class="menu-hint">当前对话使用其预设的技能和连接器</p>
             </div>
             <div v-else class="picker-list">
-              <p v-if="loadingResources" class="menu-hint">加载中…</p>
+              <p v-if="isLoadingResources" class="menu-hint">加载中…</p>
               <p
-                v-else-if="!filteredResources.length && !resourceError"
+                v-else-if="!filteredResources.length && !displayedResourceError"
                 class="menu-hint"
               >
                 没有匹配的{{ categoryLabel }}
@@ -489,8 +526,18 @@ onBeforeUnmount(() => {
                   }}<small>{{ resource.description }}</small></span
                 ><small class="resource-state">{{ resourceActionLabel(resource) }}</small>
               </button>
-              <p v-if="resourceError" class="menu-hint" role="alert">
-                {{ resourceError }}
+              <button
+                v-if="category === 'skills' && skills.hasMore.value"
+                type="button" class="catalog-item"
+                :disabled="isLoadingResources || !!changingResource"
+                @click="skills.loadMore"
+              >加载更多技能</button>
+              <p v-if="displayedResourceError" class="menu-hint" role="alert">
+                {{ displayedResourceError }}
+                <button
+                  v-if="category === 'skills'" type="button" class="plain"
+                  :disabled="isLoadingResources" @click="loadResources('skills')"
+                >重新加载技能</button>
               </p>
             </div>
           </template>

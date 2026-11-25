@@ -60,7 +60,7 @@ test("grant recipient search separates users and groups and pages remote matches
     resource_owner_type: "system",
     resource_owner_id: "company",
   };
-  await page.route("**/manager/admin/grant-resources", (route) => route.fulfill({
+  await page.route(/\/manager\/admin\/grant-resources(?:\?|$)/, (route) => route.fulfill({
     json: { items: [{ ...resource, display_name: "Skills 助手" }] },
   }));
   await page.route(/\/manager\/share-recipients(?:\?|$)/, (route) => {

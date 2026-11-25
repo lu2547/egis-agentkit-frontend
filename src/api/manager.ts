@@ -44,7 +44,7 @@ export interface AdminPage<T> {
 
 function catalogPage<T>(
   kind: "agents" | ResourceCatalog,
-  { query, category, mine, cursor }: CatalogQuery,
+  { query, category, mine, cursor, limit, purpose, owner_type, resource_ids }: CatalogQuery,
   signal: AbortSignal,
 ) {
   return http<CatalogPage<T>>(`/manager/${kind}`, { signal }, {
@@ -52,7 +52,7 @@ function catalogPage<T>(
     query,
     category,
     mine: mine ? "true" : undefined,
-    cursor,
+    cursor, limit, purpose, owner_type, resource_ids,
   });
 }
 
@@ -106,6 +106,8 @@ export const manager = {
       { method: selected ? "PUT" : "DELETE" },
       { view },
     ),
+  skillNames: (runtimeNames: string[]) =>
+    http<CatalogPage<Resource>>("/manager/skills", {}, { runtime_names: runtimeNames, limit: 100 }),
   resourceCatalog: (kind: ResourceCatalog, params: CatalogQuery, signal: AbortSignal) =>
     catalogPage<Resource>(kind, params, signal),
   definition: (
@@ -301,6 +303,8 @@ export const manager = {
     ),
   savePreferences: (body: unknown) =>
     http<unknown>("/manager/preferences", json("PUT", body)),
+  withdrawShare: (reviewId: string) =>
+    http<void>(`/manager/share-requests/${id(reviewId)}`, { method: "DELETE" }),
   reviews: () => http<{ items: Review[] }>("/manager/share-requests"),
   shareRecipients: () => http<{ items: ShareRecipient[] }>("/manager/share-recipients"),
   searchRecipients: (
@@ -314,7 +318,7 @@ export const manager = {
       { signal },
       { principal_type, q, page },
     ),
-  grantResources: () => http<{ items: GrantResource[] }>("/manager/admin/grant-resources"),
+  grantResources: (includeSkills = true) => http<{ items: GrantResource[] }>("/manager/admin/grant-resources", {}, { include_skills: includeSkills ? undefined : "false" }),
   shareSkills: (resource_ids: string[], target: ShareTarget) =>
     http<BatchAccessResponse>(
       "/manager/share-requests/batch",

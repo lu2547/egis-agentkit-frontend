@@ -28,6 +28,9 @@ const PresentationPreview = defineAsyncComponent(
 );
 const presentation = ref<InstanceType<typeof PresentationPreview>>();
 const workbookBlob = ref<Blob | null>(null);
+const WordPreview = defineAsyncComponent(() => import("./WordPreview.vue"));
+const wordPreview = ref<InstanceType<typeof WordPreview>>();
+const wordBlob = ref<Blob | null>(null);
 function canLeave() {
   return (
     (spreadsheet.value?.canLeave() ?? true) &&
@@ -100,7 +103,6 @@ const loading = ref(false),
   text = ref(""),
   url = ref(""),
   mime = ref(""),
-  officeHtml = ref(""),
   officeError = ref("");
 let controller: AbortController | null = null;
 function clearContent() {
@@ -112,7 +114,7 @@ function clearContent() {
   text.value = "";
   pdfBlob.value = null;
   presentationInfo.value = undefined;
-  officeHtml.value = "";
+  wordBlob.value = null;
   workbookBlob.value = null;
   officeError.value = "";
 }
@@ -226,18 +228,7 @@ watch(
         try {
           const buffer = await blob.arrayBuffer();
           checkOfficeArchive(buffer);
-          if (/\.docx$/i.test(props.path)) {
-            const mammoth = await import("mammoth");
-            const converted = await mammoth.convertToHtml({
-              arrayBuffer: buffer,
-            });
-            const DOMPurify = (await import("dompurify")).default;
-            if (!signal.aborted)
-              officeHtml.value = DOMPurify.sanitize(converted.value, {
-                FORBID_TAGS: ["style", "iframe", "form"],
-                FORBID_ATTR: ["style", "src", "href"],
-              });
-          }
+          if (!signal.aborted) wordBlob.value = blob;
         } catch {
           if (!signal.aborted)
             officeError.value = "无法预览此文件，请下载后查看。";
@@ -337,12 +328,13 @@ onUnmounted(reset);
       <PreviewSelection
         v-else
         :source="
-          supportedReference && (isImage || text || officeHtml)
+          supportedReference && (isImage || text || wordBlob)
             ? source
             : undefined
         "
         :options="options"
         :anchor="locatedAnchor"
+        :capture="wordBlob ? wordPreview?.capture : undefined"
         @reference="(value, accept) => emit('reference', value, accept)"
       >
         <img v-if="isImage" :src="url" :alt="path" class="preview-image" />
@@ -350,11 +342,13 @@ onUnmounted(reset);
           <p>{{ officeError }}</p>
           <a :href="url" :download="path.split('/').pop()">下载文件</a>
         </div>
-        <div
-          v-else-if="/\.docx$/i.test(path)"
-          class="office-document"
-          v-html="officeHtml"
-        ></div>
+        <WordPreview
+          v-else-if="wordBlob"
+          ref="wordPreview"
+          :blob="wordBlob"
+          :download-url="url"
+          :name="path.split('/').pop()!"
+        />
         <MarkdownContent
           v-else-if="/\.(md|markdown)$/i.test(path)"
           :text="text"

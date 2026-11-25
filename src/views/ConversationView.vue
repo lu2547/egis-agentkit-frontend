@@ -29,6 +29,7 @@ import { groupReplyArtifacts } from "../domain/replyArtifacts";
 import { peekDraft, takeDraft } from "../composables/usePendingDraft";
 import TaskComposer from "../components/composer/TaskComposer.vue";
 import SteeringQueue from "../components/composer/SteeringQueue.vue";
+import { steeringState } from "../domain/steering";
 import { useSteeringQueue } from "../composables/useSteeringQueue";
 import ComposerProjectBar from "../components/composer/ComposerProjectBar.vue";
 import PermissionRequestCard from "../components/conversation/PermissionRequestCard.vue";
@@ -51,6 +52,9 @@ const openedWorkerWindows = ref(new Set<string>());
 const minimizedWorkerWindows = ref(new Set<string>());
 const collaboratorEntries = computed(() =>
   Array.from(conversation.collaboratorProgress.value.values()),
+);
+const activeWorkers = computed(() =>
+  collaboratorEntries.value.filter(worker => ["queued", "running", "waiting"].includes(worker.status)),
 );
 const visibleWorkerWindows = computed(() =>
   collaboratorEntries.value.filter((worker) =>
@@ -228,7 +232,14 @@ const steeringQueue = useSteeringQueue(
   }),
   computed(() => [...conversation.state.value.messages].reverse().find(message => message.role === "assistant" && !message.finished_at)?.id || ""),
   message => { conversation.error.value = message; },
-  computed(() => new Set(visibleMessages.value.map((message) => message.id))),
+  computed(() => new Set(visibleMessages.value.filter(message =>
+    !steeringState(message) || steeringState(message) === "received",
+  ).map(message => message.id))),
+);
+watch(
+  [steeringQueue.messages, conversation.loading, () => conversation.task.value?.session_id],
+  () => conversation.syncQueuedMessages(sid.value, steeringQueue.messages.value),
+  { immediate: true, flush: "sync" },
 );
 async function queueSteering() {
   const task = conversation.task.value;
@@ -633,12 +644,12 @@ async function openSources(replyId: string) {
         {{ runtime.error.value }}
       </div>
       <div
-        v-if="conversation.error.value || conversation.streamError.value"
+        v-if="conversation.error.value || conversation.streamError.value || steeringQueue.notice.value"
         class="stream-banner"
-        role="alert"
+        :role="conversation.error.value || conversation.streamError.value ? 'alert' : 'status'"
       >
         <span>{{
-          conversation.error.value || conversation.streamError.value
+          conversation.error.value || conversation.streamError.value || steeringQueue.notice.value
         }}</span
         ><button
           v-if="conversation.connection.value !== 'connected'"
@@ -680,6 +691,11 @@ async function openSources(replyId: string) {
         @add="addTextAnnotation"
         @focus-draft="focusDraftAnnotation"
       >
+        <div
+          v-if="conversation.state.value.phase === 'idle' && activeWorkers.length"
+          class="collaboration-ongoing"
+          role="status"
+        >主助理已结束，{{ activeWorkers.length }} 位专家仍在处理</div>
         <MessageList
           :reply-feedback="conversation.replyFeedback.value"
           :reply-id="typeof route.query.reply_id === 'string' ? route.query.reply_id : undefined"

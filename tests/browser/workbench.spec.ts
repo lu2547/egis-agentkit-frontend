@@ -340,8 +340,9 @@ test("initial skill sharing sends a stable resource and organization group", asy
   const dialog = page.getByRole("dialog", { name: "申请共享" });
   const submit = dialog.getByRole("button", { name: "提交共享申请" });
   await expect(submit).toBeDisabled();
-  await dialog.getByPlaceholder("选择用户或组织组").click();
-  await page.getByText("研究部（组织组 · research）", { exact: true }).click();
+  await dialog.getByText("用户组", { exact: true }).click();
+  await dialog.getByLabel("接收对象", { exact: true }).click();
+  await page.getByText("研究部 · research", { exact: true }).click();
   await submit.click();
   expect((await request).postDataJSON()).toEqual({
     resource_type: "skill",
@@ -362,15 +363,9 @@ test("management grants current access by stable resource and recipient", async 
     resource_owner_id: "platform",
   };
   let grants: Record<string, unknown>[] = [];
-  await page.route("**/manager/admin/grant-resources", (route) =>
-    route.fulfill({
-      json: {
-        items: [
-          { ...resource, version_label: "1.1", display_name: "报表技能" },
-        ],
-      },
-    }),
-  );
+  await page.route(/\/manager\/skills(?:\?|$)/, (route) => route.fulfill({
+    json: { items: [{ ...resource, owner_type: "system", owner_id: "platform", version_label: "1.1", display_name: "报表技能" }], next_cursor: null },
+  }));
   await page.route(/\/manager\/admin\/grants(?:\?|$)/, (route) => {
     if (route.request().method() === "GET")
       return route.fulfill({
@@ -380,6 +375,7 @@ test("management grants current access by stable resource and recipient", async 
       {
         ...route.request().postDataJSON(),
         id: "direct-grant-2",
+        principal_display_name: "分析师",
         grant_source_type: "manual",
         granted_by: "admin",
       },
@@ -394,10 +390,11 @@ test("management grants current access by stable resource and recipient", async 
     exact: true,
   });
   await expect(submit).toBeDisabled();
+  await dialog.getByText("技能", { exact: true }).click();
   await dialog.getByLabel("资源", { exact: true }).click();
-  await page.getByText("报表技能 · skill", { exact: true }).click();
+  await page.getByText("报表技能", { exact: true }).click();
   await dialog.getByLabel("授权对象").click();
-  await page.getByText("分析师（用户 · analyst）", { exact: true }).click();
+  await page.getByText("分析师 · analyst", { exact: true }).click();
   const sent = page.waitForRequest(
     (request) =>
       request.url().endsWith("/manager/admin/grants") &&

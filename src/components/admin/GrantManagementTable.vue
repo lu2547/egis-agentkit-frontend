@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
 import { useAdminPage } from "../../composables/useAdminPage";
@@ -8,6 +8,7 @@ import {
   principalName,
   type ShareableKind,
   type ShareTarget,
+  type Resource,
 } from "../../types/api";
 import AsyncState from "../common/AsyncState.vue";
 import RecipientPicker from "../common/RecipientPicker.vue";
@@ -15,6 +16,7 @@ import AdminPagination from "./AdminPagination.vue";
 import AdminSectionHeader from "./AdminSectionHeader.vue";
 import AdminStatusBadge from "./AdminStatusBadge.vue";
 import AdminTable from "./AdminTable.vue";
+import SkillPicker from "../skills/SkillPicker.vue";
 import BatchSkillShareDialog from "../skills/BatchSkillShareDialog.vue";
 
 interface Grant extends ShareTarget {
@@ -60,7 +62,7 @@ const {
   error: optionsError,
   load: loadOptions,
 } = useAsyncData(async () => {
-  const resources = await manager.grantResources();
+  const resources = await manager.grantResources(false);
   return {
     resources: resources.items.map(({ display_name, ...resource }) => ({
       value: resourceKey(resource),
@@ -73,35 +75,49 @@ const {
 const open = ref(false);
 const batchOpen = ref(false);
 const selectedResource = ref("");
+const resourceKind = ref("other");
+const selectedSkills = ref<string[]>([]);
+const systemSkills = ref<Resource[]>([]);
+const success = ref("");
 const selectedRecipient = ref<ShareTarget | null>(null);
 const pending = ref(false);
 const notice = ref("");
-const systemSkills = computed(() =>
-  (options.value?.resources || [])
-    .filter(
-      ({ resource }) =>
-        resource.resource_type === "skill" &&
-        resource.resource_view_type === "system",
-    )
-    .map(({ resource, name }) => ({ ...resource, display_name: name })),
-);
+function rememberSkills(resources: Resource[]) {
+  const known = new Map(systemSkills.value.map((resource) => [resource.resource_id, resource]));
+  resources.forEach((resource) => known.set(resource.resource_id, resource));
+  systemSkills.value = [...known.values()];
+}
 
 async function load() {
   await Promise.all([loadPage(), options.value ? undefined : loadOptions()]);
 }
 
 onMounted(load);
+watch(data, async (page) => {
+  const ids = [...new Set((page?.items || []).filter((row) => row.resource_type === "skill").map((row) => row.resource_id))];
+  if (!ids.length) return;
+  try {
+    const result = await manager.resourceCatalog("skills", { purpose: "grant", owner_type: "system", resource_ids: ids, limit: 100 }, new AbortController().signal);
+    rememberSkills(result.items);
+  } catch { /* Grant rows retain resource IDs when their source is unavailable. */ }
+});
 
 function openForm() {
   notice.value = "";
   selectedResource.value = "";
+  selectedSkills.value = [];
+  resourceKind.value = "other";
+  success.value = "";
   selectedRecipient.value = null;
   open.value = true;
 }
 
 const resourceNames = computed(
   () =>
-    new Map(options.value?.resources.map(({ value, name }) => [value, name])),
+    new Map([
+      ...(options.value?.resources.map(({ value, name }) => [value, name] as const) || []),
+      ...systemSkills.value.map((resource) => [resourceKey({ resource_type: "skill", resource_id: resource.resource_id }), resource.display_name] as const),
+    ]),
 );
 
 function resourceName(row: Pick<Grant, "resource_type" | "resource_id">) {
@@ -128,19 +144,21 @@ async function save() {
     (entry) => entry.value === selectedResource.value,
   );
   const recipient = selectedRecipient.value;
-  if (!resource || !recipient) return;
+  const skill = systemSkills.value.find((entry) => entry.resource_id === selectedSkills.value[0]);
+  const selected = resourceKind.value === "skill" ? skill && {
+    resource_type: "skill", resource_id: skill.resource_id,
+    resource_view_type: "system", resource_owner_type: "system", resource_owner_id: skill.owner_id,
+  } : resource?.resource;
+  if (!selected || !recipient) return;
   pending.value = true;
   notice.value = "";
   try {
     await manager.adminSave("grants", {
-      resource_type: resource.resource.resource_type,
-      resource_id: resource.resource.resource_id,
-      resource_view_type: resource.resource.resource_view_type,
-      resource_owner_type: resource.resource.resource_owner_type,
-      resource_owner_id: resource.resource.resource_owner_id,
+      ...selected,
       ...recipient,
     });
     open.value = false;
+    success.value = "使用权限已授予。";
     await load();
   } catch (e) {
     notice.value = errorText(e);
@@ -156,7 +174,7 @@ function grantSkills(resourceIds: string[], target: ShareTarget) {
   const resources = resourceIds.map((resource_id) => {
     const skill = skillsById.get(resource_id);
     if (!skill) throw new Error("技能列表已更新，请重新选择。");
-    return { resource_id, resource_owner_id: skill.resource_owner_id };
+    return { resource_id, resource_owner_id: skill.owner_id };
   });
   return manager.grantSkills(resources, target);
 }
@@ -180,12 +198,12 @@ async function revoke(grant: Grant) {
     <t-button theme="primary" @click="openForm">授予使用权限</t-button>
     <t-button
       variant="outline"
-      :disabled="!systemSkills.length"
       @click="batchOpen = true"
     >
       批量授权技能
     </t-button>
   </AdminSectionHeader>
+  <p v-if="success" class="notice" role="status">{{ success }}</p>
   <div v-if="notice && !open" class="error" role="alert">{{ notice }}</div>
   <AsyncState
     :loading="loading || loadingOptions"
@@ -265,9 +283,19 @@ async function revoke(grant: Grant) {
     :footer="false"
   >
     <form class="form-stack" @submit.prevent="save">
+      <div class="field">
+        <label>资源分类</label>
+        <t-radio-group v-model="resourceKind" :disabled="pending">
+          <t-radio-button value="other">专家、专家团与连接器</t-radio-button>
+          <t-radio-button value="skill">技能</t-radio-button>
+        </t-radio-group>
+      </div>
       <div v-field-label class="field">
         <label>资源</label>
-        <t-select
+        <SkillPicker v-if="open && resourceKind === 'skill'" v-model="selectedSkills"
+          purpose="grant" key-mode="id" :multiple="false" :disabled="pending"
+          @resources="rememberSkills" />
+        <t-select v-else
           v-model="selectedResource"
           filterable
           :options="options?.resources || []"
@@ -285,7 +313,7 @@ async function revoke(grant: Grant) {
         <t-button
           theme="primary"
           type="submit"
-          :disabled="!selectedResource || !selectedRecipient"
+          :disabled="!(resourceKind === 'skill' ? selectedSkills.length : selectedResource) || !selectedRecipient"
           :loading="pending"
         >
           授予使用权限
@@ -297,7 +325,8 @@ async function revoke(grant: Grant) {
     :visible="batchOpen"
     title="批量授权技能"
     submit-label="授予使用权限"
-    :resources="systemSkills"
+    purpose="grant"
+    @resources="rememberSkills"
     :submit-batch="grantSkills"
     @close="batchOpen = false"
     @changed="load"

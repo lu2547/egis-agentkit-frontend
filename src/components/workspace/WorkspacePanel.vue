@@ -755,6 +755,7 @@ onUnmounted(() => {
                   v-for="file in files"
                   :key="`${file.area}:${file.is_directory}:${file.path}`"
                   class="file-row"
+                  @click="choose(file)"
                   :class="{
                     'is-hidden-directory':
                       tab === 'workspace' &&
@@ -763,7 +764,7 @@ onUnmounted(() => {
                       file.is_directory,
                   }"
                 >
-                  <button type="button" class="file-open" @click="choose(file)">
+                  <button type="button" class="file-open" @click.stop="choose(file)">
                     <AppIcon
                       v-if="file.is_directory"
                       name="folder"
@@ -781,7 +782,7 @@ onUnmounted(() => {
                     class="file-delete"
                     :aria-label="`删除${file.name}`"
                     :disabled="deleting"
-                    @click="requestDelete(file)"
+                    @click.stop="requestDelete(file)"
                   >
                     <AppIcon name="trash" :size="16" />
                   </button>

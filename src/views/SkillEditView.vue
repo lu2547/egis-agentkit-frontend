@@ -13,27 +13,15 @@ const route = useRoute(),
 const pending = ref(false),
   saveError = ref("");
 const { data, loading, error, load } = useAsyncData(async () => {
-  const catalog = await manager.resources("skills");
+  const catalog = await manager.resourceCatalog("skills", { limit: 1 }, new AbortController().signal);
   const resourceId = String(route.params.resourceId || "");
-  const version = typeof route.query.version === "string"
-    ? route.query.version
-    : catalog.items.find((item) => item.resource_id === resourceId && item.is_editable)?.resource_version;
-  if (resourceId && !version)
-    throw new Error("找不到可编辑的技能，或你没有编辑权限。");
-  const resource = resourceId && version
-    ? await manager.resource("skills", resourceId, version)
-    : undefined;
+  const version = typeof route.query.version === "string" ? route.query.version : undefined;
+  const resource = resourceId ? await manager.resource("skills", resourceId, version) : undefined;
   if (resource && !resource.is_editable)
     throw new Error("你没有编辑这个技能的权限。");
   return {
     resource,
-    categories: [
-      ...new Set(
-        catalog.items
-          .map((r) => String(r.payload.category || ""))
-          .filter(Boolean),
-      ),
-    ],
+    categories: catalog.categories || [],
   };
 });
 watch(

@@ -71,6 +71,12 @@ const emit = defineEmits<{
   locateAnnotation: [value: TextAnnotation];
 }>();
 const fileInput = ref<HTMLInputElement | null>(null);
+const attachmentsDisabled = computed(
+  () =>
+    props.pending ||
+    (props.running && !props.steeringEnabled) ||
+    props.disabled,
+);
 const isMac =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -80,8 +86,51 @@ function textareaKeydown(_value: unknown, context: { e: KeyboardEvent }) {
 }
 function choose(event: Event) {
   const input = event.target as HTMLInputElement;
-  emit("attach", Array.from(input.files || []));
+  attachFiles(Array.from(input.files || []));
   input.value = "";
+}
+function attachFiles(files: File[]) {
+  if (!attachmentsDisabled.value && files.length) emit("attach", files);
+}
+function transferredFiles(transfer: DataTransfer | null) {
+  if (!transfer) return [];
+  // Files and items describe the same selection; use items only as a fallback.
+  const files = Array.from(transfer.files);
+  if (files.length) return files;
+  return [
+    ...new Set(
+      Array.from(transfer.items)
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null),
+    ),
+  ];
+}
+function pasteFiles(event: ClipboardEvent) {
+  const files = transferredFiles(event.clipboardData);
+  if (!files.length) return;
+  // Keep the browser's normal text insertion for mixed text/file clipboards.
+  if (!event.clipboardData?.getData("text/plain")) event.preventDefault();
+  attachFiles(files);
+}
+function isFileTransfer(transfer: DataTransfer | null) {
+  return (
+    !!transfer &&
+    (transfer.types.includes("Files") ||
+      transfer.files.length > 0 ||
+      Array.from(transfer.items).some((item) => item.kind === "file"))
+  );
+}
+function dragFiles(event: DragEvent) {
+  if (!isFileTransfer(event.dataTransfer)) return;
+  event.preventDefault();
+  if (event.dataTransfer)
+    event.dataTransfer.dropEffect = attachmentsDisabled.value ? "none" : "copy";
+}
+function dropFiles(event: DragEvent) {
+  if (!isFileTransfer(event.dataTransfer)) return;
+  event.preventDefault();
+  attachFiles(transferredFiles(event.dataTransfer));
 }
 const composerElement = ref<HTMLElement>();
 const fallbackDefinitions = ref<Definition[]>([]);
@@ -257,7 +306,14 @@ function send() {
 defineExpose({ focusComposer });
 </script>
 <template>
-  <section ref="composerElement" class="composer" :class="{ compact }">
+  <section
+    ref="composerElement"
+    class="composer"
+    :class="{ compact }"
+    @dragenter="dragFiles"
+    @dragover="dragFiles"
+    @drop="dropFiles"
+  >
     <slot name="queue" />
     <ContextPicker
       v-if="contextToken"
@@ -295,13 +351,14 @@ defineExpose({ focusComposer });
     <p v-if="referenceError" role="alert" class="error">{{ referenceError }}</p>
     <AttachmentList
       :files="attachments || []"
-      :disabled="pending || running"
+      :disabled="attachmentsDisabled"
       @remove="$emit('removeAttachment', $event)"
     /><input
       ref="fileInput"
       type="file"
       multiple
       hidden
+      :disabled="attachmentsDisabled"
       @change="choose"
     /><t-textarea
       :value="modelValue"
@@ -315,6 +372,7 @@ defineExpose({ focusComposer });
       :maxlength="maxTextLength || 32000"
       @update:value="(value: string) => $emit('update:modelValue', value)"
       @keydown="textareaKeydown"
+      @paste="pasteFiles"
       @compositionstart="composing = true"
       @compositionend="composing = false"
     />
@@ -327,7 +385,7 @@ defineExpose({ focusComposer });
           :permission-mode="permissionMode"
           :permission-options="permissionOptions"
           :settings-disabled="settingsDisabled"
-          :disabled="pending || running || disabled"
+          :disabled="attachmentsDisabled"
           @add-files="fileInput?.click()"
           @select="$emit('select', $event)"
           @update:permission-mode="$emit('update:permissionMode', $event)"

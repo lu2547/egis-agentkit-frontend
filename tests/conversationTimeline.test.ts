@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { AssistantMsg, UserMsg } from "@agentscope-ai/agentscope/message";
 import { conversationTimeline } from "../src/domain/conversationTimeline";
 import type { CollaboratorProgress } from "../src/types/api";
+import { STEERING_SOURCE, withSteeringState } from "../src/domain/steering";
 
 const worker = (
   id: string,
@@ -95,4 +96,37 @@ it("groups overlapping expert updates above a live reply while keeping later com
   reply.finished_at = "2026-11-23T01:04:30Z";
   expect(conversationTimeline([reply], [one, two]).map(item => item.id))
     .toEqual(["one:started", "two:started", "one:finished", "reply", "two:finished"]);
+});
+
+for (const received of [false, true]) {
+  it(`keeps ${received ? "received" : "in-flight"} guidance above its target reply after it finishes`, () => {
+    const user = message("user", "2026-11-25T15:55:56Z");
+    const reply = AssistantMsg({ id: "reply", content: "the response and its delivery" });
+    const guidance = withSteeringState(UserMsg({
+      id: "guidance", content: "不过是嫌长",
+      metadata: { agentkit_delivery: { reply_id: "reply", hint_id: "queue:0" } },
+    }), received ? "received" : "steering");
+    const later = message("later", "2026-11-25T15:57:00Z");
+    for (const finished of [false, true]) {
+      reply.finished_at = finished ? "2026-11-25T15:56:39Z" : undefined;
+      expect(conversationTimeline([user, reply, guidance, later]).map(item => item.id))
+        .toEqual(["user", "guidance", "reply", "later"]);
+    }
+  });
+}
+
+it("restores multiple guidance messages above the containing persisted reply without relying on timestamps", () => {
+  const reply = AssistantMsg({
+    id: "reply", content: [
+      { id: "one:0", type: "hint", source: STEERING_SOURCE, hint: "不过是嫌长" },
+      { id: "two:0", type: "hint", source: STEERING_SOURCE, hint: "就是有点啰嗦" },
+    ],
+  });
+  const one = withSteeringState(UserMsg({
+    id: "original-one", content: "不过是嫌长",
+    metadata: { agentkit_delivery: { hint_id: "one:0" } },
+  }), "received");
+  const two = withSteeringState(UserMsg({ id: "two:0", content: "就是有点啰嗦" }), "received");
+  expect(conversationTimeline([reply, one, two]).map(item => item.id))
+    .toEqual(["original-one", "two:0", "reply"]);
 });

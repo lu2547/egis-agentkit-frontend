@@ -107,7 +107,7 @@ test("imports keep processing after returning to the catalog and only appear whe
   ).toBeVisible();
   const imported = page.getByTestId("catalog-card").filter({ hasText: "导入的技能" });
   await expect(imported).toBeVisible({ timeout: 10000 });
-  await expect(imports).toHaveCount(0);
+  await expect(imports.getByRole("status")).toContainText("导入完成");
   await page.reload();
   await expect(imported).toBeVisible();
   await expect(imports).toHaveCount(0);

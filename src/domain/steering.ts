@@ -2,7 +2,7 @@
 import { UserMsg, type Msg } from "@agentscope-ai/agentscope/message";
 
 export const STEERING_SOURCE = "chat_input_steering";
-export type SteeringState = "queued" | "received";
+export type SteeringState = "queued" | "steering" | "received" | "failed";
 export function steeringState(message: Msg): SteeringState | undefined {
   const value = message.metadata?.agentkit_delivery;
   if (
@@ -12,7 +12,9 @@ export function steeringState(message: Msg): SteeringState | undefined {
     value.kind !== "steer"
   )
     return;
-  return value.state === "received" ? "received" : "queued";
+  return ["received", "steering", "failed"].includes(String(value.state))
+    ? (value.state as SteeringState)
+    : "queued";
 }
 export function withSteeringState(message: Msg, state: SteeringState): Msg {
   return {

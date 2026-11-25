@@ -7,6 +7,7 @@ import { ResourceDetailState } from "../../domain/resourceState";
 import CatalogAvatar from "../common/CatalogAvatar.vue";
 import AsyncState from "../common/AsyncState.vue";
 import MarkdownContent from "../conversation/MarkdownContent.vue";
+import OwnerShareManagement from "./OwnerShareManagement.vue";
 import ShareRequestDialog from "./ShareRequestDialog.vue";
 import ConnectorAuthorization from "../connectors/ConnectorAuthorization.vue";
 const props = defineProps<{
@@ -138,6 +139,12 @@ async function download() {
           </template></template
         ></AsyncState
       >
+      <OwnerShareManagement v-if="kind === 'skills' && detail.value"
+        :key="`${detail.value.resource_id}:${detail.value.owner_id}`"
+        resource-type="skill" :resource-id="detail.value.resource_id"
+        :owner-type="detail.value.owner_type" :owner-id="detail.value.owner_id"
+        @changed="select(detail.selectedVersion); $emit('changed')"
+      />
       <div v-if="notice" class="detail-notice" role="status">{{ notice }}</div>
     </div></t-drawer
   >
@@ -146,12 +153,13 @@ async function download() {
     :visible="shareOpen"
     resource-type="skill"
     :resource-id="detail.value?.resource_id || ''"
-    :version="detail.value?.version_label || detail.selectedVersion"
+    :version="(!shareUpdate && (detail.value?.share_version_label || detail.value?.share_version)) || detail.value?.version_label || detail.selectedVersion"
     :update="shareUpdate"
     @close="shareOpen = false"
     @submitted="
       shareOpen = false;
       notice = '共享申请已提交。';
+      select(detail.selectedVersion); $emit('changed');
     "
   />
 </template>

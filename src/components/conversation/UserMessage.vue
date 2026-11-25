@@ -97,7 +97,12 @@ defineEmits<{
       <span v-if="steeringState(message)" class="steering-status"
         >引导 ·
         {{
-          steeringState(message) === "received" ? "已接收" : "等待接收"
+          {
+            queued: "排队中",
+            steering: "引导中",
+            received: "已接收",
+            failed: "失败",
+          }[steeringState(message)!]
         }}</span
       >
       <TextAnnotationList
