@@ -84,6 +84,7 @@ test("owners request withdrawal and cannot delete a still shared expert", async 
       share_scope_type: "group",
       principal_id: "company",
       review_status_type: "approved",
+      has_active_share: true,
     },
     {
       review_id: "pending",

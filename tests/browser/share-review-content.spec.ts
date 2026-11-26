@@ -232,97 +232,119 @@ test("late batch content cannot approve a different selection", async ({
   ).toBeEnabled();
 });
 
-test("owner withdrawal stays shared while the request awaits approval", async ({
-  page,
-}) => {
-  const owned = {
-    id: "expert-audit",
-    definition_type: "agent",
-    agent_type: "expert",
-    agent_name: "audit",
-    agent_display_name: "我的审核专家",
-    owner_type: "user",
-    owner_id: "alice",
-    resource_view_type: "private",
-    resource_version: "2",
-    version_label: "1.1",
-    owner_version: 2,
-    is_editable: true,
-    is_deletable: true,
-    is_usable: true,
-    payload: {
-      description: "审核示例",
-      bindings: [],
-      tags: [],
-      starter_prompts: [],
-    },
-  };
-  const original = {
-    ...review,
-    review_status_type: "approved",
-    is_current: true,
-  };
-  let revocationPending = false;
-  await page.route("**/manager/me", (route) =>
-    route.fulfill({
-      json: {
-        user_id: "alice",
-        username: "资源所有者",
-        role_type: "user",
-        group_ids: [],
-        is_enabled: true,
+for (const legacy of [false, true]) {
+  test(`owner withdrawal remains available after publication updates (${legacy ? "legacy" : "current"})`, async ({
+    page,
+  }) => {
+    const owned = {
+      id: "expert-audit",
+      definition_type: "agent",
+      agent_type: "expert",
+      agent_name: "audit",
+      agent_display_name: "我的审核专家",
+      owner_type: "user",
+      owner_id: "alice",
+      resource_view_type: "private",
+      resource_version: "2",
+      version_label: "1.1",
+      owner_version: 2,
+      is_editable: true,
+      is_deletable: true,
+      is_usable: true,
+      payload: {
+        description: "审核示例",
+        bindings: [],
+        tags: [],
+        starter_prompts: [],
       },
-    }),
-  );
-  await page.route(/\/manager\/agents(?:\?|$)/, (route) =>
-    route.fulfill({
-      json: { items: [owned], categories: [], next_cursor: null },
-    }),
-  );
-  await page.route(/\/manager\/agents\/expert-audit(?:\?|$)/, (route) =>
-    route.fulfill({ json: owned }),
-  );
-  await page.route("**/manager/share-requests", (route) =>
-    route.fulfill({
-      json: {
-        items: revocationPending
-          ? [
-              original,
-              {
-                ...review,
-                review_id: "revoke-request",
-                review_type: "revoke",
-                original_review_id: original.review_id,
-              },
-            ]
-          : [original],
-      },
-    }),
-  );
-  await page.route("**/manager/share-requests/share-audit", (route) => {
-    expect(route.request().method()).toBe("DELETE");
-    revocationPending = true;
-    return route.fulfill({ status: 204 });
+    };
+    const original = {
+      ...review,
+      review_status_type: "approved",
+      is_current: false,
+      has_active_share: legacy ? undefined : true,
+    };
+    const withdrawn = {
+      ...original,
+      review_id: "withdrawn-share",
+      principal_id: "withdrawn-recipient",
+      has_active_share: legacy ? undefined : false,
+    };
+    const approvedWithdrawal = {
+      ...review,
+      review_id: "withdrawn-decision",
+      review_type: "revoke",
+      review_status_type: "approved",
+      original_review_id: withdrawn.review_id,
+    };
+    let revocationPending = false;
+    await page.route("**/manager/me", (route) =>
+      route.fulfill({
+        json: {
+          user_id: "alice",
+          username: "资源所有者",
+          role_type: "user",
+          group_ids: [],
+          is_enabled: true,
+        },
+      }),
+    );
+    await page.route(/\/manager\/agents(?:\?|$)/, (route) =>
+      route.fulfill({
+        json: { items: [owned], categories: [], next_cursor: null },
+      }),
+    );
+    await page.route(/\/manager\/agents\/expert-audit(?:\?|$)/, (route) =>
+      route.fulfill({ json: owned }),
+    );
+    await page.route("**/manager/share-requests", (route) =>
+      route.fulfill({
+        json: {
+          items: revocationPending
+            ? [
+                original,
+                withdrawn,
+                approvedWithdrawal,
+                {
+                  ...review,
+                  review_id: "revoke-request",
+                  review_type: "revoke",
+                  original_review_id: original.review_id,
+                },
+              ]
+            : [original, withdrawn, approvedWithdrawal],
+        },
+      }),
+    );
+    await page.route("**/manager/share-requests/share-audit", (route) => {
+      expect(route.request().method()).toBe("DELETE");
+      revocationPending = true;
+      return route.fulfill({ status: 204 });
+    });
+    await page.route("**/manager/share-requests/revoke-request", (route) => {
+      expect(route.request().method()).toBe("DELETE");
+      revocationPending = false;
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/experts");
+    await page.getByRole("button", { name: "查看我的审核专家" }).click();
+    const shares = page.getByRole("region", { name: "共享管理" });
+    await expect(shares).not.toContainText("withdrawn-recipient");
+    await expect(
+      shares.getByRole("button", { name: "申请撤回共享", exact: true }),
+    ).toBeVisible();
+    await shares
+      .getByRole("button", { name: "申请撤回共享", exact: true })
+      .click();
+    await page.getByRole("button", { name: "确定", exact: true }).click();
+    await expect(shares).toContainText("撤回申请审核中，当前共享继续生效");
+    await shares
+      .getByRole("button", { name: "取消撤回申请", exact: true })
+      .click();
+    await page.getByRole("button", { name: "确定", exact: true }).click();
+    await expect(
+      shares.getByRole("button", { name: "申请撤回共享", exact: true }),
+    ).toBeVisible();
+    await expect(shares).toContainText("已共享");
   });
-  await page.route("**/manager/share-requests/revoke-request", (route) => {
-    expect(route.request().method()).toBe("DELETE");
-    revocationPending = false;
-    return route.fulfill({ status: 204 });
-  });
-  await page.goto("/experts");
-  await page.getByRole("button", { name: "查看我的审核专家" }).click();
-  const shares = page.getByRole("region", { name: "共享管理" });
-  await shares
-    .getByRole("button", { name: "申请撤回共享", exact: true })
-    .click();
-  await page.getByRole("button", { name: "确定", exact: true }).click();
-  await expect(shares).toContainText("撤回申请审核中，当前共享继续生效");
-  await shares
-    .getByRole("button", { name: "取消撤回申请", exact: true })
-    .click();
-  await page.getByRole("button", { name: "确定", exact: true }).click();
-  await expect(
-    shares.getByRole("button", { name: "申请撤回共享", exact: true }),
-  ).toBeVisible();
-  await expect(shares).toContainText("已共享");
-});
+}

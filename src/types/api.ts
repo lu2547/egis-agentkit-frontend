@@ -321,6 +321,7 @@ export interface Review {
   owner_id?: string;
   submitted_by?: string;
   is_current?: boolean;
+  has_active_share?: boolean;
   share_scope_type: PrincipalType | null;
   principal_id: string | null;
   review_status_type: string;

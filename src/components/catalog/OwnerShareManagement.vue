@@ -23,6 +23,15 @@ const pending = ref(""),
 const { data, loading, error, load } = useAsyncData(async () => {
   if (!isOwner.value) return [];
   const { items } = await manager.reviews();
+  const approvedWithdrawals = new Set(
+    items
+      .filter(
+        (review) =>
+          review.review_type === "revoke" &&
+          review.review_status_type === "approved",
+      )
+      .map((review) => review.original_review_id),
+  );
   return items
     .filter(
       (review) =>
@@ -31,7 +40,8 @@ const { data, loading, error, load } = useAsyncData(async () => {
         review.review_type === "share" &&
         (review.review_status_type === "pending" ||
           (review.review_status_type === "approved" &&
-            review.is_current !== false)),
+            (review.has_active_share ??
+              !approvedWithdrawals.has(review.review_id)))),
     )
     .map((review) => ({
       ...review,
