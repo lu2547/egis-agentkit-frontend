@@ -1,9 +1,11 @@
 import type { Msg } from "@agentscope-ai/agentscope/message";
+import { ReplyFinishedReason } from "@agentscope-ai/agentscope/event";
 import type { CollaboratorProgress } from "../types/api";
 import { STEERING_SOURCE, steeringState } from "./steering";
+import { presentTurn } from "./turnPresentation";
 
 export type ConversationTimelineItem =
-  | { kind: "message"; id: string; created_at?: string; message: Msg }
+  | { kind: "message"; id: string; created_at?: string; message: Msg; final?: boolean }
   | {
       kind: "collaborator";
       id: string;
@@ -37,13 +39,13 @@ export function conversationTimeline(
       if (steering) targetReplies.set(steering.id, message.id);
     }
   }
-  const guidanceBeforeReply = new Map<string, ConversationTimelineItem[]>();
+  const replyGuidance = new Map<string, Msg[]>();
   for (const message of messages) {
     const target = targetReplies.get(message.id);
     if (!target) continue;
-    const entries = guidanceBeforeReply.get(target) || [];
-    entries.push({ kind: "message", id: message.id, message });
-    guidanceBeforeReply.set(target, entries);
+    const entries = replyGuidance.get(target) || [];
+    entries.push(message);
+    replyGuidance.set(target, entries);
   }
   const work: ConversationTimelineItem[] = [];
   for (const progress of collaborators) {
@@ -87,15 +89,59 @@ export function conversationTimeline(
   }
   const items: ConversationTimelineItem[] = [];
   let cursor = 0;
-  // Preserve history order while showing guidance before the reply it influenced.
+  // Keep native history intact; split only its display at actual context injection.
   for (const message of messages) {
     if (targetReplies.has(message.id)) continue;
     while (cursor < betweenMessages.length && time(betweenMessages[cursor]!) < time(message)) {
       items.push(betweenMessages[cursor++]!);
     }
     items.push(...(beforeReply.get(message.id) ?? []));
-    items.push(...(guidanceBeforeReply.get(message.id) ?? []));
-    items.push({ kind: "message", id: message.id, message });
+    items.push(...replySegments(message, replyGuidance.get(message.id) || [], steeringByHint));
   }
   return [...items, ...betweenMessages.slice(cursor)];
+}
+
+function replySegments(message: Msg, guidance: Msg[], byHint: Map<string, Msg>): ConversationTimelineItem[] {
+  if (!guidance.length || message.role !== "assistant")
+    return [{ kind: "message", id: message.id, message }];
+  const items: ConversationTimelineItem[] = [];
+  const placed = new Set<string>();
+  let blocks: Msg["content"] = [], key = message.id, started = message.created_at;
+  const results = message.content.filter(block => block.type === "tool_result");
+  function append(final: boolean, end?: string) {
+    const presentation = presentTurn({ ...message, content: blocks });
+    const visible = presentation.entries.length > 0 || !!presentation.answer;
+    if (!visible && !final) return;
+    const calls = new Set(blocks.filter(block => block.type === "tool_call").map(block => block.id));
+    // Tool results can arrive after the injection marker; keep them with their calls.
+    const content = [
+      ...blocks,
+      ...results.filter(block => calls.has(block.id) && !blocks.includes(block)),
+    ];
+    const id = items.some(item => item.kind === "message" && item.message.role === "assistant") ? key : message.id;
+    items.push({ kind: "message", id, final, message: {
+      ...message, content, created_at: started,
+      ...(final ? {} : { finished_at: end || message.created_at, finished_reason: ReplyFinishedReason.COMPLETED, error: null }),
+    } });
+  }
+  for (const block of message.content) {
+    const instruction = block.type === "hint" && block.source === STEERING_SOURCE
+      ? byHint.get(block.id) : undefined;
+    if (!instruction) { blocks.push(block); continue; }
+    append(false, block.created_at);
+    items.push({ kind: "message", id: instruction.id, message: instruction });
+    placed.add(instruction.id);
+    blocks = [];
+    key = `${message.id}:after:${block.id}`;
+    started = block.created_at || message.created_at;
+  }
+  const unplaced = guidance.filter(instruction => !placed.has(instruction.id));
+  // Old metadata may identify a reply without retaining its injection marker.
+  // Pending inputs stay after existing work until receipt establishes a boundary.
+  items.unshift(...unplaced.filter(instruction => steeringState(instruction) === "received")
+    .map(instruction => ({ kind: "message" as const, id: instruction.id, message: instruction })));
+  append(true);
+  items.push(...unplaced.filter(instruction => steeringState(instruction) !== "received")
+    .map(instruction => ({ kind: "message" as const, id: instruction.id, message: instruction })));
+  return items;
 }

@@ -103,7 +103,13 @@ export interface CollaboratorProgress {
   status: "queued" | "running" | "waiting" | "completed" | "failed" | "interrupted";
   activities: { id: string; name: string; state: string }[];
 }
+export interface SessionExecutionPhase {
+  session_id: string;
+  reply_id: string;
+  phase: "memory";
+}
 export interface Task {
+  execution_phase?: SessionExecutionPhase | null;
   source?: "user" | "schedule";
   latest_schedule_run_id?: string | null;
   collaborator_progress?: CollaboratorProgress[];
@@ -310,11 +316,36 @@ export interface Review {
   resource_id: string;
   resource_version: string;
   version_label?: string;
-  review_type?: "share" | "update";
+  review_type?: "share" | "update" | "revoke";
+  original_review_id?: string | null;
+  owner_id?: string;
+  submitted_by?: string;
+  is_current?: boolean;
   share_scope_type: PrincipalType | null;
   principal_id: string | null;
   review_status_type: string;
   review_reason: string;
+}
+export interface ReviewContentNode {
+  resource_type: ShareableKind | "tool";
+  resource_id: string;
+  resource_version: string;
+  version_label: string;
+  display_name: string;
+  checksum_sha256: string;
+  configuration_revision?: number | null;
+  origin: "submitted" | "reconstructed";
+  payload: Record<string, unknown>;
+  content_error?: string;
+}
+export interface ReviewContentSnapshot {
+  origin: "submitted" | "reconstructed";
+  captured_at: string | null;
+  root: ReviewContentNode;
+  dependencies: ReviewContentNode[];
+}
+export interface ReviewDetail extends Review {
+  content: ReviewContentSnapshot;
 }
 /** 在召唤、邀请和团队配置中保留用户选择的发布版本。 */
 export const definitionRef = (d: Definition): DefinitionRef => ({

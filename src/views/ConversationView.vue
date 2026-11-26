@@ -223,6 +223,22 @@ const project = computed(() =>
 );
 const references = usePreviewReferences(projectId);
 const annotations = ref<TextAnnotation[]>([]);
+const activeReplyId = computed(() => conversation.state.value.phase === "streaming"
+  ? [...conversation.state.value.messages].reverse().find(message => message.role === "assistant" && !message.finished_at)?.id || ""
+  : "");
+const steeringBlockedReason = computed(() => {
+  if (conversation.executionPhase.value?.phase === "memory")
+    return "记忆整理中，待发消息将在整理完成后执行";
+  if (conversation.state.value.phase === "waiting")
+    return "请先处理当前工具确认，再发送引导";
+  if (conversation.state.value.phase === "interrupting")
+    return "正在停止当前回复，请稍候";
+  if (!activeReplyId.value)
+    return conversation.state.value.phase === "idle"
+      ? "当前回复已结束，待发消息将在下一轮执行"
+      : "当前回复尚未开始，开始后可发送引导";
+  return "";
+});
 const steeringQueue = useSteeringQueue(
   sid,
   computed(() => runtime.steering.value?.max_batch_size || 0),
@@ -230,7 +246,7 @@ const steeringQueue = useSteeringQueue(
     const task = conversation.task.value;
     return task?.session_id === sid.value ? task.agent_id : "";
   }),
-  computed(() => [...conversation.state.value.messages].reverse().find(message => message.role === "assistant" && !message.finished_at)?.id || ""),
+  activeReplyId,
   message => { conversation.error.value = message; },
   computed(() => new Set(visibleMessages.value.filter(message =>
     !steeringState(message) || steeringState(message) === "received",
@@ -725,8 +741,8 @@ async function openSources(replyId: string) {
           :collaborators="collaboratorEntries"
           :expanded-workers="expandedWorkerWindows"
           @collaborator="showWorkerWindow"
-          :preparing="conversation.state.value.isPreparing || !!openingMessage"
-          :preparing-text="steeringQueue.waitingForExecution.value ? '排队等待执行' : undefined"
+          :preparing="conversation.state.value.isPreparing || !!openingMessage || conversation.executionPhase.value?.phase === 'memory'"
+          :preparing-text="conversation.executionPhase.value?.phase === 'memory' ? '记忆整理中' : steeringQueue.waitingForExecution.value ? '排队等待执行' : undefined"
           :display-names="conversation.task.value?.agent_display_names"
           :default-display-name="
             conversation.task.value?.definition_display_name
@@ -862,6 +878,7 @@ async function openSources(replyId: string) {
             <SteeringQueue
               :items="steeringQueue.items.value"
               :sending="steeringQueue.sending.value"
+              :blocked-reason="steeringBlockedReason"
               :max-text-length="runtime.steering.value?.max_text_length"
               :disabled="
                 conversation.loading.value ||

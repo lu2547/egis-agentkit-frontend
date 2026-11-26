@@ -39,12 +39,18 @@ test("owners can submit private skills together and retry a failed item", async 
   );
   let optionsRequests = 0;
   await page.route(/\/manager\/skills(?:\?|$)/, (route) => {
-    const selecting = new URL(route.request().url()).searchParams.get("mine") === "true";
+    const selecting =
+      new URL(route.request().url()).searchParams.get("mine") === "true";
     if (selecting) optionsRequests++;
     return route.fulfill({
       json: selecting
         ? { items: [report, research], next_cursor: null }
-        : { items: [report], next_cursor: null, categories: [], has_shareable: true },
+        : {
+            items: [report],
+            next_cursor: null,
+            categories: [],
+            has_shareable: true,
+          },
     });
   });
   let attempts = 0;
@@ -130,6 +136,30 @@ test("administrators can review selected pending skills and see results after re
       },
     }),
   );
+  for (const review of [first, second]) {
+    await page.route(
+      `**/manager/admin/share-reviews/${review.review_id}`,
+      (route) =>
+        route.fulfill({
+          json: {
+            ...review,
+            content: {
+              origin: "submitted",
+              captured_at: "2026-11-26",
+              dependencies: [],
+              root: {
+                ...review,
+                display_name: review.resource_id,
+                version_label: "1.0",
+                checksum_sha256: "a".repeat(64),
+                origin: "submitted",
+                payload: { markdown: `# ${review.resource_id}`, files: {} },
+              },
+            },
+          },
+        }),
+    );
+  }
   await page.route(
     "**/manager/admin/share-reviews/batch/decision",
     async (route) => {

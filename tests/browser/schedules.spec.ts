@@ -26,11 +26,98 @@ const paused = {
 };
 
 test.beforeEach(async ({ page, request }) => {
-  await request.post("http://127.0.0.1:38194/__test/reset");
+  await request.post("/api/__test/reset");
   await page.addInitScript(() => {
     sessionStorage.setItem("egis_access_token", "test-only");
     localStorage.setItem("pension-gpt-theme", "dark");
   });
+});
+
+test("a task card confirms single deletion without opening its detail", async ({
+  page,
+}) => {
+  let items = [weekly, paused];
+  const deletions: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "DELETE")
+      deletions.push(new URL(request.url()).pathname);
+  });
+  await page.route(/\/manager\/schedules$/, (route) =>
+    route.fulfill({ json: { items } }),
+  );
+  await page.route("**/manager/schedules/schedule-1", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    items = [paused];
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/schedules");
+  const card = page.getByRole("article", { name: weekly.name, exact: true });
+  const remove = card.getByRole("button", { name: "删除定时任务" });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  const dialog = page.getByRole("dialog", { name: "删除定时任务" });
+  await expect(dialog).toContainText(weekly.name);
+  await expect(page).toHaveURL(/\/schedules$/);
+  expect(deletions).toEqual([]);
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(deletions).toEqual([]);
+  await expect(card).toBeVisible();
+
+  await remove.click();
+  await dialog.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(card).toHaveCount(0);
+  await expect(
+    page.getByRole("article", { name: paused.name, exact: true }),
+  ).toBeVisible();
+  expect(deletions).toEqual(["/api/manager/schedules/schedule-1"]);
+  await expect(page).toHaveURL(/\/schedules$/);
+});
+
+test("detail deletion retains the task after failure and returns to the list after retry", async ({
+  page,
+}) => {
+  let items = [weekly, paused];
+  let attempts = 0;
+  await page.route(/\/manager\/schedules$/, (route) =>
+    route.fulfill({ json: { items } }),
+  );
+  await page.route(/\/manager\/schedule-runs(?:\?|$)/, (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
+  await page.route("**/manager/schedules/schedule-1", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    attempts++;
+    if (attempts === 1)
+      return route.fulfill({
+        status: 503,
+        json: { detail: "服务暂时不可用，请重试" },
+      });
+    items = [paused];
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/schedules?detail=schedule-1");
+  const remove = page.getByRole("button", { name: "删除定时任务" });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  const dialog = page.getByRole("dialog", { name: "删除定时任务" });
+  await dialog.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("服务暂时不可用，请重试");
+  await expect(page).toHaveURL(/detail=schedule-1/);
+  await expect(page.getByRole("heading", { name: weekly.name })).toBeVisible();
+  await expect(remove).toBeVisible();
+
+  await dialog.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/schedules$/);
+  await expect(
+    page.getByRole("article", { name: weekly.name, exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("article", { name: paused.name, exact: true }),
+  ).toBeVisible();
+  expect(attempts).toBe(2);
 });
 
 test("both conversation creation entry points prefill the new task composer", async ({

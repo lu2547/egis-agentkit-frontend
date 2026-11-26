@@ -63,9 +63,16 @@ let observer: ResizeObserver | undefined,
   frame = 0,
   disposed = false;
 function sourceElement(annotation: TextAnnotation) {
-  return root.value?.querySelector<HTMLElement>(
+  const candidates = Array.from(root.value?.querySelectorAll<HTMLElement>(
     `[data-message-id="${CSS.escape(annotation.messageId)}"] [data-annotation-content]`,
-  );
+  ) || []);
+  if (annotation.segmentId)
+    return candidates.find(element => element.closest<HTMLElement>("[data-segment-id]")?.dataset.segmentId === annotation.segmentId);
+  // Older annotations have no segment identity; accept only an unambiguous quote.
+  const exact = candidates.filter(element => element.textContent?.slice(annotation.start, annotation.end) === annotation.text);
+  if (exact.length === 1) return exact[0];
+  const matching = candidates.filter(element => element.textContent?.includes(annotation.text));
+  return matching.length === 1 ? matching[0] : undefined;
 }
 /** 1. 用文本偏移恢复 Range；原文变化时只接受唯一文字匹配，不将旧标注套错位置。 */
 function sourceRange(annotation: TextAnnotation): Range | undefined {
@@ -214,6 +221,7 @@ function selectionChanged() {
     annotation: {
       id: crypto.randomUUID(),
       messageId: entry.dataset.messageId!,
+      ...(entry.dataset.segmentId ? { segmentId: entry.dataset.segmentId } : {}),
       start,
       end: start + text.length,
       text,

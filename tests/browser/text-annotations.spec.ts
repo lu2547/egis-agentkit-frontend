@@ -251,3 +251,50 @@ test("multiline annotations paint text once and keep a uniform tint when focused
     path: "/tmp/agentkit-annotation-uniform-verified.png",
   });
 });
+
+test("guidance keeps earlier annotation anchors and new segment anchors separate", async ({ page, request }) => {
+  const api = process.env.AGENTKIT_TEST_API_URL || "http://127.0.0.1:38194";
+  await request.post(api + "/__test/reset");
+  await page.addInitScript(() => sessionStorage.setItem("egis_access_token", "test-only"));
+  await page.goto("/tasks/s1");
+  await page.locator(".composer textarea").fill("长任务：整理摘要");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.getByRole("button", { name: "停止生成", exact: true })).toBeVisible();
+  const emit = (events: unknown[]) => request.post(api + "/__test/events", { data: { session_id: "s1", events } });
+  await emit([
+    { type: "TEXT_BLOCK_START", block_id: "original-text" },
+    { type: "TEXT_BLOCK_DELTA", block_id: "original-text", delta: "原始摘要需要确认。" },
+    { type: "TEXT_BLOCK_END", block_id: "original-text" },
+  ]);
+  const select = async (source: import("@playwright/test").Locator) => {
+    await expect(source).toBeVisible();
+    await source.evaluate(root => {
+      const range = document.createRange();
+      range.selectNodeContents(root.querySelector("p")!);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.getByRole("button", { name: "添加到会话", exact: true }).click();
+  };
+  await select(page.locator("[data-annotation-content]").filter({ hasText: "原始摘要需要确认。" }));
+  await expect(page.locator(".annotation-source-marker")).toHaveCount(1);
+  await emit([
+    { type: "HINT_BLOCK", block_id: "external-guide:0", source: "chat_input_steering", hint: "继续修改" },
+    { type: "TEXT_BLOCK_START", block_id: "continued-text" },
+    { type: "TEXT_BLOCK_DELTA", block_id: "continued-text", delta: "新摘要仍然需要确认。" },
+    { type: "TEXT_BLOCK_END", block_id: "continued-text" },
+  ]);
+  await expect(page.locator(".assistant-message:not(.assistant-preparing)")).toHaveCount(2);
+  await expect(page.locator(".annotation-source-marker")).toHaveCount(1);
+  await expect(page.locator("[data-annotation-content]")).toHaveCount(2);
+  await select(page.locator("[data-annotation-content]").filter({ hasText: "新摘要仍然需要确认。" }));
+  await expect(page.locator(".annotation-source-marker")).toHaveCount(2);
+  const [first, second] = await Promise.all([
+    page.getByRole("button", { name: "定位注释 1", exact: true }).boundingBox(),
+    page.getByRole("button", { name: "定位注释 2", exact: true }).boundingBox(),
+  ]);
+  expect(first).toBeTruthy();
+  expect(second).toBeTruthy();
+  expect(second!.y).toBeGreaterThan(first!.y);
+});

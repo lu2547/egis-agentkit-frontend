@@ -7,6 +7,7 @@ import {
 export interface TextAnnotation {
   id: string;
   messageId: string;
+  segmentId?: string;
   start: number;
   end: number;
   text: string;
@@ -70,6 +71,7 @@ export function getTextAnnotations(message: Msg): TextAnnotation[] {
       {
         id: value.id,
         messageId: value.messageId,
+        ...(typeof value.segmentId === "string" && value.segmentId ? { segmentId: value.segmentId } : {}),
         start: value.start,
         end: value.end,
         text: value.text,

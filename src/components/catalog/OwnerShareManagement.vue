@@ -23,13 +23,25 @@ const pending = ref(""),
 const { data, loading, error, load } = useAsyncData(async () => {
   if (!isOwner.value) return [];
   const { items } = await manager.reviews();
-  return items.filter(
-    (review) =>
-      review.resource_type === props.resourceType &&
-      review.resource_id === props.resourceId &&
-      review.review_type === "share" &&
-      ["pending", "approved"].includes(review.review_status_type),
-  );
+  return items
+    .filter(
+      (review) =>
+        review.resource_type === props.resourceType &&
+        review.resource_id === props.resourceId &&
+        review.review_type === "share" &&
+        (review.review_status_type === "pending" ||
+          (review.review_status_type === "approved" &&
+            review.is_current !== false)),
+    )
+    .map((review) => ({
+      ...review,
+      pending_revoke_id: items.find(
+        (request) =>
+          request.review_type === "revoke" &&
+          request.original_review_id === review.review_id &&
+          request.review_status_type === "pending",
+      )?.review_id,
+    }));
 });
 watch(
   [isOwner, () => props.resourceId],
@@ -46,7 +58,9 @@ async function withdraw(reviewId: string, approved: boolean) {
   actionError.value = "";
   try {
     await manager.withdrawShare(reviewId);
-    notice.value = approved ? "已撤回此对象的共享。" : "共享申请已取消。";
+    notice.value = approved
+      ? "撤回申请已提交，管理员审核通过前共享继续生效。"
+      : "申请已取消。当前共享状态不变。";
     await load();
     emit("changed");
   } catch (cause) {
@@ -71,19 +85,26 @@ async function withdraw(reviewId: string, approved: boolean) {
             }}
             ·
             {{
-              review.review_status_type === "approved" ? "已共享" : "待审核"
+              review.pending_revoke_id
+                ? "撤回申请审核中，当前共享继续生效"
+                : review.review_status_type === "approved"
+                  ? "已共享"
+                  : "待审核"
             }}</span
           >
           <t-popconfirm
             :content="
-              review.review_status_type === 'approved'
-                ? '撤回此对象的共享？其他对象仍可使用。'
-                : '取消此共享申请？'
+              review.pending_revoke_id
+                ? '取消撤回申请？共享继续生效。'
+                : review.review_status_type === 'approved'
+                  ? '提交撤回申请？管理员审核通过前共享继续生效。'
+                  : '取消此共享申请？'
             "
             @confirm="
               withdraw(
-                review.review_id,
-                review.review_status_type === 'approved',
+                review.pending_revoke_id || review.review_id,
+                !review.pending_revoke_id &&
+                  review.review_status_type === 'approved',
               )
             "
           >
@@ -91,12 +112,17 @@ async function withdraw(reviewId: string, approved: boolean) {
               size="small"
               variant="outline"
               :disabled="!!pending"
-              :loading="pending === review.review_id"
+              :loading="
+                pending === review.review_id ||
+                pending === review.pending_revoke_id
+              "
             >
               {{
-                review.review_status_type === "approved"
-                  ? "撤回共享"
-                  : "取消申请"
+                review.pending_revoke_id
+                  ? "取消撤回申请"
+                  : review.review_status_type === "approved"
+                    ? "申请撤回共享"
+                    : "取消申请"
               }}
             </t-button>
           </t-popconfirm>

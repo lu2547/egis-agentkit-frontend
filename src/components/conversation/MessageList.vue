@@ -157,8 +157,9 @@ watch(
         <div
           v-for="item in timeline"
           :key="`${item.kind}:${item.id}`"
-          :data-message-id="item.kind === 'message' ? item.id : undefined"
-          :tabindex="item.id === replyId ? -1 : undefined"
+          :data-message-id="item.kind === 'message' ? item.message.id : undefined"
+          :data-segment-id="item.kind === 'message' ? item.id : undefined"
+          :tabindex="item.kind === 'message' && item.message.id === replyId ? -1 : undefined"
           class="message-entry"
           :class="{
             'message-arriving': arriving.has(item.id),
@@ -184,6 +185,7 @@ watch(
             /><AssistantMessage
               v-else-if="item.message.role === 'assistant'"
               :message="item.message"
+              :final-segment="item.final"
               :skill-names="skillNames"
               :confirm="confirm"
               :session-id="sessionId"
@@ -197,7 +199,7 @@ watch(
               @annotation="$emit('annotation', $event)"
             />
             <slot
-              v-if="item.message.role === 'assistant'"
+              v-if="item.message.role === 'assistant' && item.final !== false"
               name="message-artifacts"
               :message="item.message"
             />

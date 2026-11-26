@@ -10,6 +10,7 @@ import PermissionRequestCard from "./PermissionRequestCard.vue";
 import type { TextAnnotation } from "../../domain/textAnnotations";
 const props = defineProps<{
   message?: Msg;
+  finalSegment?: boolean;
   preparing?: boolean;
   preparingText?: string;
   displayName?: string;
@@ -72,12 +73,12 @@ const replyError = computed(() =>
         v-if="presentation.answer"
         :text="presentation.answer"
         data-annotation-content
-        :annotations="annotations"
+        :annotations="finalSegment === false ? undefined : annotations"
         @file="$emit('file', $event)"
         @annotation="$emit('annotation', $event)"
       />
       <div
-        v-if="message.finished_at && presentation.answer && annotations?.length"
+        v-if="finalSegment !== false && message.finished_at && presentation.answer && annotations?.length"
         class="annotation-answer-links"
       >
         <template
@@ -106,7 +107,7 @@ const replyError = computed(() =>
         已达到本轮最大处理次数。你可以补充要求后继续。
       </p>
       <ReplyActions
-        v-if="sessionId && message.finished_at && presentation.answer"
+        v-if="finalSegment !== false && sessionId && message.finished_at && presentation.answer"
         :key="`${sessionId}:${message.id}`"
         :session-id="sessionId"
         :message="message"

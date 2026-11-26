@@ -259,7 +259,7 @@ test("a failed supplement can retry and is received only after its native HintBl
   await expect(bubble).toHaveCount(0);
   await expect(page.locator(".steering-queue-row")).toContainText("稍后重试");
   await page.getByRole("button", { name: "发送第 1 条引导" }).click();
-  await expect(bubble).toContainText("引导中");
+  await expect(bubble).toContainText("待接收");
   await expect(page.locator(".steering-queue-row")).toHaveCount(0);
   const queueItem = items[0];
   await request.post(api + "/__test/events", {
@@ -277,7 +277,7 @@ test("a failed supplement can retry and is received only after its native HintBl
       ],
     },
   });
-  await expect(bubble).toContainText("引导中");
+  await expect(bubble).toContainText("待接收");
   await request.post(api + "/__test/events", {
     data: {
       session_id: "s1",

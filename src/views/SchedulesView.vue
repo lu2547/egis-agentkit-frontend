@@ -21,6 +21,7 @@ import {
   Play,
   Plus,
   Search,
+  Trash2,
 } from "lucide-vue-next";
 import { useRoute, useRouter, type LocationQueryRaw } from "vue-router";
 import { errorText } from "../api/http";
@@ -394,6 +395,20 @@ function deleteTasks() {
   );
 }
 
+function deleteTask(task: Schedule) {
+  confirm(
+    "删除定时任务",
+    `将删除「${task.name}」并停止后续触发。已排队和正在运行的任务将继续执行，已有运行记录仍可查看。`,
+    async () => {
+      await scheduleApi.remove(task.id);
+      taskRevision++;
+      tasks.value = tasks.value.filter((item) => item.id !== task.id);
+      if (route.query.detail === task.id) await navigate();
+    },
+    true,
+  );
+}
+
 function tryRun(task: Schedule) {
   confirm(
     "测试运行",
@@ -661,6 +676,13 @@ function deleteRun(run: ScheduleRun) {
             @click="beginEditor(currentTask, currentTask.id)"
             ><Pencil :size="16"
           /></IconButton>
+          <IconButton
+            class="schedule-tool-button"
+            label="删除定时任务"
+            :disabled="pending"
+            @click="deleteTask(currentTask)"
+            ><Trash2 :size="16"
+          /></IconButton>
           <button
             type="button"
             class="schedule-switch"
@@ -755,6 +777,13 @@ function deleteRun(run: ScheduleRun) {
               >
                 <span />
               </button>
+              <IconButton
+                v-if="!batch"
+                label="删除定时任务"
+                :disabled="pending"
+                @click.stop="deleteTask(task)"
+                ><Trash2 :size="16"
+              /></IconButton>
             </div>
             <p class="schedule-card-description">{{ task.description }}</p>
             <div class="schedule-card-footer">

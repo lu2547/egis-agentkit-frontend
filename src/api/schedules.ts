@@ -82,6 +82,7 @@ export const scheduleApi = {
     }),
   removeBatch: (ids: string[]) =>
     http<void>("/manager/schedules/batch-delete", json("POST", { ids })),
+  remove: (id: string) => http<void>(schedulePath(id), { method: "DELETE" }),
   run: (id: string) =>
     http<ScheduleRun>(`${schedulePath(id)}/run`, { method: "POST" }),
   runs: (

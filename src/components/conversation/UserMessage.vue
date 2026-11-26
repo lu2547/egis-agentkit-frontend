@@ -99,7 +99,7 @@ defineEmits<{
         {{
           {
             queued: "排队中",
-            steering: "引导中",
+            steering: "待接收",
             received: "已接收",
             failed: "失败",
           }[steeringState(message)!]

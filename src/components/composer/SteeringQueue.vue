@@ -8,6 +8,7 @@ const props = defineProps<{
   items: SteeringDraft[];
   sending: boolean;
   disabled?: boolean;
+  blockedReason?: string;
   maxTextLength?: number;
 }>();
 const emit = defineEmits<{
@@ -47,6 +48,7 @@ function drop(event: DragEvent, index: number) {
 </script>
 <template>
   <div v-if="items.length" class="steering-queue" aria-label="待发引导">
+    <p v-if="blockedReason" class="steering-unavailable" role="status">{{ blockedReason }}</p>
     <div
       v-for="(item, index) in items"
       :key="item.id"
@@ -110,8 +112,8 @@ function drop(event: DragEvent, index: number) {
           <button
             type="button"
             :aria-label="`发送第 ${index + 1} 条引导`"
-            title="引导会话，消息将被发出但模型不会中断"
-            :disabled="disabled || sending || item.status === 'sending'"
+            :title="blockedReason || '引导会话，消息将被发出但模型不会中断'"
+            :disabled="disabled || !!blockedReason || sending || item.status === 'sending'"
             @click="$emit('send', [item.id])"
           >
             <Send :size="18" />
@@ -139,7 +141,7 @@ function drop(event: DragEvent, index: number) {
       v-if="items.length > 1"
       class="steering-send-all"
       type="button"
-      :disabled="disabled || sending || !!editing"
+      :disabled="disabled || !!blockedReason || sending || !!editing"
       @click="
         $emit(
           'send',

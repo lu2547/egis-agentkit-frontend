@@ -5,9 +5,12 @@ import {
   principalName,
   type BatchAccessResult,
   type Review,
+  type ReviewDetail,
 } from "../../types/api";
 import { manager } from "../../api/manager";
 import { errorText } from "../../api/http";
+import ShareReviewContent from "./ShareReviewContent.vue";
+import AsyncState from "../common/AsyncState.vue";
 import AdminStatusBadge from "../admin/AdminStatusBadge.vue";
 import AdminTable from "../admin/AdminTable.vue";
 import BatchAccessNotice from "../common/BatchAccessNotice.vue";
@@ -21,8 +24,43 @@ const selected = ref<Review | null>(null),
   reason = ref(""),
   pending = ref(false),
   error = ref("");
+const content = ref<ReviewDetail | null>(null);
+const contentLoading = ref(false),
+  contentError = ref("");
+const batchContent = ref<ReviewDetail[]>([]);
+const batchContentLoading = ref(false);
+let batchGeneration = 0;
+const contentReadable = (detail: ReviewDetail) =>
+  [detail.content.root, ...detail.content.dependencies].every(
+    (node) => !node.content_error,
+  );
+const canApprove = computed(
+  () =>
+    !!content.value &&
+    !contentLoading.value &&
+    !contentError.value &&
+    contentReadable(content.value),
+);
+const canApproveBatch = computed(
+  () =>
+    !batchContentLoading.value &&
+    !batchError.value &&
+    batchContent.value.length === batchIds.value.length &&
+    batchIds.value.every((id) =>
+      batchContent.value.some((detail) => detail.review_id === id),
+    ) &&
+    batchContent.value.every(contentReadable),
+);
+const actions: Record<string, string> = {
+  share: "新增共享",
+  update: "共享新版本",
+  revoke: "撤回共享",
+};
 const batchIds = ref<string[]>([]);
 const batchOpen = ref(false);
+watch(batchOpen, (open) => {
+  if (!open) batchGeneration++;
+});
 const batchReason = ref("");
 const batchPending = ref(false);
 const batchError = ref("");
@@ -68,14 +106,28 @@ const types: Record<string, string> = {
   mcp: "连接器",
 };
 
-function openReview(review: Review) {
+async function openReview(review: Review) {
   selected.value = review;
   reason.value = "";
   error.value = "";
+  content.value = null;
+  contentError.value = "";
+  if (!props.admin) return;
+  contentLoading.value = true;
+  try {
+    const detail = await manager.reviewDetail(review.review_id);
+    if (selected.value?.review_id === review.review_id) content.value = detail;
+  } catch (cause) {
+    if (selected.value?.review_id === review.review_id)
+      contentError.value = errorText(cause);
+  } finally {
+    if (selected.value?.review_id === review.review_id)
+      contentLoading.value = false;
+  }
 }
 
 async function decide(allowed: boolean) {
-  if (!selected.value) return;
+  if (!selected.value || (allowed && !canApprove.value)) return;
   pending.value = true;
   error.value = "";
   try {
@@ -90,14 +142,36 @@ async function decide(allowed: boolean) {
   }
 }
 
-function openBatch() {
+async function openBatch() {
+  const generation = ++batchGeneration;
+  const ids = [...batchIds.value];
   batchError.value = "";
   batchReason.value = "";
   batchOpen.value = true;
+  batchContent.value = [];
+  batchContentLoading.value = true;
+  try {
+    const details = await Promise.all(
+      ids.map((id) => manager.reviewDetail(id)),
+    );
+    if (generation === batchGeneration && batchOpen.value)
+      batchContent.value = details;
+  } catch (cause) {
+    if (generation === batchGeneration && batchOpen.value)
+      batchError.value = errorText(cause);
+  } finally {
+    if (generation === batchGeneration && batchOpen.value)
+      batchContentLoading.value = false;
+  }
 }
 
 async function decideBatch(allowed: boolean) {
-  if (batchPending.value || !batchIds.value.length) return;
+  if (
+    batchPending.value ||
+    !batchIds.value.length ||
+    (allowed && !canApproveBatch.value)
+  )
+    return;
   batchPending.value = true;
   batchError.value = "";
   batchLabels.value = Object.fromEntries(
@@ -149,6 +223,7 @@ async function decideBatch(allowed: boolean) {
         <thead>
           <tr>
             <th scope="col">资源与版本</th>
+            <th scope="col">申请类型</th>
             <th scope="col">接收对象</th>
             <th scope="col">申请原因</th>
             <th scope="col">状态</th>
@@ -185,6 +260,7 @@ async function decideBatch(allowed: boolean) {
                 </span>
               </div>
             </td>
+            <td>{{ actions[review.review_type || "share"] }}</td>
             <td>
               {{
                 review.share_scope_type && review.principal_id
@@ -277,7 +353,23 @@ async function decideBatch(allowed: boolean) {
               : "现有共享受众"
           }}
         </p>
+        <p>申请类型 {{ actions[selected.review_type || "share"] }}</p>
+        <p v-if="selected.review_type === 'revoke'">
+          原共享申请 {{ selected.original_review_id }}；审核通过前共享继续生效。
+        </p>
         <p class="muted">申请编号 {{ selected.review_id }}</p>
+        <AsyncState
+          v-if="admin"
+          :loading="contentLoading"
+          :error="contentError"
+          @retry="openReview(selected)"
+        >
+          <ShareReviewContent
+            v-if="content"
+            :content="content.content"
+            :review-id="selected.review_id"
+          />
+        </AsyncState>
         <template v-if="admin && selected.review_status_type === 'pending'"
           ><div v-field-label class="field">
             <label>审核意见</label
@@ -289,9 +381,19 @@ async function decideBatch(allowed: boolean) {
               variant="outline"
               :disabled="pending || !reason.trim()"
               @click="decide(false)"
-              >拒绝共享</t-button
-            ><t-button theme="primary" :loading="pending" @click="decide(true)"
-              >通过共享申请</t-button
+              >{{
+                selected.review_type === "revoke" ? "拒绝撤回" : "拒绝共享"
+              }}</t-button
+            ><t-button
+              theme="primary"
+              :loading="pending"
+              :disabled="!canApprove"
+              @click="decide(true)"
+              >{{
+                selected.review_type === "revoke"
+                  ? "批准撤回共享"
+                  : "通过共享申请"
+              }}</t-button
             >
           </div></template
         ></template
@@ -310,6 +412,13 @@ async function decideBatch(allowed: boolean) {
     >
       <div class="form-stack">
         <p class="muted">批量处理已选的 {{ batchIds.length }} 项共享申请。</p>
+        <p v-if="batchContentLoading" role="status">正在读取提交内容…</p>
+        <ShareReviewContent
+          v-for="detail in batchContent"
+          :key="detail.review_id"
+          :content="detail.content"
+          :review-id="detail.review_id"
+        />
         <div v-field-label class="field">
           <label>审核意见</label>
           <t-textarea
@@ -335,7 +444,7 @@ async function decideBatch(allowed: boolean) {
           <t-button
             theme="primary"
             :loading="batchPending"
-            :disabled="!batchIds.length"
+            :disabled="!batchIds.length || !canApproveBatch"
             @click="decideBatch(true)"
             >批量通过</t-button
           >

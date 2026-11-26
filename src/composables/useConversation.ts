@@ -32,6 +32,7 @@ import type {
   Task,
   TaskSettings,
   ReplyFeedbackState,
+  SessionExecutionPhase,
 } from "../types/api";
 import { observeChatQueue } from "./useSteeringQueue";
 import { useTaskActivity } from "./useTaskActivity";
@@ -63,6 +64,7 @@ export function useConversation() {
   }
   const replyFeedback = ref<Record<string, ReplyFeedbackState>>({});
   const task = shallowRef<Task | null>(null),
+    executionPhase = shallowRef<SessionExecutionPhase | null>(null),
     state = shallowRef(new ConversationEvents()),
     loading = ref(false),
     error = ref(""),
@@ -108,6 +110,7 @@ export function useConversation() {
   }
   let lease: SessionLease | null = null;
   let metadataGeneration = 0;
+  let phaseGeneration = 0;
   let eventGeneration = 0;
   let pendingInputId: string | null = null;
   let rewriteGeneration = 0;
@@ -209,7 +212,18 @@ export function useConversation() {
         if (!state.value.apply(event)) return;
         observeChatQueue(current.key, event);
         if (event.type === EventType.CUSTOM) {
-          if (event.name === "chat_history_rewritten") {
+          if (event.name === "session_execution_phase") {
+            const phase = event.value;
+            if (phase.session_id === current.key && typeof phase.reply_id === "string") {
+              if (phase.phase === "memory") {
+                ++phaseGeneration;
+                executionPhase.value = { session_id: current.key, reply_id: phase.reply_id, phase: "memory" };
+              } else if (phase.phase === null && executionPhase.value?.reply_id === phase.reply_id) {
+                ++phaseGeneration;
+                executionPhase.value = null;
+              }
+            }
+          } else if (event.name === "chat_history_rewritten") {
             const rewrite = event.value as unknown as ChatHistoryRewrite;
             ++rewriteGeneration;
             rewrittenInput = rewrite.input;
@@ -233,6 +247,10 @@ export function useConversation() {
             }
           }
         }
+        if (event.type === EventType.REPLY_START) {
+          ++phaseGeneration;
+          executionPhase.value = null;
+        }
         const replyEnded =
           event.type === EventType.REPLY_END && state.value.phase === "idle";
         if (replyEnded)
@@ -251,11 +269,14 @@ export function useConversation() {
   async function refreshMetadata(current = lease) {
     if (!current || !scope.owns(current) || settingsPending.value) return;
     const request = ++metadataGeneration;
+    const observedPhase = phaseGeneration;
     const observedRunId = activity.activity.value[current.key]?.latestScheduleRunId;
     try {
       const selected = await manager.task(current.key, current.signal);
       if (scope.owns(current) && request === metadataGeneration) {
         task.value = selected;
+        if (observedPhase === phaseGeneration)
+          executionPhase.value = selected.execution_phase ?? null;
         activity.acknowledge(selected, observedRunId);
         mergeCollaboratorProgress(selected.collaborator_progress ?? []);
       }
@@ -306,6 +327,8 @@ export function useConversation() {
     scope.dispose();
     stream.stop();
     task.value = null;
+    executionPhase.value = null;
+    ++phaseGeneration;
     state.value = new ConversationEvents();
     submitting.value = false;
     settingsPending.value = false;
@@ -326,6 +349,7 @@ export function useConversation() {
       const selected = await manager.task(sid, current.signal);
       if (!scope.owns(current)) return;
       task.value = selected;
+      executionPhase.value = selected.execution_phase ?? null;
       mergeCollaboratorProgress(selected.collaborator_progress ?? []);
       // 单次批量读取，不为历史中的每条回答各发一个请求；反馈状态失败不阻断聊天。
       void manager
@@ -560,6 +584,7 @@ export function useConversation() {
   }
   onScopeDispose(clear);
   return {
+    executionPhase,
     collaboratorProgress,
     syncQueuedMessages,
     forgetCollaborator,

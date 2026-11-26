@@ -14,6 +14,11 @@ const quote = {
   comment: "确认了么？",
 };
 describe("conversation text annotations", () => {
+  it("retains a display segment anchor when guidance splits the canonical reply", () => {
+    const segmented = { ...quote, segmentId: "source-1:after:queue:0" };
+    expect(getTextAnnotations(createAnnotatedMessage("解释一下", [], [segmented])))
+      .toEqual([segmented]);
+  });
   it("serializes source, comment and response markers in the native message", () => {
     const message = createAnnotatedMessage("解释一下", [], [quote]);
     expect(getTextAnnotations(message)).toEqual([quote]);

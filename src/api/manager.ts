@@ -305,6 +305,8 @@ export const manager = {
     http<unknown>("/manager/preferences", json("PUT", body)),
   withdrawShare: (reviewId: string) =>
     http<void>(`/manager/share-requests/${id(reviewId)}`, { method: "DELETE" }),
+  reviewDetail: (reviewId: string) =>
+    http<import("../types/api").ReviewDetail>(`/manager/admin/share-reviews/${id(reviewId)}`),
   reviews: () => http<{ items: Review[] }>("/manager/share-requests"),
   shareRecipients: () => http<{ items: ShareRecipient[] }>("/manager/share-recipients"),
   searchRecipients: (

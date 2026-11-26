@@ -69,7 +69,7 @@ test("audited user edits submit only editable fields", async ({ page }) => {
   expect(saved).toEqual({ ...owner, username: "新名称" });
 });
 
-test("owners withdraw one audience and delete their expert", async ({
+test("owners request withdrawal and cannot delete a still shared expert", async ({
   page,
 }) => {
   let deleted = false;
@@ -101,8 +101,12 @@ test("owners withdraw one audience and delete their expert", async ({
   );
   await page.route(/\/manager\/agents\/owned(?:\?|$)/, (route) => {
     if (route.request().method() === "DELETE") {
-      deleted = true;
-      return route.fulfill({ status: 204 });
+      return route.fulfill({
+        status: 409,
+        json: {
+          detail: "请先提交共享撤回申请并等待管理员审核通过，再删除资源",
+        },
+      });
     }
     return route.fulfill({ json: expert });
   });
@@ -110,7 +114,7 @@ test("owners withdraw one audience and delete their expert", async ({
     route.fulfill({
       json: {
         items: shares.map((row) =>
-          withdrawn.includes(row.review_id)
+          withdrawn.includes(row.review_id) && row.review_id !== "approved"
             ? { ...row, review_status_type: "cancelled" }
             : row,
         ),
@@ -121,7 +125,16 @@ test("owners withdraw one audience and delete their expert", async ({
     /\/manager\/share-requests\/(approved|pending)$/,
     (route) => {
       expect(route.request().method()).toBe("DELETE");
-      withdrawn.push(route.request().url().split("/").pop()!);
+      const id = route.request().url().split("/").pop()!;
+      withdrawn.push(id);
+      if (id === "approved")
+        shares.push({
+          ...shares[0],
+          review_id: "revoke-pending",
+          review_type: "revoke",
+          review_status_type: "pending",
+          original_review_id: "approved",
+        } as (typeof shares)[number]);
       return route.fulfill({ status: 204 });
     },
   );
@@ -130,9 +143,11 @@ test("owners withdraw one audience and delete their expert", async ({
   const dialog = page.getByRole("dialog", { name: "我的专家", exact: true });
   const sharesRegion = dialog.getByRole("region", { name: "共享管理" });
   await expect(sharesRegion).toContainText("组织组 · company");
-  await sharesRegion.getByRole("button", { name: "撤回共享" }).click();
+  await sharesRegion.getByRole("button", { name: "申请撤回共享" }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
-  await expect(sharesRegion.getByRole("status")).toContainText("已撤回");
+  await expect(sharesRegion.getByRole("status")).toContainText(
+    "管理员审核通过前共享继续生效",
+  );
   await expect(
     sharesRegion.getByRole("button", { name: "取消申请" }),
   ).toBeVisible();
@@ -143,9 +158,10 @@ test("owners withdraw one audience and delete their expert", async ({
   expect(withdrawn).toEqual(["approved", "pending"]);
   await dialog.getByRole("button", { name: "删除专家", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.getByRole("status")).toContainText("已删除");
-  expect(deleted).toBe(true);
+  await expect(dialog).toContainText(
+    "请先提交共享撤回申请并等待管理员审核通过",
+  );
+  expect(deleted).toBe(false);
 });
 
 test("other users cannot manage ownership even if a shared detail is open", async ({

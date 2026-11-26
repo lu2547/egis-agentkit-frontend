@@ -520,6 +520,11 @@ test("admin review presents the submitted edition and existing audience", async 
       json: { items: [review], page: 1, page_size: 20, has_next: false },
     }),
   );
+  await page.route("**/manager/admin/share-reviews/upgrade-review", (route) =>
+    route.fulfill({ json: { ...review, content: { origin: "submitted", captured_at: "2026-11-26", dependencies: [], root: {
+      resource_type: "agent", resource_id: "expert-2", resource_version: "3", version_label: "1.2", display_name: "专家", checksum_sha256: "a".repeat(64), origin: "submitted", payload: { system_prompt: "提交版本配置" },
+    } } } }),
+  );
   await page.route(
     "**/manager/admin/share-reviews/upgrade-review/decision",
     async (route) => {
