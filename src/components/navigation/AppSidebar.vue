@@ -333,10 +333,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <button class="nav-item knowledge" disabled title="知识库待规划">
-        <AppIcon name="book" /><span v-if="!collapsed"
-          >知识库<small>待规划</small></span
-        >
+      <button class="nav-item" disabled :title="collapsed ? '知识库' : undefined">
+        <AppIcon name="book" /><span v-if="!collapsed">知识库</span>
       </button>
       <RouterLink
         class="nav-item"

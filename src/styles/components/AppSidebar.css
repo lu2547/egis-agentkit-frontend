@@ -462,21 +462,6 @@
   object-fit: contain;
   background: none;
 }
-.knowledge:disabled {
-  opacity: 0.55;
-}
-.knowledge span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.knowledge small {
-  font-size: 10px;
-  font-weight: 400;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 4px;
-}
 .capability-entry {
   position: relative;
 }

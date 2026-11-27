@@ -71,11 +71,13 @@ test("conversation rename uses API and updates the open title and recent list", 
   );
   await expect(page.locator(".task-header h1")).toHaveText(saved);
 });
-test("sidebar search navigates real history and knowledge stays planned", async ({
+test("sidebar search navigates history and knowledge has a plain label", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: /知识库/ })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "知识库", exact: true }),
+  ).toBeDisabled();
   await page.getByRole("button", { name: "全局搜索", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "全局搜索" });
   await dialog.getByLabel("搜索历史对话").fill("行业研究");
