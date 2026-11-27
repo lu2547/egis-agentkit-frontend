@@ -61,7 +61,14 @@ test("grant recipient search separates users and groups and pages remote matches
     resource_owner_id: "company",
   };
   await page.route(/\/manager\/admin\/grant-resources(?:\?|$)/, (route) => route.fulfill({
-    json: { items: [{ ...resource, display_name: "Skills 助手" }] },
+    json: {
+      items: [{
+        ...resource,
+        display_name: "Skills 助手",
+        resource_version: "2",
+        version_label: "1.1",
+      }],
+    },
   }));
   await page.route(/\/manager\/share-recipients(?:\?|$)/, (route) => {
     const params = new URL(route.request().url()).searchParams;

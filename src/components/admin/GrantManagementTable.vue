@@ -154,8 +154,13 @@ async function save() {
   notice.value = "";
   try {
     await manager.adminSave("grants", {
-      ...selected,
-      ...recipient,
+      resource_type: selected.resource_type,
+      resource_id: selected.resource_id,
+      resource_view_type: selected.resource_view_type,
+      resource_owner_type: selected.resource_owner_type,
+      resource_owner_id: selected.resource_owner_id,
+      principal_type: recipient.principal_type,
+      principal_id: recipient.principal_id,
     });
     open.value = false;
     success.value = "使用权限已授予。";
